@@ -240,9 +240,7 @@ app_license = "mit"
 # Authentication and authorization
 # --------------------------------
 
-# auth_hooks = [
-# 	"ceto.auth.validate"
-# ]
+auth_hooks = ["ceto.api.auth.tokens.authenticate_bearer_token"]
 
 # Automatically update python controller files with type annotations for this app.
 # export_python_type_annotations = True
@@ -255,4 +253,3 @@ app_license = "mit"
 # ------------
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
-

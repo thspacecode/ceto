@@ -8,6 +8,8 @@ requires-python = ">=3.14"
 readme = "README.md"
 dynamic = ["version"]
 dependencies = [
+    "pydantic>=2.12,<3",
+    "PyJWT>=2.10,<3",
     # "frappe~=16.0.0" # Installed and managed by bench.
 ]
 

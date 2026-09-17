@@ -88,8 +88,12 @@ ceto/
 │           └── __init__.py             # public auth contract exports
 └── services/
     └── auth/
-        ├── providers.py                # available-provider lookup
-        ├── authentication.py           # provider authentication workflow
+        ├── providers/                  # provider registry and implementations
+        │   ├── __init__.py             # provider lookup and discovery
+        │   ├── base.py                 # shared provider contract and result
+        │   ├── emailpass.py            # email-password provider
+        │   └── google.py               # Google OAuth provider
+        ├── authentication.py           # shared password-authentication workflow
         ├── registration.py             # identity registration and update workflow
         ├── password_reset.py            # password-reset workflow
         ├── verification.py              # verification workflow
@@ -125,7 +129,7 @@ The API layer defines the external Medusa-compatible transport contract. Files i
 - delegate application behavior to the service layer;
 - remain small enough that endpoint behavior is easy to inspect.
 
-Do not place reusable business logic, authentication implementations, token handling, or database workflows in API modules.
+Do not place reusable business logic, authentication implementations, token handling, or database workflows in API modules. Authentication routes resolve providers through the service registry; they must not branch on provider identifiers. Each provider belongs in its own module under `services/auth/providers` and implements the shared provider contract.
 
 A routed endpoint looks like this:
 

@@ -57,8 +57,8 @@ class TestRouter(TestCase):
 		self.assertNotIn("message", response.get_json())
 
 	@patch("ceto.routing.router.frappe.get_hooks", return_value={})
-	@patch("ceto.api.auth.authentication.authenticate_customer", return_value="customer-jwt")
-	def test_dispatches_json_body_with_path_parameter(self, authenticate_customer, _hooks):
+	@patch("ceto.services.auth.providers.emailpass.authenticate_email_password", return_value="customer-jwt")
+	def test_dispatches_json_body_with_path_parameter(self, authenticate_email_password, _hooks):
 		response = store_router.dispatch(
 			self._request(
 				"/store/auth/customer/emailpass",
@@ -69,8 +69,7 @@ class TestRouter(TestCase):
 
 		self.assertEqual(response.status_code, 200)
 		self.assertEqual(response.get_json(), {"token": "customer-jwt"})
-		authenticate_customer.assert_called_once_with(
-			auth_provider="emailpass",
+		authenticate_email_password.assert_called_once_with(
 			email="customer@example.com",
 			password="secret",
 		)

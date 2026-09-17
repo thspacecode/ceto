@@ -2,18 +2,11 @@ import frappe
 from frappe.auth import validate_ip_address
 from frappe.twofactor import should_run_2fa
 
-from ceto.services.auth.providers import EMAIL_PASSWORD_PROVIDER_ID
 from ceto.services.auth.tokens import create_customer_token
 
 
-def authenticate_customer(auth_provider: str, email: str, password: str) -> str:
-	"""Authenticate a website customer and return a signed customer token."""
-	if auth_provider != EMAIL_PASSWORD_PROVIDER_ID:
-		frappe.throw(
-			f"Authentication provider {auth_provider!r} is not available",
-			frappe.ValidationError,
-		)
-
+def authenticate_email_password(email: str, password: str) -> str:
+	"""Authenticate a website customer with a password and return a signed token."""
 	if frappe.get_system_settings("disable_user_pass_login"):
 		raise frappe.AuthenticationError
 

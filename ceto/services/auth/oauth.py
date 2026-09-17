@@ -9,17 +9,15 @@ from frappe.utils.oauth import (
 	update_oauth_user,
 )
 
-from ceto.services.auth.providers import GOOGLE_PROVIDER_ID, is_google_auth_enabled
 from ceto.services.auth.tokens import create_customer_token
 
+GOOGLE_PROVIDER_ID = "google"
 _OAUTH_STATE_TTL_SECONDS = 600
 _OAUTH_STATE_KEY_PREFIX = "ceto:oauth:google:"
 
 
 def start_google_auth(callback_url: str) -> str:
 	"""Create a short-lived OAuth state and return Google's authorization URL."""
-	_require_google_auth()
-
 	state = frappe.generate_hash(length=40)
 	frappe.cache.set_value(
 		_state_key(state),
@@ -40,7 +38,6 @@ def start_google_auth(callback_url: str) -> str:
 
 def complete_google_auth(code: str, state: str) -> str:
 	"""Exchange Google's callback code, provision the customer, and return a Ceto JWT."""
-	_require_google_auth()
 	callback_url = _consume_callback_url(state)
 
 	flow = get_oauth2_flow(GOOGLE_PROVIDER_ID)
@@ -90,11 +87,6 @@ def _consume_callback_url(state: str) -> str:
 	if not isinstance(data, dict) or not data.get("callback_url"):
 		frappe.throw(_("Invalid or expired OAuth state"), frappe.AuthenticationError)
 	return data["callback_url"]
-
-
-def _require_google_auth() -> None:
-	if not is_google_auth_enabled():
-		frappe.throw(_("Google authentication is not available"), frappe.ValidationError)
 
 
 def _state_key(state: str) -> str:

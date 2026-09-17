@@ -30,39 +30,86 @@ location /store/ {
 
 ## Project structure
 
-Ceto separates the HTTP adapter from application and integration logic:
+Ceto separates public HTTP contracts, route adapters, application behavior, and Frappe integration. New domains should follow this scalable structure, which mirrors Medusa's domain-oriented HTTP types layout. Existing modules can be migrated to it incrementally:
 
 ```text
 ceto/
 ├── api/
+│   ├── routes.py                     # explicit imports that register all endpoint modules
 │   └── <area>/
-│       ├── <resource>.py   # Ceto-owned HTTP endpoints
-│       └── schemas.py      # Pydantic API contracts
+│       ├── <capability>.py            # thin Ceto-owned HTTP endpoints
+│       └── validators.py              # route-specific runtime validation, when needed
+├── types/
+│   ├── <area>/                        # transport-neutral internal DTOs, when needed
+│   └── http/
+│       └── <area>/
+│           ├── common.py              # fields shared by Store and Admin contracts
+│           ├── entities.py            # reusable public objects embedded in responses
+│           ├── payloads.py            # public request body contracts
+│           ├── queries.py             # public query parameter contracts
+│           ├── responses.py           # complete public response body contracts
+│           └── __init__.py             # stable public exports for the area
 ├── services/
 │   └── <area>/
-│       ├── <resource>.py   # application and business operations
-│       └── <concern>.py    # focused integration concerns, such as tokens
+│       ├── <capability>.py            # application and business operations
+│       └── <concern>.py               # focused integration concerns, such as tokens
 ├── routing/
-│   ├── router.py           # FastAPI-style route registration
-│   └── medusa.py           # Frappe request/response adapter
-├── tests/
-├── hooks.py
-└── modules.txt
+│   ├── router.py                      # route registration, matching, and dispatch
+│   ├── response.py                    # typed JSON and JSONModel response primitives
+│   └── medusa.py                      # Frappe page-renderer integration and error adapter
+├── tests/                              # endpoint, routing, contract, and service tests
+├── hooks.py                            # Frappe hooks and route override examples
+└── modules.txt                         # Frappe Module Def registration only
 ```
 
-The customer authentication implementation is organized as follows:
+Directories and files should be added when the corresponding behavior exists; empty architectural placeholders are unnecessary.
+
+### Authentication layout
+
+Authentication endpoints are grouped by capability rather than by HTTP method or placed in one large file:
 
 ```text
 ceto/
 ├── api/
 │   └── auth/
-│       ├── customer.py
-│       └── schemas.py
+│       ├── providers.py               # GET provider discovery
+│       ├── authentication.py          # authenticate and provider callback routes
+│       ├── registration.py            # register and update provider identities
+│       ├── password_reset.py           # password-reset request route
+│       ├── verification.py             # generic and email-password verification routes
+│       ├── tokens.py                   # token refresh route
+│       └── sessions.py                 # create and delete session routes
+├── types/
+│   └── http/
+│       └── auth/
+│           ├── entities.py             # AuthProvider and other reusable auth objects
+│           ├── payloads.py             # auth request body contracts
+│           ├── responses.py            # auth response body contracts
+│           └── __init__.py             # public auth contract exports
 └── services/
     └── auth/
-        ├── customer.py
-        └── tokens.py
+        ├── providers.py                # available-provider lookup
+        ├── authentication.py           # provider authentication workflow
+        ├── registration.py             # identity registration and update workflow
+        ├── password_reset.py            # password-reset workflow
+        ├── verification.py              # verification workflow
+        ├── tokens.py                    # token creation, validation, and refresh
+        └── sessions.py                  # session lifecycle behavior
 ```
+
+The route ownership is:
+
+| API module | Routes |
+| --- | --- |
+| `providers.py` | `GET /auth/customer/providers` |
+| `authentication.py` | `POST /auth/customer/{auth_provider}`, `POST /auth/customer/{auth_provider}/callback` |
+| `registration.py` | `POST /auth/customer/{auth_provider}/register`, `POST /auth/customer/{auth_provider}/update` |
+| `password_reset.py` | `POST /auth/customer/{auth_provider}/reset-password` |
+| `verification.py` | `POST /auth/verification/request`, `POST /auth/verification/confirm`, `POST /auth/customer/emailpass/verification/confirm` |
+| `tokens.py` | `POST /auth/token/refresh` |
+| `sessions.py` | `POST /auth/session`, `DELETE /auth/session` |
+
+Routes shown in decorators are relative to `store_router`; their public URLs receive the `/store` prefix.
 
 ### Conventions
 
@@ -121,9 +168,65 @@ The dependency direction is one-way: `api` may import `services`, but `services`
 
 Do not use a top-level `modules/` directory for service code. “Module” has a specific meaning in Frappe through `modules.txt`, Module Def records, and DocType organization. Non-DocType application logic belongs in `services/`.
 
-#### Schemas
+#### Types and schemas
 
-Pydantic models describing the public request or response contract belong beside the endpoints in `api/<area>/schemas.py`. Internal domain types that are not part of the HTTP contract should live in the relevant service package.
+Public HTTP contracts are reusable types and should not remain owned by one endpoint module once they are shared. Place shared contracts under `ceto/types/http/<area>/` and separate them by purpose:
+
+- `common.py` contains fields or base models shared across API namespaces;
+- `entities.py` contains reusable objects embedded in one or more responses;
+- `payloads.py` contains public request body contracts;
+- `queries.py` contains public query parameter contracts;
+- `responses.py` contains complete response bodies and is the appropriate place for `JSONModel` subclasses;
+- `__init__.py` re-exports the area's supported public contracts so callers do not depend on internal file placement.
+
+For example, `AuthProvider` is an entity while `AuthProvidersListResponse` is a response:
+
+```python
+# ceto/types/http/auth/entities.py
+from typing import Literal
+
+from pydantic import BaseModel
+
+
+class AuthProvider(BaseModel):
+	id: str
+	identifier: str
+	display_name: str
+	flow: Literal["credentials", "redirect"]
+```
+
+```python
+# ceto/types/http/auth/responses.py
+from ceto.routing import JSONModel
+from ceto.types.http.auth.entities import AuthProvider
+
+
+class AuthProvidersListResponse(JSONModel):
+	providers: list[AuthProvider]
+```
+
+Only a complete response body should inherit `JSONModel` and expose `to_json()`. Embedded entities and request payloads should normally inherit Pydantic's `BaseModel`.
+
+Route-specific runtime validators may remain in `ceto/api/<area>/validators.py` when they implement adapter behavior rather than a reusable public contract. Transport-neutral internal objects exchanged between services are DTOs and belong under `ceto/types/<area>/`; they must not inherit HTTP response behavior.
+
+Do not create one global `schemas.py`. Domain-oriented packages keep contracts discoverable and prevent unrelated Store, Admin, and internal models from becoming coupled.
+
+#### Dependency direction
+
+Dependencies flow inward from transport adapters to application behavior:
+
+```text
+api ───────► types/http
+ │
+ └─────────► services ─────► internal DTOs and Frappe/ERPNext
+
+routing ───► endpoint return values
+```
+
+- `api` may import public HTTP types and services;
+- `services` must not import `api`, `store_router`, `JSON`, or HTTP response models;
+- public HTTP types must not query Frappe or contain business workflows;
+- routing primitives must remain independent of commerce domains such as auth, customer, cart, or order.
 
 #### Tests
 

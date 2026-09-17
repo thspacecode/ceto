@@ -7,10 +7,10 @@ from werkzeug.wrappers import Request, Response
 
 from ceto.api.auth.authentication import authenticate, authenticate_callback
 from ceto.api.auth.providers import list_customer_auth_providers
-from ceto.data.test_data.bootstrap_test_master_data import TEST_CUSTOMER, TEST_CUSTOMER_PASSWORD
 from ceto.routing import Router, ceto_router
 from ceto.routing.medusa import CetoPageRenderer, normalize_ceto_error
 from ceto.services.auth.tokens import decode_customer_token
+from ceto.tests.data.bootstrap_test_master_data import TEST_CUSTOMER, TEST_CUSTOMER_PASSWORD
 from ceto.tests.utils import CetoTestSuite
 
 

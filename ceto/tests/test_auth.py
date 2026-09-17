@@ -11,15 +11,15 @@ from werkzeug.wrappers import Request
 
 from ceto.api.auth.authentication import authenticate, authenticate_callback
 from ceto.api.auth.providers import list_customer_auth_providers
-from ceto.data.test_data.bootstrap_test_master_data import (
+from ceto.routing import JSON
+from ceto.services.auth.providers.google import GoogleProvider
+from ceto.services.auth.tokens import authenticate_bearer_token, create_customer_token, decode_customer_token
+from ceto.tests.data.bootstrap_test_master_data import (
 	TEST_CUSTOMER,
 	TEST_CUSTOMER_PASSWORD,
 	TEST_DISABLED_CUSTOMER,
 	TEST_SYSTEM_USER,
 )
-from ceto.routing import JSON
-from ceto.services.auth.providers.google import GoogleProvider
-from ceto.services.auth.tokens import authenticate_bearer_token, create_customer_token, decode_customer_token
 from ceto.tests.utils import CetoTestSuite
 from ceto.types.http.auth import AuthProvidersListResponse, AuthResponse, EmailPasswordInput
 

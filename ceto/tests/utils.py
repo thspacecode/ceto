@@ -1,4 +1,4 @@
-from ceto.data.test_data.bootstrap_test_master_data import BootStrapTestMasterData
+from ceto.tests.data.bootstrap_test_master_data import BootStrapTestMasterData
 from ceto.tests.testsuite import CetoTestSuite
 
 # Importing the integration-test utilities establishes the committed baseline.

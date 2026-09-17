@@ -5,6 +5,9 @@ from werkzeug.wrappers import Request, Response
 
 from ceto.routing import store_router
 
+# Register all application endpoints after the shared routers are initialized.
+import ceto.api.routes  # isort: skip
+
 
 class CetoPageRenderer:
 	"""Frappe website renderer that gives Ceto ownership of ``/store`` dispatch."""

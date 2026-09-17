@@ -3,16 +3,9 @@ from typing import Any
 import frappe
 from pydantic import ValidationError
 
-from ceto.api.auth.schemas import AuthProvidersListResponse, AuthResponse, EmailPasswordInput
 from ceto.routing import JSON, store_router
-from ceto.services.auth.customer import authenticate_customer, get_customer_auth_providers
-
-
-@store_router.get("/auth/customer/providers", allow_guest=True)
-def providers() -> JSON[AuthProvidersListResponse]:
-	"""List the authentication providers available to customers."""
-	response = AuthProvidersListResponse(providers=get_customer_auth_providers())
-	return response.to_json()
+from ceto.services.auth.authentication import authenticate_customer
+from ceto.types.http.auth import AuthResponse, EmailPasswordInput
 
 
 @store_router.post("/auth/customer/{auth_provider}", allow_guest=True)

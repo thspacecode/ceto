@@ -2,24 +2,13 @@ import frappe
 from frappe.auth import validate_ip_address
 from frappe.twofactor import should_run_2fa
 
+from ceto.services.auth.providers import EMAIL_PASSWORD_PROVIDER_ID
 from ceto.services.auth.tokens import create_customer_token
-
-EMAIL_PASSWORD_PROVIDER = {
-	"id": "emailpass",
-	"identifier": "emailpass",
-	"display_name": "Email and password",
-	"flow": "credentials",
-}
-
-
-def get_customer_auth_providers() -> list[dict[str, str]]:
-	"""Return public metadata for the supported customer auth providers."""
-	return [EMAIL_PASSWORD_PROVIDER.copy()]
 
 
 def authenticate_customer(auth_provider: str, email: str, password: str) -> str:
 	"""Authenticate a website customer and return a signed customer token."""
-	if auth_provider != EMAIL_PASSWORD_PROVIDER["id"]:
+	if auth_provider != EMAIL_PASSWORD_PROVIDER_ID:
 		frappe.throw(
 			f"Authentication provider {auth_provider!r} is not available",
 			frappe.ValidationError,

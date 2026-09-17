@@ -1,1 +1,1 @@
-"""Customer authentication services."""
+"""Authentication application services."""

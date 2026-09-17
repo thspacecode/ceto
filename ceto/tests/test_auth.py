@@ -3,18 +3,19 @@ from unittest.mock import patch
 
 import jwt
 
-from ceto.api.auth.customer import authenticate, providers
-from ceto.api.auth.schemas import AuthProvidersListResponse, AuthResponse
+from ceto.api.auth.authentication import authenticate
+from ceto.api.auth.providers import list_customer_auth_providers
 from ceto.routing import JSON
-from ceto.services.auth.customer import authenticate_customer
+from ceto.services.auth.authentication import authenticate_customer
 from ceto.services.auth.tokens import create_customer_token, decode_customer_token
+from ceto.types.http.auth import AuthProvidersListResponse, AuthResponse
 
 TEST_SECRET = "a-test-only-signing-secret-that-is-at-least-32-bytes"
 
 
 class TestCustomerAuth(TestCase):
 	def test_list_providers(self):
-		result = providers()
+		result = list_customer_auth_providers()
 
 		self.assertIsInstance(result, JSON)
 		self.assertIsInstance(result.value, AuthProvidersListResponse)
@@ -32,7 +33,7 @@ class TestCustomerAuth(TestCase):
 			},
 		)
 
-	@patch("ceto.api.auth.customer.authenticate_customer", return_value="customer-jwt")
+	@patch("ceto.api.auth.authentication.authenticate_customer", return_value="customer-jwt")
 	def test_authenticate_endpoint(self, authenticate_service):
 		response = authenticate(
 			"emailpass",
@@ -49,10 +50,10 @@ class TestCustomerAuth(TestCase):
 			password="correct horse battery staple",
 		)
 
-	@patch("ceto.services.auth.customer.create_customer_token", return_value="customer-jwt")
-	@patch("ceto.services.auth.customer.should_run_2fa", return_value=False)
-	@patch("ceto.services.auth.customer.validate_ip_address")
-	@patch("ceto.services.auth.customer.frappe")
+	@patch("ceto.services.auth.authentication.create_customer_token", return_value="customer-jwt")
+	@patch("ceto.services.auth.authentication.should_run_2fa", return_value=False)
+	@patch("ceto.services.auth.authentication.validate_ip_address")
+	@patch("ceto.services.auth.authentication.frappe")
 	def test_authenticate_email_password(self, mock_frappe, _validate_ip, _two_factor, _token):
 		login_manager = mock_frappe.local.login_manager
 		login_manager.user = "customer@example.com"

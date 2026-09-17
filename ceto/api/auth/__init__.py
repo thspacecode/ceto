@@ -1,1 +1,1 @@
-"""Customer authentication endpoints."""
+"""Customer authentication HTTP endpoints."""

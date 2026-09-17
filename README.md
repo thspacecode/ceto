@@ -30,7 +30,7 @@ location /store/ {
 
 ## Project structure
 
-Ceto separates public HTTP contracts, route adapters, application behavior, and Frappe integration. New domains should follow this scalable structure, which mirrors Medusa's domain-oriented HTTP types layout. Existing modules can be migrated to it incrementally:
+Ceto separates public HTTP contracts, route adapters, application behavior, and Frappe integration. Domains follow this scalable structure, which mirrors Medusa's domain-oriented HTTP types layout:
 
 ```text
 ceto/
@@ -130,12 +130,12 @@ Do not place reusable business logic, authentication implementations, token hand
 A routed endpoint looks like this:
 
 ```python
-from ceto.api.auth.schemas import AuthProvidersListResponse
 from ceto.routing import JSON, store_router
+from ceto.types.http.auth import AuthProvidersListResponse
 
 
 @store_router.get("/auth/customer/providers", allow_guest=True)
-def providers() -> JSON[AuthProvidersListResponse]:
+def list_customer_auth_providers() -> JSON[AuthProvidersListResponse]:
 	response = AuthProvidersListResponse(providers=[])
 	return response.to_json()
 

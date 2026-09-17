@@ -6,16 +6,17 @@ import frappe
 from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request, Response
 
-from ceto.api.auth.customer import authenticate, providers
+from ceto.api.auth.authentication import authenticate
+from ceto.api.auth.providers import list_customer_auth_providers
 from ceto.routing import Router, store_router
 from ceto.routing.medusa import CetoPageRenderer, normalize_store_error
 
 
 class TestRouter(TestCase):
 	def test_decorator_does_not_use_frappe_whitelist(self):
-		self.assertNotIn(providers, frappe.whitelisted)
+		self.assertNotIn(list_customer_auth_providers, frappe.whitelisted)
 		self.assertNotIn(authenticate, frappe.whitelisted)
-		self.assertFalse(hasattr(providers, "is_whitelisted"))
+		self.assertFalse(hasattr(list_customer_auth_providers, "is_whitelisted"))
 		self.assertFalse(hasattr(authenticate, "is_whitelisted"))
 
 	def test_store_router_applies_prefix_and_matches_static_route(self):
@@ -24,7 +25,7 @@ class TestRouter(TestCase):
 		route, arguments = store_router.match(request)
 
 		self.assertEqual(route.path, "/store/auth/customer/providers")
-		self.assertEqual(route.dotted_path, "ceto.api.auth.customer.providers")
+		self.assertEqual(route.dotted_path, "ceto.api.auth.providers.list_customer_auth_providers")
 		self.assertEqual(arguments, {})
 
 	def test_matches_fastapi_style_path_parameter(self):
@@ -33,11 +34,11 @@ class TestRouter(TestCase):
 		route, arguments = store_router.match(request)
 
 		self.assertEqual(route.path, "/store/auth/customer/{auth_provider}")
-		self.assertEqual(route.dotted_path, "ceto.api.auth.customer.authenticate")
+		self.assertEqual(route.dotted_path, "ceto.api.auth.authentication.authenticate")
 		self.assertEqual(arguments, {"auth_provider": "emailpass"})
 
 	@patch("ceto.routing.router.frappe.get_hooks", return_value={})
-	@patch("ceto.api.auth.customer.get_customer_auth_providers", return_value=[])
+	@patch("ceto.api.auth.providers.get_customer_auth_providers", return_value=[])
 	def test_dispatches_endpoint_and_returns_direct_json(self, _providers, _hooks):
 		response = store_router.dispatch(self._request("/store/auth/customer/providers", "GET"))
 
@@ -46,7 +47,7 @@ class TestRouter(TestCase):
 		self.assertNotIn("message", response.get_json())
 
 	@patch("ceto.routing.router.frappe.get_hooks", return_value={})
-	@patch("ceto.api.auth.customer.authenticate_customer", return_value="customer-jwt")
+	@patch("ceto.api.auth.authentication.authenticate_customer", return_value="customer-jwt")
 	def test_dispatches_json_body_with_path_parameter(self, authenticate_customer, _hooks):
 		response = store_router.dispatch(
 			self._request(

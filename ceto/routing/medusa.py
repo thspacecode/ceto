@@ -52,5 +52,6 @@ def _error_for_status(status: int) -> CetoHTTPError:
 		403: NotAllowedError,
 		404: RouteNotFoundError,
 		405: MethodNotAllowedError,
+		417: NotAllowedError,
 	}.get(status, InternalServerError)
 	return error_class()

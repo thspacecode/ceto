@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 from datetime import UTC, datetime, timedelta
 
 import frappe
@@ -7,6 +9,8 @@ from frappe.utils import cint
 ISSUER = "ceto"
 ALGORITHM = "HS256"
 DEFAULT_TOKEN_EXPIRY_SECONDS = 24 * 60 * 60
+_HKDF_SALT = b"ceto-jwt-hkdf-sha256-v1"
+_HKDF_INFO = b"ceto/customer-token/hs256"
 
 
 def create_customer_token(user: str) -> str:
@@ -72,11 +76,17 @@ def _jwt_secret() -> str:
 	if secret := frappe.conf.get("ceto_jwt_secret"):
 		return secret
 
-	# Use Frappe's per-site encryption key by default. The helper creates it for
-	# older sites that do not have one yet.
+	# Derive a purpose-specific signing key from Frappe's per-site encryption key
+	# so the same key material is not used directly for encryption and JWTs.
 	from frappe.utils.password import get_encryption_key
 
-	return get_encryption_key()
+	return _derive_jwt_secret(get_encryption_key())
+
+
+def _derive_jwt_secret(encryption_key: str) -> str:
+	"""Derive a 256-bit JWT key with HKDF-SHA256."""
+	pseudorandom_key = hmac.digest(_HKDF_SALT, encryption_key.encode(), hashlib.sha256)
+	return hmac.digest(pseudorandom_key, _HKDF_INFO + b"\x01", hashlib.sha256).hex()
 
 
 def _token_expiry_seconds() -> int:

@@ -106,8 +106,9 @@ class Router:
 			return self._json_response(result)
 		except CetoHTTPError as exc:
 			return self._error_response(exc)
-		except MethodNotAllowed:
-			return self._error_response(MethodNotAllowedError())
+		except MethodNotAllowed as exc:
+			headers = {"Allow": ", ".join(exc.valid_methods)} if exc.valid_methods else None
+			return self._error_response(MethodNotAllowedError(), headers=headers)
 		except NotFound:
 			return self._error_response(RouteNotFoundError())
 		except frappe.DoesNotExistError as exc:
@@ -181,8 +182,17 @@ class Router:
 		)
 
 	@classmethod
-	def _error_response(cls, error: CetoHTTPError) -> Response:
-		return cls._json_response(error.to_dict(), status=error.status_code)
+	def _error_response(cls, error: CetoHTTPError, headers: dict[str, str] | None = None) -> Response:
+		# Frappe commits successful unsafe requests after dispatch. Because the router
+		# converts exceptions to normal responses, explicitly roll back partial writes.
+		database = getattr(frappe.local, "db", None)
+		if database is not None:
+			database.rollback()
+
+		response = cls._json_response(error.to_dict(), status=error.status_code)
+		if headers:
+			response.headers.update(headers)
+		return response
 
 	def _full_path(self, path: str) -> str:
 		path = self._normalize_path(path)

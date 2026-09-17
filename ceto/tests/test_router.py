@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import frappe
 from werkzeug.test import EnvironBuilder
@@ -57,7 +57,10 @@ class TestRouter(TestCase):
 		self.assertNotIn("message", response.get_json())
 
 	@patch("ceto.routing.router.frappe.get_hooks", return_value={})
-	@patch("ceto.services.auth.providers.emailpass._authenticate_email_password", return_value="customer-jwt")
+	@patch(
+		"ceto.services.auth.providers.emailpass.EmailPasswordProvider._authenticate_email_password",
+		return_value="customer-jwt",
+	)
 	def test_dispatches_json_body_with_path_parameter(self, authenticate_email_password, _hooks):
 		response = store_router.dispatch(
 			self._request(
@@ -82,12 +85,29 @@ class TestRouter(TestCase):
 			response.get_json(),
 			{"type": "method_not_allowed", "message": "Method not allowed"},
 		)
+		self.assertEqual(response.headers["Allow"], "POST")
 
 	def test_unknown_store_route_returns_medusa_404(self):
 		response = store_router.dispatch(self._request("/store/unknown", "GET"))
 
 		self.assertEqual(response.status_code, 404)
 		self.assertEqual(response.get_json(), {"type": "not_found", "message": "Route not found"})
+
+	@patch("ceto.routing.router.frappe.get_hooks", return_value={})
+	@patch("ceto.routing.router.frappe.log_error")
+	def test_error_response_rolls_back_partial_writes(self, _log_error, _hooks):
+		router = Router(prefix="/store")
+		database = MagicMock()
+
+		@router.post("/orders", allow_guest=True)
+		def create_order():
+			raise RuntimeError("failed after write")
+
+		with patch("ceto.routing.router.frappe.local", SimpleNamespace(db=database)):
+			response = router.dispatch(self._request("/store/orders", "POST"))
+
+		self.assertEqual(response.status_code, 500)
+		database.rollback.assert_called_once_with()
 
 	def test_protected_route_rejects_guest(self):
 		router = Router(prefix="/store")
@@ -155,6 +175,18 @@ class TestRouter(TestCase):
 
 		self.assertEqual(response.content_type, "application/json")
 		self.assertEqual(response.get_json(), {"type": "unauthorized", "message": "Authentication required"})
+
+	@patch("ceto.routing.medusa.frappe")
+	def test_normalizes_csrf_error_as_not_allowed(self, mock_frappe):
+		mock_frappe.flags = SimpleNamespace(ceto_store_response=False)
+		response = Response("csrf", status=417, content_type="text/html")
+		request = self._request("/store/orders", "POST")
+
+		normalize_store_error(response, request)
+
+		self.assertEqual(response.status_code, 417)
+		self.assertEqual(response.content_type, "application/json")
+		self.assertEqual(response.get_json(), {"type": "not_allowed", "message": "Not permitted"})
 
 	@staticmethod
 	def _request(path: str, method: str, **kwargs) -> Request:

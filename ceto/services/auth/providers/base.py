@@ -6,7 +6,8 @@ import frappe
 from pydantic import BaseModel, ValidationError
 
 if TYPE_CHECKING:
-	from ceto.routing.response import JSONModel
+	from ceto.routing.response import JSON
+	from ceto.types.http.auth import AuthRedirectResponse, AuthResponse
 
 AuthFlow = Literal["credentials", "redirect"]
 
@@ -22,14 +23,14 @@ class AuthenticationResult:
 		if (self.token is None) == (self.location is None):
 			raise ValueError("Authentication result must contain exactly one of token or location")
 
-	def to_response(self) -> "JSONModel":
-		"""Convert the provider result to its public HTTP response model."""
+	def to_response(self) -> "JSON[AuthRedirectResponse | AuthResponse]":
+		"""Convert the provider result to its typed public HTTP response."""
 		from ceto.types.http.auth import AuthRedirectResponse, AuthResponse
 
 		if self.location is not None:
-			return AuthRedirectResponse(location=self.location)
+			return AuthRedirectResponse(location=self.location).to_json()
 		assert self.token is not None
-		return AuthResponse(token=self.token)
+		return AuthResponse(token=self.token).to_json()
 
 
 class CustomerAuthProvider(ABC):

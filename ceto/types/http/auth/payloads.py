@@ -1,12 +1,12 @@
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, SecretStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, HttpUrl, SecretStr
 
 
 class EmailPasswordInput(BaseModel):
 	"""Credentials accepted by the email-password provider."""
 
-	model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+	model_config = ConfigDict(extra="forbid")
 
-	email: str = Field(min_length=1)
+	email: EmailStr
 	password: SecretStr = Field(min_length=1)
 
 

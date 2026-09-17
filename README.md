@@ -112,7 +112,7 @@ The route ownership is:
 | `tokens.py` | `POST /auth/token/refresh` |
 | `sessions.py` | `POST /auth/session`, `DELETE /auth/session` |
 
-Routes shown in decorators are relative to `store_router`; their public URLs receive the `/store` prefix.
+Routes shown in decorators are relative to `store_router`; their public URLs receive the `/store` prefix. Files and routes in the layout that are not present in the current source tree are planned conventions, not implemented endpoints.
 
 ### Conventions
 
@@ -236,7 +236,7 @@ Tests belong in `ceto/tests`. Endpoint tests should verify validation, serializa
 
 ## Authentication configuration
 
-Ceto customer tokens use HS256 and expire after 24 hours by default. The signing secret defaults to the site's Frappe encryption key. It can be overridden in `site_config.json`:
+Ceto customer tokens use HS256 and expire after 24 hours by default. Unless configured explicitly, the signing key is derived from the site's Frappe encryption key with HKDF-SHA256 and a Ceto-specific context. It can be overridden in `site_config.json`:
 
 ```json
 {
@@ -250,6 +250,8 @@ The authentication hook accepts Ceto tokens supplied as:
 ```http
 Authorization: Bearer <token>
 ```
+
+Ceto follows Medusa's auth response contracts, but its public auth URLs are namespaced under `/store/auth/...`. The official `@medusajs/js-sdk` requests `/auth/...` directly, so an SDK deployment must also proxy `/auth` to Ceto's `/store/auth` namespace (or configure an equivalent path rewrite). Cookie-authenticated browser requests to unsafe `/store/*` methods must include Frappe's `X-Frappe-CSRF-Token` header; bearer-token and guest clients do not use a session CSRF token.
 
 ### Google OAuth
 

@@ -7,21 +7,28 @@ Ceto is an ERPNext commerce API adapter that connects ERPNext to a Medusa-compat
 ## Specification
 
 - Endpoints follow the Medusa Store API contract.
-- Endpoints use `frappe.whitelist`, so they remain available through Frappe's `/api/method/` route.
+- Endpoints use Ceto's FastAPI-style router, which delegates to `frappe.whitelist`.
+- Medusa paths are available directly, while the same functions remain callable through Frappe's `/api/method/` route.
 - API behavior can be replaced by downstream apps with Frappe's `override_whitelisted_methods` hook.
-- A reverse proxy, such as Nginx, can expose endpoints with Medusa-compatible paths.
+- A reverse proxy, such as Nginx, only needs to forward requests; it does not translate paths or parameters.
 - Request and response schemas use Pydantic.
 
 For example:
 
-| Service | Endpoint |
+| Interface | Endpoint |
 | --- | --- |
-| Medusa | `GET /auth/customer/providers` |
-| Ceto | `GET /api/method/ceto.api.auth.customer.providers` |
-| Medusa | `POST /auth/customer/{auth_provider}` |
-| Ceto | `POST /api/method/ceto.api.auth.customer.authenticate` |
+| Medusa-compatible | `GET /auth/customer/providers` |
+| Frappe RPC | `GET /api/method/ceto.api.auth.customer.providers` |
+| Medusa-compatible | `POST /auth/customer/emailpass` |
+| Frappe RPC | `POST /api/method/ceto.api.auth.customer.authenticate` with `auth_provider=emailpass` |
 
-The reverse proxy is responsible for transforming a public Medusa path into its Ceto method path and passing path parameters such as `auth_provider` to the method.
+For Medusa-compatible paths, Ceto extracts path parameters and removes Frappe's `message` response envelope. Nginx can forward the route without knowing its Python implementation:
+
+```nginx
+location /auth/ {
+    proxy_pass http://frappe_backend;
+}
+```
 
 ## Project structure
 
@@ -37,6 +44,9 @@ ceto/
 │   └── <area>/
 │       ├── <resource>.py   # application and business operations
 │       └── <concern>.py    # focused integration concerns, such as tokens
+├── routing/
+│   ├── router.py           # FastAPI-style route registration
+│   └── medusa.py           # Frappe request/response adapter
 ├── tests/
 ├── hooks.py
 └── modules.txt
@@ -62,14 +72,33 @@ ceto/
 
 The API layer defines the external Medusa-compatible transport contract. Files in this layer should:
 
-- expose methods with `@frappe.whitelist`;
-- declare the allowed HTTP method and guest access explicitly;
+- expose methods with `@router.get`, `@router.post`, or another explicit router method;
+- declare guest access explicitly;
+- use FastAPI-style `{parameter}` placeholders for dynamic path segments;
 - parse and validate request data with Pydantic;
 - serialize responses according to the Medusa API schema;
 - delegate application behavior to the service layer;
 - remain small enough that endpoint behavior is easy to inspect.
 
 Do not place reusable business logic, authentication implementations, token handling, or database workflows in API modules.
+
+A routed endpoint looks like this:
+
+```python
+from ceto.routing import router
+
+
+@router.get("/auth/customer/providers", allow_guest=True)
+def providers():
+    ...
+
+
+@router.post("/auth/customer/{auth_provider}", allow_guest=True)
+def authenticate(auth_provider: str, **credentials):
+    ...
+```
+
+The router applies `frappe.whitelist` internally, including the declared HTTP method and guest policy. It dispatches the public path through Frappe's normal handler, so HTTP-method validation and `override_whitelisted_methods` continue to work. Do not stack `@frappe.whitelist` on a routed endpoint.
 
 #### Service layer: `ceto/services`
 

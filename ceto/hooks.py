@@ -205,8 +205,8 @@ app_license = "mit"
 
 # Request Events
 # ----------------
-# before_request = ["ceto.utils.before_request"]
-# after_request = ["ceto.utils.after_request"]
+before_request = ["ceto.routing.medusa.route_request"]
+after_request = ["ceto.routing.medusa.normalize_response"]
 
 # Job Events
 # ----------

@@ -4,18 +4,18 @@ import frappe
 from pydantic import ValidationError
 
 from ceto.api.auth.schemas import AuthProvidersListResponse, AuthResponse, EmailPasswordInput
-from ceto.routing import router
+from ceto.routing import store_router
 from ceto.services.auth.customer import authenticate_customer, get_customer_auth_providers
 
 
-@router.get("/auth/customer/providers", allow_guest=True)
+@store_router.get("/auth/customer/providers", allow_guest=True)
 def providers() -> dict[str, list[dict[str, str]]]:
 	"""List the authentication providers available to customers."""
 	response = AuthProvidersListResponse(providers=get_customer_auth_providers())
 	return response.model_dump(mode="json")
 
 
-@router.post("/auth/customer/{auth_provider}", allow_guest=True)
+@store_router.post("/auth/customer/{auth_provider}", allow_guest=True)
 def authenticate(auth_provider: str, **credentials: Any) -> dict[str, str]:
 	"""Authenticate a customer with a provider and return a Ceto JWT."""
 	try:

@@ -6,26 +6,24 @@ Ceto is an ERPNext commerce API adapter that connects ERPNext to a Medusa-compat
 
 ## Specification
 
-- Endpoints follow the Medusa Store API contract.
-- Endpoints use Ceto's FastAPI-style router, which delegates to `frappe.whitelist`.
-- Medusa paths are available directly, while the same functions remain callable through Frappe's `/api/method/` route.
-- API behavior can be replaced by downstream apps with Frappe's `override_whitelisted_methods` hook.
-- A reverse proxy, such as Nginx, only needs to forward requests; it does not translate paths or parameters.
+- Endpoints follow the Medusa Store API contract under the `/store` namespace.
+- Ceto's FastAPI-style router owns route matching, parameters, authorization policy, dispatch, and JSON errors.
+- Endpoint functions are not whitelisted and cannot be called through Frappe's `/api/method/` route.
+- API behavior can be replaced by downstream apps with the route-based `ceto_route_overrides` hook.
+- A reverse proxy, such as Nginx, only forwards `/store/`; it does not translate paths or parameters.
 - Request and response schemas use Pydantic.
 
 For example:
 
 | Interface | Endpoint |
 | --- | --- |
-| Medusa-compatible | `GET /auth/customer/providers` |
-| Frappe RPC | `GET /api/method/ceto.api.auth.customer.providers` |
-| Medusa-compatible | `POST /auth/customer/emailpass` |
-| Frappe RPC | `POST /api/method/ceto.api.auth.customer.authenticate` with `auth_provider=emailpass` |
+| Medusa-compatible | `GET /store/auth/customer/providers` |
+| Medusa-compatible | `POST /store/auth/customer/emailpass` |
 
-For Medusa-compatible paths, Ceto extracts path parameters and removes Frappe's `message` response envelope. Nginx can forward the route without knowing its Python implementation:
+Ceto dispatches these routes directly and returns their JSON objects without Frappe's `message` envelope. Nginx can forward the namespace without knowing its Python implementation:
 
 ```nginx
-location /auth/ {
+location /store/ {
     proxy_pass http://frappe_backend;
 }
 ```
@@ -38,7 +36,7 @@ Ceto separates the HTTP adapter from application and integration logic:
 ceto/
 ├── api/
 │   └── <area>/
-│       ├── <resource>.py   # whitelisted endpoints
+│       ├── <resource>.py   # Ceto-owned HTTP endpoints
 │       └── schemas.py      # Pydantic API contracts
 ├── services/
 │   └── <area>/
@@ -72,7 +70,7 @@ ceto/
 
 The API layer defines the external Medusa-compatible transport contract. Files in this layer should:
 
-- expose methods with `@router.get`, `@router.post`, or another explicit router method;
+- expose methods with `@store_router.get`, `@store_router.post`, or another explicit router method;
 - declare guest access explicitly;
 - use FastAPI-style `{parameter}` placeholders for dynamic path segments;
 - parse and validate request data with Pydantic;
@@ -85,20 +83,24 @@ Do not place reusable business logic, authentication implementations, token hand
 A routed endpoint looks like this:
 
 ```python
-from ceto.routing import router
+from ceto.routing import store_router
 
 
-@router.get("/auth/customer/providers", allow_guest=True)
-def providers():
-    ...
+@store_router.get("/auth/customer/providers", allow_guest=True)
+def providers(): ...
 
 
-@router.post("/auth/customer/{auth_provider}", allow_guest=True)
-def authenticate(auth_provider: str, **credentials):
-    ...
+@store_router.post("/auth/customer/{auth_provider}", allow_guest=True)
+def authenticate(auth_provider: str, **credentials): ...
 ```
 
-The router applies `frappe.whitelist` internally, including the declared HTTP method and guest policy. It dispatches the public path through Frappe's normal handler, so HTTP-method validation and `override_whitelisted_methods` continue to work. Do not stack `@frappe.whitelist` on a routed endpoint.
+`store_router` adds the `/store` prefix and dispatches the function directly through Ceto's Frappe page renderer. It does not apply `frappe.whitelist`; do not stack `@frappe.whitelist` on a routed endpoint.
+
+Downstream apps can replace an endpoint by its external contract rather than its Python path:
+
+```python
+ceto_route_overrides = {"POST /store/auth/customer/{auth_provider}": "my_app.api.authenticate_customer"}
+```
 
 #### Service layer: `ceto/services`
 

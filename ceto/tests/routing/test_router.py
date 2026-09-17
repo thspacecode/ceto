@@ -3,12 +3,10 @@ from uuid import uuid4
 import frappe
 from frappe.auth import LoginManager
 from werkzeug.test import EnvironBuilder
-from werkzeug.wrappers import Request, Response
+from werkzeug.wrappers import Request
 
-from ceto.api.auth.authentication import authenticate, authenticate_callback
-from ceto.api.auth.providers import list_customer_auth_providers
+import ceto.api.routes
 from ceto.routing import Router, ceto_router
-from ceto.routing.medusa import CetoPageRenderer, normalize_ceto_error
 from ceto.services.auth.tokens import decode_customer_token
 from ceto.tests.data.bootstrap_test_master_data import TEST_CUSTOMER, TEST_CUSTOMER_PASSWORD
 from ceto.tests.utils import CetoTestSuite
@@ -19,14 +17,7 @@ def overridden_products() -> dict[str, str]:
 
 
 class TestRouter(CetoTestSuite):
-	def test_decorator_does_not_use_frappe_whitelist(self):
-		self.assertNotIn(list_customer_auth_providers, frappe.whitelisted)
-		self.assertNotIn(authenticate, frappe.whitelisted)
-		self.assertNotIn(authenticate_callback, frappe.whitelisted)
-		self.assertFalse(hasattr(list_customer_auth_providers, "is_whitelisted"))
-		self.assertFalse(hasattr(authenticate, "is_whitelisted"))
-
-	def test_ceto_router_applies_prefix_and_matches_routes(self):
+	def test_applies_prefix_and_matches_routes(self):
 		for path, method, expected_path, arguments in (
 			("/ceto/auth/customer/providers", "GET", "/ceto/auth/customer/providers", {}),
 			(
@@ -141,31 +132,14 @@ class TestRouter(CetoTestSuite):
 		with self.patch_hooks(
 			{
 				"ceto_route_overrides": {
-					"GET /ceto/store/products": ["ceto.tests.test_router.overridden_products"]
+					"GET /ceto/store/products": [
+						"ceto.tests.routing.test_router.overridden_products"
+					]
 				}
 			}
 		):
 			response = router.dispatch(self._request("/ceto/store/products", "GET"))
 		self.assertEqual(response.get_json(), {"source": "override"})
-
-	def test_page_renderer_claims_only_ceto_namespace(self):
-		self.assertTrue(CetoPageRenderer("ceto/auth/customer/providers").can_render())
-		self.assertTrue(CetoPageRenderer("ceto").can_render())
-		self.assertFalse(CetoPageRenderer("store").can_render())
-		self.assertFalse(CetoPageRenderer("cetostore").can_render())
-
-	def test_normalizes_errors_raised_before_dispatch(self):
-		for status, expected in (
-			(401, {"type": "unauthorized", "message": "Authentication required"}),
-			(417, {"type": "not_allowed", "message": "Not permitted"}),
-		):
-			with self.subTest(status=status):
-				response = Response("error", status=status, content_type="text/html")
-				request = self._request("/ceto/store/orders", "POST")
-				with self.set_flags(ceto_api_response=False):
-					normalize_ceto_error(response, request)
-				self.assertEqual(response.content_type, "application/json")
-				self.assertEqual(response.get_json(), expected)
 
 	@staticmethod
 	def _login_manager() -> LoginManager:

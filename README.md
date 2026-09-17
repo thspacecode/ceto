@@ -21,13 +21,7 @@ For example:
 | Medusa authentication | `POST /ceto/auth/customer/emailpass` |
 | Medusa Store API | `GET /ceto/store/products` |
 
-Ceto dispatches these routes directly and returns their JSON objects without Frappe's `message` envelope. Nginx can forward the namespace without knowing its Python implementation:
-
-```nginx
-location /ceto/ {
-    proxy_pass http://frappe_backend;
-}
-```
+Ceto dispatches these routes directly and returns their JSON objects without Frappe's `message` envelope.
 
 The official `@medusajs/js-sdk` preserves the pathname in its `baseUrl`, so configure it with the Ceto root and let the SDK append `/auth` or `/store`:
 
@@ -72,56 +66,6 @@ ceto/
 ```
 
 Directories and files should be added when the corresponding behavior exists; empty architectural placeholders are unnecessary.
-
-### Authentication layout
-
-Authentication endpoints are grouped by capability rather than by HTTP method or placed in one large file:
-
-```text
-ceto/
-├── api/
-│   └── auth/
-│       ├── providers.py               # GET provider discovery
-│       ├── authentication.py          # authenticate and provider callback routes
-│       ├── registration.py            # register and update provider identities
-│       ├── password_reset.py           # password-reset request route
-│       ├── verification.py             # generic and email-password verification routes
-│       ├── tokens.py                   # token refresh route
-│       └── sessions.py                 # create and delete session routes
-├── types/
-│   └── http/
-│       └── auth/
-│           ├── entities.py             # AuthProvider and other reusable auth objects
-│           ├── payloads.py             # auth request body contracts
-│           ├── responses.py            # auth response body contracts
-│           └── __init__.py             # public auth contract exports
-└── services/
-    └── auth/
-        ├── providers/                  # provider registry and implementations
-        │   ├── __init__.py             # provider lookup and discovery
-        │   ├── base.py                 # shared provider contract and result
-        │   ├── emailpass.py            # email-password provider
-        │   └── google.py               # Google OAuth provider
-        ├── registration.py             # identity registration and update workflow
-        ├── password_reset.py            # password-reset workflow
-        ├── verification.py              # verification workflow
-        ├── tokens.py                    # token creation, validation, and refresh
-        └── sessions.py                  # session lifecycle behavior
-```
-
-The route ownership is:
-
-| API module | Routes |
-| --- | --- |
-| `providers.py` | `GET /auth/customer/providers` |
-| `authentication.py` | `POST /auth/customer/{auth_provider}`, `GET /auth/customer/{auth_provider}/callback` |
-| `registration.py` | `POST /auth/customer/{auth_provider}/register`, `POST /auth/customer/{auth_provider}/update` |
-| `password_reset.py` | `POST /auth/customer/{auth_provider}/reset-password` |
-| `verification.py` | `POST /auth/verification/request`, `POST /auth/verification/confirm`, `POST /auth/customer/emailpass/verification/confirm` |
-| `tokens.py` | `POST /auth/token/refresh` |
-| `sessions.py` | `POST /auth/session`, `DELETE /auth/session` |
-
-Routes shown in decorators are relative to `ceto_router`; their public URLs receive the `/ceto` prefix. The route itself retains the Medusa namespace, so `/auth/...` becomes `/ceto/auth/...` and `/store/...` becomes `/ceto/store/...`. Files and routes in the layout that are not present in the current source tree are planned conventions, not implemented endpoints.
 
 ### Conventions
 

@@ -1,9 +1,12 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import frappe
 from pydantic import BaseModel, ValidationError
+
+if TYPE_CHECKING:
+	from ceto.routing.response import JSONModel
 
 AuthFlow = Literal["credentials", "redirect"]
 
@@ -18,6 +21,15 @@ class AuthenticationResult:
 	def __post_init__(self) -> None:
 		if (self.token is None) == (self.location is None):
 			raise ValueError("Authentication result must contain exactly one of token or location")
+
+	def to_response(self) -> "JSONModel":
+		"""Convert the provider result to its public HTTP response model."""
+		from ceto.types.http.auth import AuthRedirectResponse, AuthResponse
+
+		if self.location is not None:
+			return AuthRedirectResponse(location=self.location)
+		assert self.token is not None
+		return AuthResponse(token=self.token)
 
 
 class CustomerAuthProvider(ABC):

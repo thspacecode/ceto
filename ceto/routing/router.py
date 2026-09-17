@@ -6,11 +6,22 @@ from dataclasses import dataclass
 from typing import Any, ParamSpec, TypeVar
 
 import frappe
+from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
 from werkzeug.exceptions import BadRequest, HTTPException, MethodNotAllowed, NotFound
 from werkzeug.routing import Map, Rule
 from werkzeug.wrappers import Request, Response
 
+from ceto.routing.exceptions import (
+	CetoHTTPError,
+	InternalServerError,
+	InvalidDataError,
+	MethodNotAllowedError,
+	NotAllowedError,
+	RequestError,
+	RouteNotFoundError,
+	UnauthorizedError,
+)
 from ceto.routing.response import JSON
 
 P = ParamSpec("P")
@@ -37,10 +48,6 @@ class Route:
 	@property
 	def rule(self) -> str:
 		return _FASTAPI_PARAMETER.sub(r"<\1>", self.path)
-
-
-class InvalidRequestError(ValueError):
-	"""The request payload cannot be passed to a Ceto endpoint."""
 
 
 class Router:
@@ -97,23 +104,25 @@ class Router:
 			if isinstance(result, Response):
 				return result
 			return self._json_response(result)
-		except MethodNotAllowed as exc:
-			return self._error_response("method_not_allowed", "Method not allowed", exc.code)
-		except NotFound as exc:
-			return self._error_response("not_found", "Route not found", exc.code)
+		except CetoHTTPError as exc:
+			return self._error_response(exc)
+		except MethodNotAllowed:
+			return self._error_response(MethodNotAllowedError())
+		except NotFound:
+			return self._error_response(RouteNotFoundError())
 		except frappe.DoesNotExistError as exc:
-			return self._error_response("not_found", str(exc) or "Resource not found", 404)
-		except (InvalidRequestError, BadRequest, frappe.ValidationError, PydanticValidationError) as exc:
-			return self._error_response("invalid_data", str(exc) or "Invalid request data", 400)
+			return self._error_response(RouteNotFoundError(str(exc) or "Resource not found"))
+		except (BadRequest, frappe.ValidationError, PydanticValidationError) as exc:
+			return self._error_response(InvalidDataError(str(exc) or None))
 		except frappe.AuthenticationError:
-			return self._error_response("unauthorized", "Authentication required", 401)
+			return self._error_response(UnauthorizedError())
 		except frappe.PermissionError:
-			return self._error_response("not_allowed", "Not permitted", 403)
+			return self._error_response(NotAllowedError())
 		except HTTPException as exc:
-			return self._error_response("request_error", exc.description, exc.code or 500)
+			return self._error_response(RequestError(exc.description, exc.code or 500))
 		except Exception:
 			frappe.log_error(title="Ceto Store API request failed")
-			return self._error_response("internal_error", "An unexpected error occurred", 500)
+			return self._error_response(InternalServerError())
 
 	def _url_map(self) -> Map:
 		if self._map is None:
@@ -127,7 +136,7 @@ class Router:
 	@staticmethod
 	def _check_permission(route: Route) -> None:
 		if not route.allow_guest and frappe.session.user in ("", "Guest"):
-			raise frappe.AuthenticationError
+			raise UnauthorizedError
 
 	@staticmethod
 	def _request_arguments(request: Request) -> dict[str, Any]:
@@ -139,7 +148,7 @@ class Router:
 			if payload is None:
 				return arguments
 			if not isinstance(payload, Mapping):
-				raise InvalidRequestError("JSON request body must be an object")
+				raise InvalidDataError("JSON request body must be an object")
 			arguments.update(payload)
 
 		return arguments
@@ -163,6 +172,8 @@ class Router:
 
 	@staticmethod
 	def _json_response(payload: Any, status: int = 200) -> Response:
+		if isinstance(payload, BaseModel):
+			payload = payload.model_dump(mode="json")
 		return Response(
 			json.dumps(payload, separators=(",", ":"), default=str),
 			status=status,
@@ -170,8 +181,8 @@ class Router:
 		)
 
 	@classmethod
-	def _error_response(cls, error_type: str, message: str, status: int) -> Response:
-		return cls._json_response({"type": error_type, "message": message}, status=status)
+	def _error_response(cls, error: CetoHTTPError) -> Response:
+		return cls._json_response(error.to_dict(), status=error.status_code)
 
 	def _full_path(self, path: str) -> str:
 		path = self._normalize_path(path)

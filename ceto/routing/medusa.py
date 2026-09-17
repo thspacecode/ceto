@@ -4,6 +4,15 @@ import frappe
 from werkzeug.wrappers import Request, Response
 
 from ceto.routing import store_router
+from ceto.routing.exceptions import (
+	CetoHTTPError,
+	InternalServerError,
+	InvalidDataError,
+	MethodNotAllowedError,
+	NotAllowedError,
+	RouteNotFoundError,
+	UnauthorizedError,
+)
 
 # Register all application endpoints after the shared routers are initialized.
 import ceto.api.routes  # isort: skip
@@ -31,20 +40,17 @@ def normalize_store_error(response: Response, request: Request) -> None:
 	if getattr(frappe.flags, "ceto_store_response", False):
 		return
 
-	error_type, message = _error_for_status(response.status_code)
-	response.set_data(json.dumps({"type": error_type, "message": message}, separators=(",", ":")))
+	error = _error_for_status(response.status_code)
+	response.set_data(json.dumps(error.to_dict(), separators=(",", ":")))
 	response.content_type = "application/json"
 
 
-def _error_for_status(status: int) -> tuple[str, str]:
-	if status == 400:
-		return "invalid_data", "Invalid request data"
-	if status == 401:
-		return "unauthorized", "Authentication required"
-	if status == 403:
-		return "not_allowed", "Not permitted"
-	if status == 404:
-		return "not_found", "Route not found"
-	if status == 405:
-		return "method_not_allowed", "Method not allowed"
-	return "internal_error", "An unexpected error occurred"
+def _error_for_status(status: int) -> CetoHTTPError:
+	error_class = {
+		400: InvalidDataError,
+		401: UnauthorizedError,
+		403: NotAllowedError,
+		404: RouteNotFoundError,
+		405: MethodNotAllowedError,
+	}.get(status, InternalServerError)
+	return error_class()

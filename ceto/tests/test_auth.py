@@ -6,9 +6,8 @@ import jwt
 
 from ceto.api.auth.authentication import authenticate, authenticate_callback
 from ceto.api.auth.providers import list_customer_auth_providers
-from ceto.routing import JSON
-from ceto.services.auth.authentication import authenticate_email_password
-from ceto.services.auth.oauth import complete_google_auth, start_google_auth
+from ceto.services.auth.providers.emailpass import _authenticate_email_password
+from ceto.services.auth.providers.google import _complete_google_auth, _start_google_auth
 from ceto.services.auth.tokens import create_customer_token, decode_customer_token
 from ceto.types.http.auth import AuthProvidersListResponse, AuthResponse
 
@@ -20,10 +19,9 @@ class TestCustomerAuth(TestCase):
 	def test_list_providers(self, _google_enabled):
 		result = list_customer_auth_providers()
 
-		self.assertIsInstance(result, JSON)
-		self.assertIsInstance(result.value, AuthProvidersListResponse)
+		self.assertIsInstance(result, AuthProvidersListResponse)
 		self.assertEqual(
-			result.value.model_dump(mode="json"),
+			result.model_dump(mode="json"),
 			{
 				"providers": [
 					{
@@ -41,7 +39,7 @@ class TestCustomerAuth(TestCase):
 		result = list_customer_auth_providers()
 
 		self.assertEqual(
-			result.value.providers[1].model_dump(mode="json"),
+			result.providers[1].model_dump(mode="json"),
 			{
 				"id": "google",
 				"identifier": "google",
@@ -50,7 +48,7 @@ class TestCustomerAuth(TestCase):
 			},
 		)
 
-	@patch("ceto.services.auth.providers.emailpass.authenticate_email_password", return_value="customer-jwt")
+	@patch("ceto.services.auth.providers.emailpass._authenticate_email_password", return_value="customer-jwt")
 	def test_authenticate_endpoint(self, authenticate_service):
 		response = authenticate(
 			"emailpass",
@@ -58,9 +56,8 @@ class TestCustomerAuth(TestCase):
 			password="correct horse battery staple",
 		)
 
-		self.assertIsInstance(response, JSON)
-		self.assertIsInstance(response.value, AuthResponse)
-		self.assertEqual(response.value.token, "customer-jwt")
+		self.assertIsInstance(response, AuthResponse)
+		self.assertEqual(response.token, "customer-jwt")
 		authenticate_service.assert_called_once_with(
 			email="customer@example.com",
 			password="correct horse battery staple",
@@ -68,27 +65,27 @@ class TestCustomerAuth(TestCase):
 
 	@patch("ceto.services.auth.providers.google.GoogleProvider.is_enabled", return_value=True)
 	@patch(
-		"ceto.services.auth.providers.google.start_google_auth",
+		"ceto.services.auth.providers.google._start_google_auth",
 		return_value="https://accounts.google.test/auth",
 	)
 	def test_starts_google_auth(self, start_google_auth, _enabled):
 		response = authenticate("google", callback_url="https://shop.example.com/auth/google")
 
-		self.assertEqual(response.value.location, "https://accounts.google.test/auth")
+		self.assertEqual(response.location, "https://accounts.google.test/auth")
 		start_google_auth.assert_called_once_with("https://shop.example.com/auth/google")
 
 	@patch("ceto.services.auth.providers.google.GoogleProvider.is_enabled", return_value=True)
-	@patch("ceto.services.auth.providers.google.complete_google_auth", return_value="customer-jwt")
+	@patch("ceto.services.auth.providers.google._complete_google_auth", return_value="customer-jwt")
 	def test_completes_google_auth(self, complete_google_auth, _enabled):
 		response = authenticate_callback("google", code="google-code", state="oauth-state")
 
-		self.assertEqual(response.value.token, "customer-jwt")
+		self.assertEqual(response.token, "customer-jwt")
 		complete_google_auth.assert_called_once_with(code="google-code", state="oauth-state")
 
-	@patch("ceto.services.auth.authentication.create_customer_token", return_value="customer-jwt")
-	@patch("ceto.services.auth.authentication.should_run_2fa", return_value=False)
-	@patch("ceto.services.auth.authentication.validate_ip_address")
-	@patch("ceto.services.auth.authentication.frappe")
+	@patch("ceto.services.auth.providers.emailpass.create_customer_token", return_value="customer-jwt")
+	@patch("ceto.services.auth.providers.emailpass.should_run_2fa", return_value=False)
+	@patch("ceto.services.auth.providers.emailpass.validate_ip_address")
+	@patch("ceto.services.auth.providers.emailpass.frappe")
 	def test_authenticate_email_password(self, mock_frappe, _validate_ip, _two_factor, _token):
 		login_manager = mock_frappe.local.login_manager
 		login_manager.user = "customer@example.com"
@@ -96,7 +93,7 @@ class TestCustomerAuth(TestCase):
 		mock_frappe.get_system_settings.return_value = False
 		mock_frappe.db.get_value.return_value = "Website User"
 
-		token = authenticate_email_password(
+		token = _authenticate_email_password(
 			email="customer@example.com",
 			password="correct horse battery staple",
 		)
@@ -131,9 +128,9 @@ class TestCustomerAuth(TestCase):
 
 
 class TestGoogleOAuthService(TestCase):
-	@patch("ceto.services.auth.oauth.get_oauth2_providers")
-	@patch("ceto.services.auth.oauth.get_oauth2_flow")
-	@patch("ceto.services.auth.oauth.frappe")
+	@patch("ceto.services.auth.providers.google.get_oauth2_providers")
+	@patch("ceto.services.auth.providers.google.get_oauth2_flow")
+	@patch("ceto.services.auth.providers.google.frappe")
 	def test_start_google_auth_stores_state_and_builds_redirect(self, mock_frappe, get_flow, get_providers):
 		mock_frappe.generate_hash.return_value = "oauth-state"
 		get_providers.return_value = {
@@ -141,7 +138,7 @@ class TestGoogleOAuthService(TestCase):
 		}
 		get_flow.return_value.get_authorize_url.return_value = "https://accounts.google.test/auth"
 
-		location = start_google_auth("https://shop.example.com/auth/google")
+		location = _start_google_auth("https://shop.example.com/auth/google")
 
 		self.assertEqual(location, "https://accounts.google.test/auth")
 		mock_frappe.cache.set_value.assert_called_once_with(
@@ -156,11 +153,11 @@ class TestGoogleOAuthService(TestCase):
 			response_type="code",
 		)
 
-	@patch("ceto.services.auth.oauth.create_customer_token", return_value="customer-jwt")
-	@patch("ceto.services.auth.oauth.update_oauth_user")
-	@patch("ceto.services.auth.oauth.get_oauth2_providers")
-	@patch("ceto.services.auth.oauth.get_oauth2_flow")
-	@patch("ceto.services.auth.oauth.frappe")
+	@patch("ceto.services.auth.providers.google.create_customer_token", return_value="customer-jwt")
+	@patch("ceto.services.auth.providers.google.update_oauth_user")
+	@patch("ceto.services.auth.providers.google.get_oauth2_providers")
+	@patch("ceto.services.auth.providers.google.get_oauth2_flow")
+	@patch("ceto.services.auth.providers.google.frappe")
 	def test_complete_google_auth_provisions_website_user(
 		self,
 		mock_frappe,
@@ -180,7 +177,7 @@ class TestGoogleOAuthService(TestCase):
 		}
 		get_flow.return_value.get_auth_session.return_value = session
 
-		token = complete_google_auth("google-code", "oauth-state")
+		token = _complete_google_auth("google-code", "oauth-state")
 
 		self.assertEqual(token, "customer-jwt")
 		mock_frappe.cache.delete_value.assert_called_once_with("ceto:oauth:google:oauth-state")

@@ -93,7 +93,6 @@ ceto/
         │   ├── base.py                 # shared provider contract and result
         │   ├── emailpass.py            # email-password provider
         │   └── google.py               # Google OAuth provider
-        ├── authentication.py           # shared password-authentication workflow
         ├── registration.py             # identity registration and update workflow
         ├── password_reset.py            # password-reset workflow
         ├── verification.py              # verification workflow
@@ -134,21 +133,20 @@ Do not place reusable business logic, authentication implementations, token hand
 A routed endpoint looks like this:
 
 ```python
-from ceto.routing import JSON, store_router
+from ceto.routing import store_router
 from ceto.types.http.auth import AuthProvidersListResponse
 
 
 @store_router.get("/auth/customer/providers", allow_guest=True)
-def list_customer_auth_providers() -> JSON[AuthProvidersListResponse]:
-	response = AuthProvidersListResponse(providers=[])
-	return response.to_json()
+def list_customer_auth_providers() -> AuthProvidersListResponse:
+	return AuthProvidersListResponse(providers=[])
 
 
 @store_router.post("/auth/customer/{auth_provider}", allow_guest=True)
 def authenticate(auth_provider: str, **credentials): ...
 ```
 
-`store_router` adds the `/store` prefix and dispatches the function directly through Ceto's Frappe page renderer. It does not apply `frappe.whitelist`; do not stack `@frappe.whitelist` on a routed endpoint. Response schemas inherit `JSONModel`, whose `to_json()` method returns a typed `JSON[Schema]` result for the router to serialize.
+`store_router` adds the `/store` prefix and dispatches the function directly through Ceto's Frappe page renderer. It does not apply `frappe.whitelist`; do not stack `@frappe.whitelist` on a routed endpoint. The router automatically serializes response schemas inheriting `JSONModel`; endpoints only need the explicit `JSON` wrapper when they must set a non-default status code or response headers.
 
 Downstream apps can replace an endpoint by its external contract rather than its Python path:
 
@@ -209,7 +207,7 @@ class AuthProvidersListResponse(JSONModel):
 	providers: list[AuthProvider]
 ```
 
-Only a complete response body should inherit `JSONModel` and expose `to_json()`. Embedded entities and request payloads should normally inherit Pydantic's `BaseModel`.
+Only a complete response body should inherit `JSONModel`. Embedded entities and request payloads should normally inherit Pydantic's `BaseModel`.
 
 Route-specific runtime validators may remain in `ceto/api/<area>/validators.py` when they implement adapter behavior rather than a reusable public contract. Transport-neutral internal objects exchanged between services are DTOs and belong under `ceto/types/<area>/`; they must not inherit HTTP response behavior.
 

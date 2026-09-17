@@ -57,7 +57,7 @@ class TestRouter(TestCase):
 		self.assertNotIn("message", response.get_json())
 
 	@patch("ceto.routing.router.frappe.get_hooks", return_value={})
-	@patch("ceto.services.auth.providers.emailpass.authenticate_email_password", return_value="customer-jwt")
+	@patch("ceto.services.auth.providers.emailpass._authenticate_email_password", return_value="customer-jwt")
 	def test_dispatches_json_body_with_path_parameter(self, authenticate_email_password, _hooks):
 		response = store_router.dispatch(
 			self._request(

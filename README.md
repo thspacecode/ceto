@@ -83,18 +83,21 @@ Do not place reusable business logic, authentication implementations, token hand
 A routed endpoint looks like this:
 
 ```python
-from ceto.routing import store_router
+from ceto.api.auth.schemas import AuthProvidersListResponse
+from ceto.routing import JSON, store_router
 
 
 @store_router.get("/auth/customer/providers", allow_guest=True)
-def providers(): ...
+def providers() -> JSON[AuthProvidersListResponse]:
+	response = AuthProvidersListResponse(providers=[])
+	return response.to_json()
 
 
 @store_router.post("/auth/customer/{auth_provider}", allow_guest=True)
 def authenticate(auth_provider: str, **credentials): ...
 ```
 
-`store_router` adds the `/store` prefix and dispatches the function directly through Ceto's Frappe page renderer. It does not apply `frappe.whitelist`; do not stack `@frappe.whitelist` on a routed endpoint.
+`store_router` adds the `/store` prefix and dispatches the function directly through Ceto's Frappe page renderer. It does not apply `frappe.whitelist`; do not stack `@frappe.whitelist` on a routed endpoint. Response schemas inherit `JSONModel`, whose `to_json()` method returns a typed `JSON[Schema]` result for the router to serialize.
 
 Downstream apps can replace an endpoint by its external contract rather than its Python path:
 

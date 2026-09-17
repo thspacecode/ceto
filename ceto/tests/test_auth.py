@@ -4,6 +4,8 @@ from unittest.mock import patch
 import jwt
 
 from ceto.api.auth.customer import authenticate, providers
+from ceto.api.auth.schemas import AuthProvidersListResponse, AuthResponse
+from ceto.routing import JSON
 from ceto.services.auth.customer import authenticate_customer
 from ceto.services.auth.tokens import create_customer_token, decode_customer_token
 
@@ -12,8 +14,12 @@ TEST_SECRET = "a-test-only-signing-secret-that-is-at-least-32-bytes"
 
 class TestCustomerAuth(TestCase):
 	def test_list_providers(self):
+		result = providers()
+
+		self.assertIsInstance(result, JSON)
+		self.assertIsInstance(result.value, AuthProvidersListResponse)
 		self.assertEqual(
-			providers(),
+			result.value.model_dump(mode="json"),
 			{
 				"providers": [
 					{
@@ -34,7 +40,9 @@ class TestCustomerAuth(TestCase):
 			password="correct horse battery staple",
 		)
 
-		self.assertEqual(response, {"token": "customer-jwt"})
+		self.assertIsInstance(response, JSON)
+		self.assertIsInstance(response.value, AuthResponse)
+		self.assertEqual(response.value.token, "customer-jwt")
 		authenticate_service.assert_called_once_with(
 			auth_provider="emailpass",
 			email="customer@example.com",

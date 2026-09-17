@@ -2,6 +2,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
+from ceto.routing.response import JSONModel
+
 
 class AuthProvider(BaseModel):
 	id: str
@@ -10,7 +12,7 @@ class AuthProvider(BaseModel):
 	flow: Literal["credentials", "redirect"]
 
 
-class AuthProvidersListResponse(BaseModel):
+class AuthProvidersListResponse(JSONModel):
 	providers: list[AuthProvider]
 
 
@@ -21,5 +23,5 @@ class EmailPasswordInput(BaseModel):
 	password: SecretStr = Field(min_length=1)
 
 
-class AuthResponse(BaseModel):
+class AuthResponse(JSONModel):
 	token: str

@@ -11,6 +11,8 @@ from werkzeug.exceptions import BadRequest, HTTPException, MethodNotAllowed, Not
 from werkzeug.routing import Map, Rule
 from werkzeug.wrappers import Request, Response
 
+from ceto.routing.response import JSON
+
 P = ParamSpec("P")
 R = TypeVar("R")
 
@@ -90,6 +92,8 @@ class Router:
 			arguments.update(path_parameters)
 			endpoint = self._resolve_endpoint(route)
 			result = self._call_endpoint(endpoint, arguments)
+			if isinstance(result, JSON):
+				return result.to_response()
 			if isinstance(result, Response):
 				return result
 			return self._json_response(result)

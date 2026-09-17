@@ -205,14 +205,14 @@ app_license = "mit"
 
 # Request Events
 # ----------------
-# Ceto uses a website page renderer so Store API functions are dispatched directly
-# rather than through Frappe's whitelisted RPC handler.
+# Ceto uses a website page renderer so Medusa API functions are dispatched directly
+# under /ceto rather than through Frappe's whitelisted RPC handler.
 page_renderer = ["ceto.routing.medusa.CetoPageRenderer"]
-after_request = ["ceto.routing.medusa.normalize_store_error"]
+after_request = ["ceto.routing.medusa.normalize_ceto_error"]
 
 # Downstream apps can replace handlers by external route contract, for example:
 # ceto_route_overrides = {
-# 	"POST /store/auth/customer/{auth_provider}": "my_app.api.authenticate_customer"
+# 	"POST /ceto/auth/customer/{auth_provider}": "my_app.api.authenticate_customer"
 # }
 
 # Job Events

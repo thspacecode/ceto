@@ -8,8 +8,8 @@ from werkzeug.wrappers import Request, Response
 
 from ceto.api.auth.authentication import authenticate, authenticate_callback
 from ceto.api.auth.providers import list_customer_auth_providers
-from ceto.routing import Router, store_router
-from ceto.routing.medusa import CetoPageRenderer, normalize_store_error
+from ceto.routing import Router, ceto_router
+from ceto.routing.medusa import CetoPageRenderer, normalize_ceto_error
 
 
 class TestRouter(TestCase):
@@ -20,37 +20,53 @@ class TestRouter(TestCase):
 		self.assertFalse(hasattr(list_customer_auth_providers, "is_whitelisted"))
 		self.assertFalse(hasattr(authenticate, "is_whitelisted"))
 
-	def test_store_router_applies_prefix_and_matches_static_route(self):
-		request = self._request("/store/auth/customer/providers", "GET")
+	def test_ceto_router_applies_prefix_and_matches_static_route(self):
+		request = self._request("/ceto/auth/customer/providers", "GET")
 
-		route, arguments = store_router.match(request)
+		route, arguments = ceto_router.match(request)
 
-		self.assertEqual(route.path, "/store/auth/customer/providers")
+		self.assertEqual(route.path, "/ceto/auth/customer/providers")
 		self.assertEqual(route.dotted_path, "ceto.api.auth.providers.list_customer_auth_providers")
 		self.assertEqual(arguments, {})
 
 	def test_matches_fastapi_style_path_parameter(self):
-		request = self._request("/store/auth/customer/emailpass", "POST")
+		request = self._request("/ceto/auth/customer/emailpass", "POST")
 
-		route, arguments = store_router.match(request)
+		route, arguments = ceto_router.match(request)
 
-		self.assertEqual(route.path, "/store/auth/customer/{auth_provider}")
+		self.assertEqual(route.path, "/ceto/auth/customer/{auth_provider}")
 		self.assertEqual(route.dotted_path, "ceto.api.auth.authentication.authenticate")
 		self.assertEqual(arguments, {"auth_provider": "emailpass"})
 
 	def test_matches_authentication_callback_route(self):
-		request = self._request("/store/auth/customer/google/callback", "POST")
+		request = self._request("/ceto/auth/customer/google/callback", "GET")
 
-		route, arguments = store_router.match(request)
+		route, arguments = ceto_router.match(request)
 
-		self.assertEqual(route.path, "/store/auth/customer/{auth_provider}/callback")
+		self.assertEqual(route.path, "/ceto/auth/customer/{auth_provider}/callback")
 		self.assertEqual(route.dotted_path, "ceto.api.auth.authentication.authenticate_callback")
 		self.assertEqual(arguments, {"auth_provider": "google"})
 
 	@patch("ceto.routing.router.frappe.get_hooks", return_value={})
+	@patch("ceto.services.auth.providers.google.GoogleProvider.is_enabled", return_value=True)
+	@patch("ceto.services.auth.providers.google.GoogleProvider._complete_auth", return_value="customer-jwt")
+	def test_dispatches_authentication_callback_query(self, complete_auth, _enabled, _hooks):
+		response = ceto_router.dispatch(
+			self._request(
+				"/ceto/auth/customer/google/callback",
+				"GET",
+				query_string={"code": "google-code", "state": "oauth-state"},
+			)
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.get_json(), {"token": "customer-jwt"})
+		complete_auth.assert_called_once_with(code="google-code", state="oauth-state")
+
+	@patch("ceto.routing.router.frappe.get_hooks", return_value={})
 	@patch("ceto.api.auth.providers.get_customer_auth_providers", return_value=[])
 	def test_dispatches_endpoint_and_returns_direct_json(self, _providers, _hooks):
-		response = store_router.dispatch(self._request("/store/auth/customer/providers", "GET"))
+		response = ceto_router.dispatch(self._request("/ceto/auth/customer/providers", "GET"))
 
 		self.assertEqual(response.status_code, 200)
 		self.assertEqual(response.get_json(), {"providers": []})
@@ -62,9 +78,9 @@ class TestRouter(TestCase):
 		return_value="customer-jwt",
 	)
 	def test_dispatches_json_body_with_path_parameter(self, authenticate_email_password, _hooks):
-		response = store_router.dispatch(
+		response = ceto_router.dispatch(
 			self._request(
-				"/store/auth/customer/emailpass",
+				"/ceto/auth/customer/emailpass",
 				"POST",
 				json={"email": "customer@example.com", "password": "secret"},
 			)
@@ -78,7 +94,7 @@ class TestRouter(TestCase):
 		)
 
 	def test_wrong_method_returns_medusa_405(self):
-		response = store_router.dispatch(self._request("/store/auth/customer/emailpass", "GET"))
+		response = ceto_router.dispatch(self._request("/ceto/auth/customer/emailpass", "GET"))
 
 		self.assertEqual(response.status_code, 405)
 		self.assertEqual(
@@ -88,7 +104,7 @@ class TestRouter(TestCase):
 		self.assertEqual(response.headers["Allow"], "POST")
 
 	def test_unknown_store_route_returns_medusa_404(self):
-		response = store_router.dispatch(self._request("/store/unknown", "GET"))
+		response = ceto_router.dispatch(self._request("/ceto/unknown", "GET"))
 
 		self.assertEqual(response.status_code, 404)
 		self.assertEqual(response.get_json(), {"type": "not_found", "message": "Route not found"})
@@ -146,43 +162,44 @@ class TestRouter(TestCase):
 	@patch("ceto.routing.router.frappe.get_attr")
 	@patch("ceto.routing.router.frappe.get_hooks")
 	def test_route_override_uses_external_route_key(self, get_hooks, get_attr):
-		router = Router(prefix="/store")
+		router = Router(prefix="/ceto")
 
-		@router.get("/products", allow_guest=True)
+		@router.get("/store/products", allow_guest=True)
 		def products():
 			return {"source": "ceto"}
 
-		get_hooks.return_value = {"GET /store/products": ["shop.overrides.products"]}
+		get_hooks.return_value = {"GET /ceto/store/products": ["shop.overrides.products"]}
 		get_attr.return_value = lambda: {"source": "override"}
 
-		response = router.dispatch(self._request("/store/products", "GET"))
+		response = router.dispatch(self._request("/ceto/store/products", "GET"))
 
 		self.assertEqual(response.get_json(), {"source": "override"})
 		get_attr.assert_called_once_with("shop.overrides.products")
 
-	def test_page_renderer_claims_only_store_namespace(self):
-		self.assertTrue(CetoPageRenderer("store/auth/customer/providers").can_render())
-		self.assertTrue(CetoPageRenderer("store").can_render())
-		self.assertFalse(CetoPageRenderer("storefront").can_render())
+	def test_page_renderer_claims_only_ceto_namespace(self):
+		self.assertTrue(CetoPageRenderer("ceto/auth/customer/providers").can_render())
+		self.assertTrue(CetoPageRenderer("ceto").can_render())
+		self.assertFalse(CetoPageRenderer("store").can_render())
+		self.assertFalse(CetoPageRenderer("cetostore").can_render())
 
 	@patch("ceto.routing.medusa.frappe")
 	def test_normalizes_auth_error_raised_before_dispatch(self, mock_frappe):
-		mock_frappe.flags = SimpleNamespace(ceto_store_response=False)
+		mock_frappe.flags = SimpleNamespace(ceto_api_response=False)
 		response = Response("login", status=401, content_type="text/html")
-		request = self._request("/store/auth/customer/providers", "GET")
+		request = self._request("/ceto/auth/customer/providers", "GET")
 
-		normalize_store_error(response, request)
+		normalize_ceto_error(response, request)
 
 		self.assertEqual(response.content_type, "application/json")
 		self.assertEqual(response.get_json(), {"type": "unauthorized", "message": "Authentication required"})
 
 	@patch("ceto.routing.medusa.frappe")
 	def test_normalizes_csrf_error_as_not_allowed(self, mock_frappe):
-		mock_frappe.flags = SimpleNamespace(ceto_store_response=False)
+		mock_frappe.flags = SimpleNamespace(ceto_api_response=False)
 		response = Response("csrf", status=417, content_type="text/html")
-		request = self._request("/store/orders", "POST")
+		request = self._request("/ceto/store/orders", "POST")
 
-		normalize_store_error(response, request)
+		normalize_ceto_error(response, request)
 
 		self.assertEqual(response.status_code, 417)
 		self.assertEqual(response.content_type, "application/json")

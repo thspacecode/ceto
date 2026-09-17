@@ -6,26 +6,35 @@ Ceto is an ERPNext commerce API adapter that connects ERPNext to a Medusa-compat
 
 ## Specification
 
-- Endpoints follow the Medusa Store API contract under the `/store` namespace.
+- Ceto exposes Medusa's sibling `/auth` and `/store` namespaces below the `/ceto` application prefix.
 - Ceto's FastAPI-style router owns route matching, parameters, authorization policy, dispatch, and JSON errors.
 - Endpoint functions are not whitelisted and cannot be called through Frappe's `/api/method/` route.
 - API behavior can be replaced by downstream apps with the route-based `ceto_route_overrides` hook.
-- A reverse proxy, such as Nginx, only forwards `/store/`; it does not translate paths or parameters.
+- A reverse proxy, such as Nginx, only forwards `/ceto/`; it does not translate paths or parameters.
 - Request and response schemas use Pydantic.
 
 For example:
 
 | Interface | Endpoint |
 | --- | --- |
-| Medusa-compatible | `GET /store/auth/customer/providers` |
-| Medusa-compatible | `POST /store/auth/customer/emailpass` |
+| Medusa authentication | `GET /ceto/auth/customer/providers` |
+| Medusa authentication | `POST /ceto/auth/customer/emailpass` |
+| Medusa Store API | `GET /ceto/store/products` |
 
 Ceto dispatches these routes directly and returns their JSON objects without Frappe's `message` envelope. Nginx can forward the namespace without knowing its Python implementation:
 
 ```nginx
-location /store/ {
+location /ceto/ {
     proxy_pass http://frappe_backend;
 }
+```
+
+The official `@medusajs/js-sdk` preserves the pathname in its `baseUrl`, so configure it with the Ceto root and let the SDK append `/auth` or `/store`:
+
+```ts
+const sdk = new Medusa({
+  baseUrl: "https://api.example.com/ceto",
+})
 ```
 
 ## Project structure
@@ -105,14 +114,14 @@ The route ownership is:
 | API module | Routes |
 | --- | --- |
 | `providers.py` | `GET /auth/customer/providers` |
-| `authentication.py` | `POST /auth/customer/{auth_provider}`, `POST /auth/customer/{auth_provider}/callback` |
+| `authentication.py` | `POST /auth/customer/{auth_provider}`, `GET /auth/customer/{auth_provider}/callback` |
 | `registration.py` | `POST /auth/customer/{auth_provider}/register`, `POST /auth/customer/{auth_provider}/update` |
 | `password_reset.py` | `POST /auth/customer/{auth_provider}/reset-password` |
 | `verification.py` | `POST /auth/verification/request`, `POST /auth/verification/confirm`, `POST /auth/customer/emailpass/verification/confirm` |
 | `tokens.py` | `POST /auth/token/refresh` |
 | `sessions.py` | `POST /auth/session`, `DELETE /auth/session` |
 
-Routes shown in decorators are relative to `store_router`; their public URLs receive the `/store` prefix. Files and routes in the layout that are not present in the current source tree are planned conventions, not implemented endpoints.
+Routes shown in decorators are relative to `ceto_router`; their public URLs receive the `/ceto` prefix. The route itself retains the Medusa namespace, so `/auth/...` becomes `/ceto/auth/...` and `/store/...` becomes `/ceto/store/...`. Files and routes in the layout that are not present in the current source tree are planned conventions, not implemented endpoints.
 
 ### Conventions
 
@@ -120,7 +129,7 @@ Routes shown in decorators are relative to `store_router`; their public URLs rec
 
 The API layer defines the external Medusa-compatible transport contract. Files in this layer should:
 
-- expose methods with `@store_router.get`, `@store_router.post`, or another explicit router method;
+- expose methods with `@ceto_router.get`, `@ceto_router.post`, or another explicit router method;
 - declare guest access explicitly;
 - use FastAPI-style `{parameter}` placeholders for dynamic path segments;
 - parse and validate request data with Pydantic;
@@ -133,25 +142,25 @@ Do not place reusable business logic, authentication implementations, token hand
 A routed endpoint looks like this:
 
 ```python
-from ceto.routing import store_router
+from ceto.routing import ceto_router
 from ceto.types.http.auth import AuthProvidersListResponse
 
 
-@store_router.get("/auth/customer/providers", allow_guest=True)
+@ceto_router.get("/auth/customer/providers", allow_guest=True)
 def list_customer_auth_providers() -> AuthProvidersListResponse:
 	return AuthProvidersListResponse(providers=[])
 
 
-@store_router.post("/auth/customer/{auth_provider}", allow_guest=True)
+@ceto_router.post("/auth/customer/{auth_provider}", allow_guest=True)
 def authenticate(auth_provider: str, **credentials): ...
 ```
 
-`store_router` adds the `/store` prefix and dispatches the function directly through Ceto's Frappe page renderer. It does not apply `frappe.whitelist`; do not stack `@frappe.whitelist` on a routed endpoint. The router automatically serializes response schemas inheriting `JSONModel`; endpoints only need the explicit `JSON` wrapper when they must set a non-default status code or response headers.
+`ceto_router` adds the `/ceto` application prefix and dispatches the function directly through Ceto's Frappe page renderer. Endpoint paths include their Medusa namespace (`/auth`, `/store`, and potentially `/admin`). The router does not apply `frappe.whitelist`; do not stack `@frappe.whitelist` on a routed endpoint. It automatically serializes response schemas inheriting `JSONModel`; endpoints only need the explicit `JSON` wrapper when they must set a non-default status code or response headers.
 
-Downstream apps can replace an endpoint by its external contract rather than its Python path:
+Downstream apps can replace an endpoint by its complete external contract rather than its Python path:
 
 ```python
-ceto_route_overrides = {"POST /store/auth/customer/{auth_provider}": "my_app.api.authenticate_customer"}
+ceto_route_overrides = {"POST /ceto/auth/customer/{auth_provider}": "my_app.api.authenticate_customer"}
 ```
 
 #### Service layer: `ceto/services`
@@ -226,7 +235,7 @@ routing ───► endpoint return values
 ```
 
 - `api` may import public HTTP types and services;
-- `services` must not import `api`, `store_router`, `JSON`, or HTTP response models;
+- `services` must not import `api`, `ceto_router`, `JSON`, or HTTP response models;
 - public HTTP types must not query Frappe or contain business workflows;
 - routing primitives must remain independent of commerce domains such as auth, customer, cart, or order.
 
@@ -251,7 +260,7 @@ The authentication hook accepts Ceto tokens supplied as:
 Authorization: Bearer <token>
 ```
 
-Ceto follows Medusa's auth response contracts, but its public auth URLs are namespaced under `/store/auth/...`. The official `@medusajs/js-sdk` requests `/auth/...` directly, so an SDK deployment must also proxy `/auth` to Ceto's `/store/auth` namespace (or configure an equivalent path rewrite). Cookie-authenticated browser requests to unsafe `/store/*` methods must include Frappe's `X-Frappe-CSRF-Token` header; bearer-token and guest clients do not use a session CSRF token.
+Ceto follows Medusa's auth response contracts at `/ceto/auth/...`. Configure the official `@medusajs/js-sdk` with a `baseUrl` ending in `/ceto`; the SDK then resolves its `/auth/...` and `/store/...` requests below that prefix. Cookie-authenticated browser requests to unsafe `/ceto/*` methods must include Frappe's `X-Frappe-CSRF-Token` header; bearer-token and guest clients do not use a session CSRF token.
 
 ### Google OAuth
 
@@ -260,7 +269,7 @@ Ceto exposes Google as a redirect provider when an enabled `google` **Social Log
 Start the authorization-code flow with the storefront callback URL:
 
 ```http
-POST /store/auth/customer/google
+POST /ceto/auth/customer/google
 Content-Type: application/json
 
 {"callback_url":"https://shop.example.com/auth/google"}
@@ -269,10 +278,7 @@ Content-Type: application/json
 Redirect the browser to the returned `location`. After Google redirects to the callback URL, submit its `code` and `state` to Ceto:
 
 ```http
-POST /store/auth/customer/google/callback
-Content-Type: application/json
-
-{"code":"...","state":"..."}
+GET /ceto/auth/customer/google/callback?code=...&state=...
 ```
 
 The callback returns the same `{"token":"..."}` Ceto JWT shape as email/password authentication. OAuth state is single-use and expires after ten minutes. Existing System Users cannot authenticate through the customer endpoint; new users follow Frappe's Social Login signup policy and are created as Website Users.

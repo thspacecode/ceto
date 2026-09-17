@@ -240,7 +240,7 @@ app_license = "mit"
 # Authentication and authorization
 # --------------------------------
 
-auth_hooks = ["ceto.api.auth.tokens.authenticate_bearer_token"]
+auth_hooks = ["ceto.services.auth.tokens.authenticate_bearer_token"]
 
 # Automatically update python controller files with type annotations for this app.
 # export_python_type_annotations = True

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, SecretStr
 
 
 class EmailPasswordInput(BaseModel):
@@ -8,3 +8,20 @@ class EmailPasswordInput(BaseModel):
 
 	email: str = Field(min_length=1)
 	password: SecretStr = Field(min_length=1)
+
+
+class GoogleOAuthInput(BaseModel):
+	"""Input used to begin Google's authorization-code flow."""
+
+	model_config = ConfigDict(extra="forbid")
+
+	callback_url: HttpUrl
+
+
+class OAuthCallbackInput(BaseModel):
+	"""Authorization response returned by an OAuth provider."""
+
+	model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+	code: str = Field(min_length=1)
+	state: str = Field(min_length=1)

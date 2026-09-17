@@ -6,7 +6,7 @@ import frappe
 from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request, Response
 
-from ceto.api.auth.authentication import authenticate
+from ceto.api.auth.authentication import authenticate, authenticate_callback
 from ceto.api.auth.providers import list_customer_auth_providers
 from ceto.routing import Router, store_router
 from ceto.routing.medusa import CetoPageRenderer, normalize_store_error
@@ -16,6 +16,7 @@ class TestRouter(TestCase):
 	def test_decorator_does_not_use_frappe_whitelist(self):
 		self.assertNotIn(list_customer_auth_providers, frappe.whitelisted)
 		self.assertNotIn(authenticate, frappe.whitelisted)
+		self.assertNotIn(authenticate_callback, frappe.whitelisted)
 		self.assertFalse(hasattr(list_customer_auth_providers, "is_whitelisted"))
 		self.assertFalse(hasattr(authenticate, "is_whitelisted"))
 
@@ -36,6 +37,15 @@ class TestRouter(TestCase):
 		self.assertEqual(route.path, "/store/auth/customer/{auth_provider}")
 		self.assertEqual(route.dotted_path, "ceto.api.auth.authentication.authenticate")
 		self.assertEqual(arguments, {"auth_provider": "emailpass"})
+
+	def test_matches_authentication_callback_route(self):
+		request = self._request("/store/auth/customer/google/callback", "POST")
+
+		route, arguments = store_router.match(request)
+
+		self.assertEqual(route.path, "/store/auth/customer/{auth_provider}/callback")
+		self.assertEqual(route.dotted_path, "ceto.api.auth.authentication.authenticate_callback")
+		self.assertEqual(arguments, {"auth_provider": "google"})
 
 	@patch("ceto.routing.router.frappe.get_hooks", return_value={})
 	@patch("ceto.api.auth.providers.get_customer_auth_providers", return_value=[])

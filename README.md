@@ -249,6 +249,30 @@ The authentication hook accepts Ceto tokens supplied as:
 Authorization: Bearer <token>
 ```
 
+### Google OAuth
+
+Ceto exposes Google as a redirect provider when an enabled `google` **Social Login Key** with a client ID and secret is configured in Frappe. Add every storefront callback URL to the Google OAuth client's authorized redirect URIs.
+
+Start the authorization-code flow with the storefront callback URL:
+
+```http
+POST /store/auth/customer/google
+Content-Type: application/json
+
+{"callback_url":"https://shop.example.com/auth/google"}
+```
+
+Redirect the browser to the returned `location`. After Google redirects to the callback URL, submit its `code` and `state` to Ceto:
+
+```http
+POST /store/auth/customer/google/callback
+Content-Type: application/json
+
+{"code":"...","state":"..."}
+```
+
+The callback returns the same `{"token":"..."}` Ceto JWT shape as email/password authentication. OAuth state is single-use and expires after ten minutes. Existing System Users cannot authenticate through the customer endpoint; new users follow Frappe's Social Login signup policy and are created as Website Users.
+
 ## Installation
 
 Install this app using the [Bench CLI](https://github.com/frappe/bench):

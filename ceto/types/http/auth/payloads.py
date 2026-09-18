@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, HttpUrl, SecretStr
 
 
@@ -25,3 +27,23 @@ class OAuthCallbackInput(BaseModel):
 
 	code: str = Field(min_length=1)
 	state: str = Field(min_length=1)
+
+
+class VerificationRequestInput(BaseModel):
+	"""Identity details used to create a verification code."""
+
+	model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+	entity_id: str = Field(min_length=1)
+	entity_type: str = Field(min_length=1)
+	code_provider: str = Field(min_length=1)
+	metadata: dict[str, Any] | None = None
+
+
+class VerificationConfirmInput(BaseModel):
+	"""Code submitted to complete identity verification."""
+
+	model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+	code: str = Field(min_length=1)
+	code_provider: str = "token"

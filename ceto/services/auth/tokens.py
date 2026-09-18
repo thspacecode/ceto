@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import frappe
@@ -23,10 +24,19 @@ def create_customer_token(user: str) -> str:
 			"iss": ISSUER,
 			"iat": now,
 			"exp": now + timedelta(seconds=_token_expiry_seconds()),
+			"jti": uuid.uuid4().hex,
 		},
 		_jwt_secret(),
 		algorithm=ALGORITHM,
 	)
+
+
+def refresh_customer_token(user: str) -> str:
+	"""Issue a new token only for an enabled website customer."""
+	user_details = frappe.db.get_value("User", user, ["enabled", "user_type"], as_dict=True)
+	if not user_details or not user_details.enabled or user_details.user_type != "Website User":
+		raise frappe.AuthenticationError
+	return create_customer_token(user)
 
 
 def decode_customer_token(token: str) -> dict:

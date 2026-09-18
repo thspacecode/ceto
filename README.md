@@ -206,6 +206,27 @@ Authorization: Bearer <token>
 
 Ceto follows Medusa's auth response contracts at `/ceto/auth/...`. Configure the official `@medusajs/js-sdk` with a `baseUrl` ending in `/ceto`; the SDK then resolves its `/auth/...` and `/store/...` requests below that prefix. Cookie-authenticated browser requests to unsafe `/ceto/*` methods must include Frappe's `X-Frappe-CSRF-Token` header; bearer-token and guest clients do not use a session CSRF token.
 
+Authenticated customers can refresh a bearer token with `POST /ceto/auth/token/refresh`, exchange a bearer token for a Frappe cookie session with `POST /ceto/auth/session`, and delete that cookie session with `DELETE /ceto/auth/session`.
+
+### Customer verification
+
+`POST /ceto/auth/verification/request` creates a cryptographically random, single-use token. Ceto stores only the token's SHA-256 lookup key, expires requests after 15 minutes by default, and calls every handler in the `ceto_auth_verification_requested` hook. A delivery app can send the code by email, SMS, or another channel:
+
+```python
+ceto_auth_verification_requested = ["my_app.auth.deliver_verification_code"]
+```
+
+The handler receives `entity_id`, `entity_type`, `code_provider`, `code`, `expires_at`, and `metadata` keyword arguments. `POST /ceto/auth/verification/confirm` consumes the code once and calls the optional `ceto_auth_verification_confirmed` hook. A confirmed identity remains available to downstream registration logic through `ceto.services.auth.verification.is_verified` for one hour by default.
+
+Only the Medusa-compatible `token` code provider is built in. The expiration windows can be overridden in `site_config.json`:
+
+```json
+{
+  "ceto_auth_verification_expiry_seconds": 900,
+  "ceto_auth_verified_expiry_seconds": 3600
+}
+```
+
 ### Google OAuth
 
 Ceto exposes Google as a redirect provider when an enabled `google` **Social Login Key** with a client ID and secret is configured in Frappe. Add every storefront callback URL to the Google OAuth client's authorized redirect URIs.

@@ -249,6 +249,10 @@ after_request = ["ceto.routing.medusa.normalize_ceto_error"]
 
 auth_hooks = ["ceto.services.auth.tokens.authenticate_bearer_token"]
 
+# Downstream apps deliver and react to customer verification codes through these hooks:
+# ceto_auth_verification_requested = ["my_app.auth.deliver_verification_code"]
+# ceto_auth_verification_confirmed = ["my_app.auth.on_identity_verified"]
+
 # Automatically update python controller files with type annotations for this app.
 # export_python_type_annotations = True
 

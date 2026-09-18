@@ -132,9 +132,7 @@ class TestRouter(CetoTestSuite):
 		with self.patch_hooks(
 			{
 				"ceto_route_overrides": {
-					"GET /ceto/store/products": [
-						"ceto.tests.routing.test_router.overridden_products"
-					]
+					"GET /ceto/store/products": ["ceto.tests.routing.test_router.overridden_products"]
 				}
 			}
 		):

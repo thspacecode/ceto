@@ -69,7 +69,9 @@ def authenticate_bearer_token() -> None:
 	if not user_details or not user_details.enabled or user_details.user_type != "Website User":
 		raise frappe.AuthenticationError
 
-	frappe.set_user(user)
+	# The signed token's subject is accepted only after issuer, actor type, expiry,
+	# enabled state, and Website User type validation above.
+	frappe.set_user(user)  # nosemgrep: frappe-setuser
 
 
 def _jwt_secret() -> str:

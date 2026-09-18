@@ -87,7 +87,9 @@ def _validate_provider(code_provider: str) -> None:
 
 def _run_hooks(hook: str, **payload: Any) -> None:
 	for method in frappe.get_hooks(hook, []):
-		frappe.call(frappe.get_attr(method), **payload)
+		# Hook paths come exclusively from installed-app configuration. This is the
+		# standard Frappe extension boundary, not request-controlled dynamic code.
+		frappe.call(frappe.get_attr(method), **payload)  # nosemgrep: frappe-codeinjection-eval
 
 
 def _verification_key(code: str) -> str:

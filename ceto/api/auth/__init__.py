@@ -1,0 +1,1 @@
+"""Customer authentication HTTP endpoints."""

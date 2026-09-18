@@ -205,8 +205,15 @@ app_license = "mit"
 
 # Request Events
 # ----------------
-# before_request = ["ceto.utils.before_request"]
-# after_request = ["ceto.utils.after_request"]
+# Ceto uses a website page renderer so Medusa API functions are dispatched directly
+# under /ceto rather than through Frappe's whitelisted RPC handler.
+page_renderer = ["ceto.routing.medusa.CetoPageRenderer"]
+after_request = ["ceto.routing.medusa.normalize_ceto_error"]
+
+# Downstream apps can replace handlers by external route contract, for example:
+# ceto_route_overrides = {
+# 	"POST /ceto/auth/customer/{auth_provider}": "my_app.api.authenticate_customer"
+# }
 
 # Job Events
 # ----------
@@ -240,9 +247,7 @@ app_license = "mit"
 # Authentication and authorization
 # --------------------------------
 
-# auth_hooks = [
-# 	"ceto.auth.validate"
-# ]
+auth_hooks = ["ceto.services.auth.tokens.authenticate_bearer_token"]
 
 # Automatically update python controller files with type annotations for this app.
 # export_python_type_annotations = True
@@ -255,4 +260,3 @@ app_license = "mit"
 # ------------
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
-

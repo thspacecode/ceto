@@ -1,5 +1,5 @@
 import frappe
-from frappe.auth import LoginManager
+from frappe.auth import CookieManager, LoginManager
 from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request
 
@@ -19,7 +19,9 @@ class TestAuthSessions(CetoTestSuite):
 		)
 		manager = self._login_manager()
 		previous_manager = getattr(frappe.local, "login_manager", None)
+		previous_cookie_manager = getattr(frappe.local, "cookie_manager", None)
 		frappe.local.login_manager = manager
+		frappe.local.cookie_manager = CookieManager()
 		try:
 			with self.set_user(TEST_CUSTOMER), self.set_request(request):
 				response = create_authentication_session()
@@ -33,6 +35,7 @@ class TestAuthSessions(CetoTestSuite):
 				self.assertEqual(frappe.session.user, "Guest")
 		finally:
 			frappe.local.login_manager = previous_manager
+			frappe.local.cookie_manager = previous_cookie_manager
 
 	@staticmethod
 	def _login_manager() -> LoginManager:

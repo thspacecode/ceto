@@ -31,6 +31,188 @@ const sdk = new Medusa({
 })
 ```
 
+## API implementation status
+
+Medusa API implementation status, grouped by scope. Routes follow the [Medusa Store API reference](https://docs.medusajs.com/api/store/auth) and are exposed below Ceto's `/ceto` prefix.
+
+**Status:** ✅️ Implemented · ⚪️ To implement
+
+### Auth
+
+| Method | Route | Status |
+| --- | --- | --- |
+| GET | `/auth/customer/providers` | ✅️ |
+| POST | `/auth/customer/{auth_provider}` | ✅️ |
+| POST | `/auth/verification/confirm` | ✅️ |
+| POST | `/auth/customer/{auth_provider}/reset-password` | ⚪️ |
+| POST | `/auth/token/refresh` | ✅️ |
+| POST | `/auth/verification/request` | ✅️ |
+| POST | `/auth/customer/{auth_provider}/update` | ⚪️ |
+| POST | `/auth/customer/{auth_provider}/register` | ⚪️ |
+| POST | `/auth/session` | ✅️ |
+| POST | `/auth/customer/{auth_provider}/callback` | ✅️ |
+| POST | `/auth/customer/emailpass/verification/confirm` | ⚪️ |
+| DELETE | `/auth/session` | ✅️ |
+
+### Carts
+
+| Method | Route | Status |
+| --- | --- | --- |
+| GET | `/store/carts/{id}` | ⚪️ |
+| POST | `/store/carts/{id}/gift-cards` | ⚪️ |
+| POST | `/store/carts/{id}/line-items` | ⚪️ |
+| POST | `/store/carts/{id}/promotions` | ⚪️ |
+| POST | `/store/carts/{id}/shipping-methods` | ⚪️ |
+| POST | `/store/carts/{id}/store-credits` | ⚪️ |
+| POST | `/store/carts/{id}/taxes` | ⚪️ |
+| POST | `/store/carts/{id}/customer` | ⚪️ |
+| POST | `/store/carts/{id}/complete` | ⚪️ |
+| POST | `/store/carts` | ⚪️ |
+| POST | `/store/carts/{id}` | ⚪️ |
+| POST | `/store/carts/{id}/line-items/{line_id}` | ⚪️ |
+| DELETE | `/store/carts/{id}/gift-cards` | ⚪️ |
+| DELETE | `/store/carts/{id}/line-items/{line_id}` | ⚪️ |
+| DELETE | `/store/carts/{id}/promotions` | ⚪️ |
+
+### Collections
+
+| Method | Route | Status |
+| --- | --- | --- |
+| GET | `/store/collections/{id}` | ⚪️ |
+| GET | `/store/collections` | ⚪️ |
+
+### Currencies
+
+| Method | Route | Status |
+| --- | --- | --- |
+| GET | `/store/currencies/{code}` | ⚪️ |
+| GET | `/store/currencies` | ⚪️ |
+
+### Customers
+
+| Method | Route | Status |
+| --- | --- | --- |
+| GET | `/store/customers/me/addresses/{address_id}` | ⚪️ |
+| GET | `/store/customers/me` | ⚪️ |
+| GET | `/store/customers/me/addresses` | ⚪️ |
+| POST | `/store/customers/me/addresses` | ⚪️ |
+| POST | `/store/customers` | ⚪️ |
+| POST | `/store/customers/me` | ⚪️ |
+| POST | `/store/customers/me/addresses/{address_id}` | ⚪️ |
+| DELETE | `/store/customers/me/addresses/{address_id}` | ⚪️ |
+
+### Gift Cards
+
+| Method | Route | Status |
+| --- | --- | --- |
+| GET | `/store/gift-cards/{idOrCode}` | ⚪️ |
+
+### Locales
+
+| Method | Route | Status |
+| --- | --- | --- |
+| GET | `/store/locales` | ⚪️ |
+
+### Orders
+
+| Method | Route | Status |
+| --- | --- | --- |
+| GET | `/store/orders/{id}` | ⚪️ |
+| GET | `/store/orders` | ⚪️ |
+| POST | `/store/orders/{id}/transfer/accept` | ⚪️ |
+| POST | `/store/orders/{id}/transfer/cancel` | ⚪️ |
+| POST | `/store/orders/{id}/transfer/decline` | ⚪️ |
+| POST | `/store/orders/{id}/transfer/request` | ⚪️ |
+
+### Payment Collections
+
+| Method | Route | Status |
+| --- | --- | --- |
+| POST | `/store/payment-collections` | ⚪️ |
+| POST | `/store/payment-collections/{id}/payment-sessions` | ⚪️ |
+
+### Payment Providers
+
+| Method | Route | Status |
+| --- | --- | --- |
+| GET | `/store/payment-providers` | ⚪️ |
+
+### Product Categories
+
+| Method | Route | Status |
+| --- | --- | --- |
+| GET | `/store/product-categories/{id}` | ⚪️ |
+| GET | `/store/product-categories` | ⚪️ |
+
+### Product Options
+
+| Method | Route | Status |
+| --- | --- | --- |
+| GET | `/store/product-options/{id}` | ⚪️ |
+| GET | `/store/product-options` | ⚪️ |
+
+### Product Tags
+
+| Method | Route | Status |
+| --- | --- | --- |
+| GET | `/store/product-tags/{id}` | ⚪️ |
+| GET | `/store/product-tags` | ⚪️ |
+
+### Product Types
+
+| Method | Route | Status |
+| --- | --- | --- |
+| GET | `/store/product-types/{id}` | ⚪️ |
+| GET | `/store/product-types` | ⚪️ |
+
+### Product Variants
+
+| Method | Route | Status |
+| --- | --- | --- |
+| GET | `/store/product-variants` | ⚪️ |
+
+### Products
+
+| Method | Route | Status |
+| --- | --- | --- |
+| GET | `/store/products/{id}` | ⚪️ |
+| GET | `/store/products` | ⚪️ |
+
+### Regions
+
+| Method | Route | Status |
+| --- | --- | --- |
+| GET | `/store/regions/{id}` | ⚪️ |
+| GET | `/store/regions` | ⚪️ |
+
+### Return Reasons
+
+| Method | Route | Status |
+| --- | --- | --- |
+| GET | `/store/return-reasons/{id}` | ⚪️ |
+| GET | `/store/return-reasons` | ⚪️ |
+
+### Returns
+
+| Method | Route | Status |
+| --- | --- | --- |
+| POST | `/store/returns` | ⚪️ |
+
+### Shipping Options
+
+| Method | Route | Status |
+| --- | --- | --- |
+| GET | `/store/shipping-options` | ⚪️ |
+| POST | `/store/shipping-options/{id}/calculate` | ⚪️ |
+
+### Store Credit Accounts
+
+| Method | Route | Status |
+| --- | --- | --- |
+| GET | `/store/store-credit-accounts/{id}` | ⚪️ |
+| GET | `/store/store-credit-accounts` | ⚪️ |
+| POST | `/store/store-credit-accounts/claim` | ⚪️ |
+
 ## Project structure
 
 Ceto separates public HTTP contracts, route adapters, application behavior, and Frappe integration. Domains follow this scalable structure, which mirrors Medusa's domain-oriented HTTP types layout:
@@ -205,6 +387,27 @@ Authorization: Bearer <token>
 ```
 
 Ceto follows Medusa's auth response contracts at `/ceto/auth/...`. Configure the official `@medusajs/js-sdk` with a `baseUrl` ending in `/ceto`; the SDK then resolves its `/auth/...` and `/store/...` requests below that prefix. Cookie-authenticated browser requests to unsafe `/ceto/*` methods must include Frappe's `X-Frappe-CSRF-Token` header; bearer-token and guest clients do not use a session CSRF token.
+
+Authenticated customers can refresh a bearer token with `POST /ceto/auth/token/refresh`, exchange a bearer token for a Frappe cookie session with `POST /ceto/auth/session`, and delete that cookie session with `DELETE /ceto/auth/session`.
+
+### Customer verification
+
+`POST /ceto/auth/verification/request` creates a cryptographically random, single-use token. Ceto stores only the token's SHA-256 lookup key, expires requests after 15 minutes by default, and calls every handler in the `ceto_auth_verification_requested` hook. A delivery app can send the code by email, SMS, or another channel:
+
+```python
+ceto_auth_verification_requested = ["my_app.auth.deliver_verification_code"]
+```
+
+The handler receives `entity_id`, `entity_type`, `code_provider`, `code`, `expires_at`, and `metadata` keyword arguments. `POST /ceto/auth/verification/confirm` consumes the code once and calls the optional `ceto_auth_verification_confirmed` hook. A confirmed identity remains available to downstream registration logic through `ceto.services.auth.verification.is_verified` for one hour by default.
+
+Only the Medusa-compatible `token` code provider is built in. The expiration windows can be overridden in `site_config.json`:
+
+```json
+{
+  "ceto_auth_verification_expiry_seconds": 900,
+  "ceto_auth_verified_expiry_seconds": 3600
+}
+```
 
 ### Google OAuth
 

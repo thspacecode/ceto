@@ -105,8 +105,8 @@ class TestTokens(CetoTestSuite):
 		)
 
 		for token in (
-			create_customer_password_reset_token(TEST_CUSTOMER),
-			create_customer_registration_token(TEST_CUSTOMER),
+			create_customer_password_reset_token(TEST_CUSTOMER, "emailpass"),
+			create_customer_registration_token(TEST_CUSTOMER, "emailpass"),
 		):
 			with self.subTest(token=token[:16]):
 				with self.assertRaises(jwt.InvalidTokenError):
@@ -119,8 +119,8 @@ class TestTokens(CetoTestSuite):
 		)
 
 		for token in (
-			create_customer_password_reset_token(TEST_CUSTOMER),
-			create_customer_registration_token(TEST_CUSTOMER),
+			create_customer_password_reset_token(TEST_CUSTOMER, "emailpass"),
+			create_customer_registration_token(TEST_CUSTOMER, "emailpass"),
 		):
 			with self.subTest(token=token[:16]):
 				request = self._request("/ceto/account", "GET", headers={"Authorization": f"Bearer {token}"})
@@ -134,14 +134,14 @@ class TestTokens(CetoTestSuite):
 			get_bearer_password_reset_user,
 		)
 
-		token = create_customer_password_reset_token(TEST_CUSTOMER)
+		token = create_customer_password_reset_token(TEST_CUSTOMER, "emailpass")
 		request = self._request(
 			"/ceto/auth/customer/emailpass/update",
 			"POST",
 			headers={"Authorization": f"Bearer {token}"},
 		)
 		with self.set_request(request):
-			self.assertEqual(get_bearer_password_reset_user(), TEST_CUSTOMER)
+			self.assertEqual(get_bearer_password_reset_user("emailpass"), TEST_CUSTOMER)
 
 	def test_single_purpose_token_expiry_settings(self):
 		from ceto.services.auth.tokens import (
@@ -150,11 +150,11 @@ class TestTokens(CetoTestSuite):
 		)
 
 		with self.set_conf(ceto_password_reset_token_expiry_seconds=120):
-			token = create_customer_password_reset_token(TEST_CUSTOMER)
+			token = create_customer_password_reset_token(TEST_CUSTOMER, "emailpass")
 			claims = decode_customer_token(token, purpose="password_reset")
 			self.assertEqual(claims["exp"] - claims["iat"], 120)
 
 		with self.set_conf(ceto_registration_token_expiry_seconds=300):
-			token = create_customer_registration_token(TEST_CUSTOMER)
+			token = create_customer_registration_token(TEST_CUSTOMER, "emailpass")
 			claims = decode_customer_token(token, purpose="registration")
 			self.assertEqual(claims["exp"] - claims["iat"], 300)

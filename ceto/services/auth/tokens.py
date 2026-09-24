@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import frappe
 import jwt
@@ -22,32 +23,31 @@ _HKDF_SALT = b"ceto-jwt-hkdf-sha256-v1"
 _HKDF_INFO = b"ceto/customer-token/hs256"
 
 
-def create_customer_token(user: str, *, purpose: str = AUTH_PURPOSE) -> str:
+def create_customer_token(user: str, *, purpose: str = AUTH_PURPOSE, provider: str | None = None) -> str:
 	"""Create the bearer token returned by the Medusa-compatible auth endpoint."""
 	now = datetime.now(UTC)
-	return jwt.encode(
-		{
-			"sub": user,
-			"actor_type": "customer",
-			"purpose": purpose,
-			"iss": ISSUER,
-			"iat": now,
-			"exp": now + timedelta(seconds=_token_expiry_seconds(purpose)),
-			"jti": uuid.uuid4().hex,
-		},
-		_jwt_secret(),
-		algorithm=ALGORITHM,
-	)
+	claims: dict[str, Any] = {
+		"sub": user,
+		"actor_type": "customer",
+		"purpose": purpose,
+		"iss": ISSUER,
+		"iat": now,
+		"exp": now + timedelta(seconds=_token_expiry_seconds(purpose)),
+		"jti": uuid.uuid4().hex,
+	}
+	if provider is not None:
+		claims["provider"] = provider
+	return jwt.encode(claims, _jwt_secret(), algorithm=ALGORITHM)
 
 
-def create_customer_password_reset_token(user: str) -> str:
+def create_customer_password_reset_token(user: str, provider: str) -> str:
 	"""Create the single-purpose token consumed by the reset-password ``update`` route."""
-	return create_customer_token(user, purpose=PASSWORD_RESET_PURPOSE)
+	return create_customer_token(user, purpose=PASSWORD_RESET_PURPOSE, provider=provider)
 
 
-def create_customer_registration_token(user: str) -> str:
+def create_customer_registration_token(user: str, provider: str) -> str:
 	"""Create the single-purpose token used to create the customer after registration."""
-	return create_customer_token(user, purpose=REGISTRATION_PURPOSE)
+	return create_customer_token(user, purpose=REGISTRATION_PURPOSE, provider=provider)
 
 
 def refresh_customer_token(user: str) -> str:
@@ -141,8 +141,12 @@ def _token_expiry_seconds(purpose: str = AUTH_PURPOSE) -> int:
 	return expiry if expiry > 0 else default
 
 
-def get_bearer_password_reset_user() -> str:
-	"""Resolve the customer identified by the request's password-reset bearer token."""
+def get_bearer_password_reset_user(provider: str) -> str:
+	"""Resolve the customer identified by the request's password-reset bearer token.
+
+	The token must have been issued by ``provider`` and must not have been used
+	before, making reset tokens single-use.
+	"""
 	token = _get_bearer_token()
 	if not token:
 		raise frappe.AuthenticationError
@@ -150,7 +154,29 @@ def get_bearer_password_reset_user() -> str:
 		claims = decode_customer_token(token, purpose=PASSWORD_RESET_PURPOSE)
 	except jwt.InvalidTokenError:
 		raise frappe.AuthenticationError from None
+	if claims.get("provider") != provider:
+		raise frappe.AuthenticationError
+	if frappe.cache().get_value(_reset_token_used_key(claims["jti"])):
+		raise frappe.AuthenticationError
 	return _validate_website_customer(claims["sub"])
+
+
+def revoke_bearer_password_reset_token() -> None:
+	"""Mark the request's password-reset token as used so it cannot be replayed."""
+	token = _get_bearer_token()
+	if not token:
+		return
+	try:
+		claims = decode_customer_token(token, purpose=PASSWORD_RESET_PURPOSE)
+	except jwt.InvalidTokenError:
+		return
+	# The cache entry only needs to outlive the token itself.
+	remaining_seconds = max(int(claims["exp"] - datetime.now(UTC).timestamp()), 1)
+	frappe.cache().set_value(_reset_token_used_key(claims["jti"]), 1, expires_in_sec=remaining_seconds)
+
+
+def _reset_token_used_key(jti: str) -> str:
+	return f"ceto_password_reset_used::{jti}"
 
 
 def _get_bearer_token() -> str | None:

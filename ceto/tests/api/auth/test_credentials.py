@@ -52,7 +52,7 @@ class TestCredentials(CetoTestSuite):
 		with self.patch_hooks(hooks):
 			response = generate_customer_password_reset_token("emailpass", identifier=TEST_CUSTOMER)
 
-		self.assertEqual(response.status_code, 201)
+		self.assertEqual(response.status_code, 200)
 		self.assertEqual(len(_delivered_reset_tokens), 1)
 		event = _delivered_reset_tokens[0]
 		self.assertEqual(event["identifier"], TEST_CUSTOMER)
@@ -65,7 +65,7 @@ class TestCredentials(CetoTestSuite):
 		with self.patch_hooks(hooks):
 			response = generate_customer_password_reset_token("emailpass", identifier="nobody@example.com")
 
-		self.assertEqual(response.status_code, 201)
+		self.assertEqual(response.status_code, 200)
 		self.assertEqual(_delivered_reset_tokens, [])
 
 	def test_update_credentials_consumes_reset_token(self):
@@ -103,6 +103,36 @@ class TestCredentials(CetoTestSuite):
 		):
 			update_customer_authentication("emailpass", email=TEST_CUSTOMER, password=TEST_CUSTOMER_PASSWORD)
 
+	def test_update_credentials_rejects_replayed_reset_token(self):
+		token = self._reset_token_for(TEST_CUSTOMER)
+		new_password = "A brand new correct horse battery staple 7!"
+		request = self._request(
+			"/ceto/auth/customer/emailpass/update",
+			"POST",
+			headers={"Authorization": f"Bearer {token}"},
+		)
+
+		with self.set_request(request):
+			update_customer_authentication("emailpass", email=TEST_CUSTOMER, password=new_password)
+			with self.assertRaises(frappe.AuthenticationError):
+				update_customer_authentication("emailpass", email=TEST_CUSTOMER, password=new_password)
+
+	def test_update_credentials_rejects_token_from_other_provider(self):
+		from ceto.services.auth.tokens import create_customer_password_reset_token
+
+		token = create_customer_password_reset_token(TEST_CUSTOMER, "some-other-provider")
+		request = self._request(
+			"/ceto/auth/customer/emailpass/update",
+			"POST",
+			headers={"Authorization": f"Bearer {token}"},
+		)
+
+		with (
+			self.set_request(request),
+			self.assertRaises(frappe.AuthenticationError),
+		):
+			update_customer_authentication("emailpass", email=TEST_CUSTOMER, password=TEST_CUSTOMER_PASSWORD)
+
 	def test_update_credentials_requires_reset_token(self):
 		request = self._request("/ceto/auth/customer/emailpass/update", "POST")
 		with (
@@ -114,7 +144,7 @@ class TestCredentials(CetoTestSuite):
 	def _reset_token_for(self, user: str) -> str:
 		from ceto.services.auth.tokens import create_customer_password_reset_token
 
-		return create_customer_password_reset_token(user)
+		return create_customer_password_reset_token(user, "emailpass")
 
 	def _new_email(self) -> str:
 		import uuid

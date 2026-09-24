@@ -21,7 +21,7 @@ def generate_customer_password_reset_token(auth_provider: str, **payload: Any) -
 	"""Generate a password-reset token and deliver it to configured subscribers."""
 	provider = get_customer_auth_provider(auth_provider)
 	provider.reset_password(payload)
-	return Response(status=201)
+	return Response(status=200)
 
 
 @ceto_router.post("/auth/customer/{auth_provider}/update", allow_guest=True)

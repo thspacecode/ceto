@@ -3,8 +3,10 @@ from ceto.types.http.auth.payloads import (
 	EmailPasswordInput,
 	GoogleOAuthInput,
 	OAuthCallbackInput,
+	ResetPasswordTokenInput,
 	VerificationConfirmInput,
 	VerificationRequestInput,
+	VerificationTokenInput,
 )
 from ceto.types.http.auth.responses import (
 	AuthProvidersListResponse,
@@ -12,6 +14,7 @@ from ceto.types.http.auth.responses import (
 	AuthResponse,
 	AuthSessionDeleteResponse,
 	AuthSessionResponse,
+	AuthSuccessResponse,
 )
 
 __all__ = [
@@ -21,10 +24,13 @@ __all__ = [
 	"AuthResponse",
 	"AuthSessionDeleteResponse",
 	"AuthSessionResponse",
+	"AuthSuccessResponse",
 	"AuthUser",
 	"EmailPasswordInput",
 	"GoogleOAuthInput",
 	"OAuthCallbackInput",
+	"ResetPasswordTokenInput",
 	"VerificationConfirmInput",
 	"VerificationRequestInput",
+	"VerificationTokenInput",
 ]

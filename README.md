@@ -44,14 +44,14 @@ Medusa API implementation status, grouped by scope. Routes follow the [Medusa St
 | GET | `/auth/customer/providers` | ✅️ |
 | POST | `/auth/customer/{auth_provider}` | ✅️ |
 | POST | `/auth/verification/confirm` | ✅️ |
-| POST | `/auth/customer/{auth_provider}/reset-password` | ⚪️ |
+| POST | `/auth/customer/{auth_provider}/reset-password` | ✅️ |
 | POST | `/auth/token/refresh` | ✅️ |
 | POST | `/auth/verification/request` | ✅️ |
-| POST | `/auth/customer/{auth_provider}/update` | ⚪️ |
-| POST | `/auth/customer/{auth_provider}/register` | ⚪️ |
+| POST | `/auth/customer/{auth_provider}/update` | ✅️ |
+| POST | `/auth/customer/{auth_provider}/register` | ✅️ |
 | POST | `/auth/session` | ✅️ |
 | POST | `/auth/customer/{auth_provider}/callback` | ✅️ |
-| POST | `/auth/customer/emailpass/verification/confirm` | ⚪️ |
+| POST | `/auth/customer/emailpass/verification/confirm` | ✅️ |
 | DELETE | `/auth/session` | ✅️ |
 
 ### Carts
@@ -389,6 +389,31 @@ Authorization: Bearer <token>
 Ceto follows Medusa's auth response contracts at `/ceto/auth/...`. Configure the official `@medusajs/js-sdk` with a `baseUrl` ending in `/ceto`; the SDK then resolves its `/auth/...` and `/store/...` requests below that prefix. Cookie-authenticated browser requests to unsafe `/ceto/*` methods must include Frappe's `X-Frappe-CSRF-Token` header; bearer-token and guest clients do not use a session CSRF token.
 
 Authenticated customers can refresh a bearer token with `POST /ceto/auth/token/refresh`, exchange a bearer token for a Frappe cookie session with `POST /ceto/auth/session`, and delete that cookie session with `DELETE /ceto/auth/session`.
+
+### Registration, password reset, and credential updates
+
+`POST /ceto/auth/customer/{auth_provider}/register` validates registration credentials and returns a single-purpose `registration` token without creating the customer; a confirmed registration token is exchanged when creating the customer through the store customers API. `POST /ceto/auth/customer/{auth_provider}/reset-password` returns `201` with an empty body whether or not the identifier is registered, so it cannot be used to enumerate customers. For a registered website customer Ceto issues a single-purpose `password_reset` token and calls every handler in the `ceto_auth_password_reset` hook:
+
+```python
+ceto_auth_password_reset = ["my_app.auth.deliver_password_reset_token"]
+```
+
+The handler receives `identifier`, `token`, and `metadata` keyword arguments. The customer then submits new credentials with the reset token to `POST /ceto/auth/customer/{auth_provider}/update`:
+
+```http
+Authorization: Bearer <password_reset token>
+```
+
+Ceto bearer tokens are purpose-bound: `registration` and `password_reset` tokens are valid signatures but never authenticate requests; only `auth`-purpose tokens do. Token lifetimes default to 24 hours for `auth`, 1 hour for `password_reset`, and 1 hour for `registration`, and can be overridden in `site_config.json`:
+
+```json
+{
+  "ceto_password_reset_token_expiry_seconds": 3600,
+  "ceto_registration_token_expiry_seconds": 3600
+}
+```
+
+`POST /ceto/auth/customer/emailpass/verification/confirm` verifies a customer's email with the token delivered out of band (the Medusa `token` shape for the emailpass provider).
 
 ### Customer verification
 

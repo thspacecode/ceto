@@ -20,6 +20,12 @@ class AuthRedirectResponse(JSONModel):
 	location: str
 
 
+class AuthSuccessResponse(JSONModel):
+	"""Result returned after updating a provider's credentials."""
+
+	success: bool
+
+
 class AuthSessionResponse(JSONModel):
 	"""Customer identity associated with a newly created cookie session."""
 

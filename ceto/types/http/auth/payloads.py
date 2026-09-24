@@ -29,6 +29,23 @@ class OAuthCallbackInput(BaseModel):
 	state: str = Field(min_length=1)
 
 
+class ResetPasswordTokenInput(BaseModel):
+	"""Identifier used to generate a provider password-reset token."""
+
+	model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+	identifier: str = Field(min_length=1)
+	metadata: dict[str, Any] | None = None
+
+
+class VerificationTokenInput(BaseModel):
+	"""Verification token delivered to the customer out of band."""
+
+	model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+	token: str = Field(min_length=1)
+
+
 class VerificationRequestInput(BaseModel):
 	"""Identity details used to create a verification code."""
 

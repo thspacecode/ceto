@@ -450,7 +450,10 @@ Content-Type: application/json
 Redirect the browser to the returned `location`. After Google redirects to the callback URL, submit its `code` and `state` to Ceto:
 
 ```http
-GET /ceto/auth/customer/google/callback?code=...&state=...
+POST /ceto/auth/customer/google/callback
+Content-Type: application/json
+
+{"code":"...","state":"..."}
 ```
 
 The callback returns the same `{"token":"..."}` Ceto JWT shape as email/password authentication. OAuth state is single-use and expires after ten minutes. Existing System Users cannot authenticate through the customer endpoint; new users follow Frappe's Social Login signup policy and are created as Website Users.

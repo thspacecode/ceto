@@ -12,7 +12,6 @@ def authenticate(auth_provider: str, **credentials: Any) -> JSON[AuthRedirectRes
 	return provider.authenticate(credentials).to_response()
 
 
-@ceto_router.get("/auth/customer/{auth_provider}/callback", allow_guest=True)
 @ceto_router.post("/auth/customer/{auth_provider}/callback", allow_guest=True)
 def authenticate_callback(auth_provider: str, **callback: Any) -> JSON[AuthRedirectResponse | AuthResponse]:
 	"""Complete a provider redirect flow and return its authentication result."""

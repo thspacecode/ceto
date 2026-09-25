@@ -2,6 +2,7 @@ from uuid import uuid4
 
 import frappe
 from frappe.auth import LoginManager
+from werkzeug.exceptions import MethodNotAllowed
 from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request
 
@@ -28,7 +29,7 @@ class TestRouter(CetoTestSuite):
 			),
 			(
 				"/ceto/auth/customer/google/callback",
-				"GET",
+				"POST",
 				"/ceto/auth/customer/{auth_provider}/callback",
 				{"auth_provider": "google"},
 			),
@@ -37,6 +38,10 @@ class TestRouter(CetoTestSuite):
 				route, matched_arguments = ceto_router.match(self._request(path, method))
 				self.assertEqual(route.path, expected_path)
 				self.assertEqual(matched_arguments, arguments)
+
+	def test_callback_route_rejects_get(self):
+		with self.assertRaises(MethodNotAllowed):
+			ceto_router.match(self._request("/ceto/auth/customer/google/callback", "GET"))
 
 	def test_dispatches_endpoint_and_returns_direct_json(self):
 		response = ceto_router.dispatch(self._request("/ceto/auth/customer/providers", "GET"))

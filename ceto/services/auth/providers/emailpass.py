@@ -1,3 +1,5 @@
+from collections.abc import Callable
+from importlib import import_module
 from typing import Any
 
 import frappe
@@ -80,11 +82,9 @@ class EmailPasswordProvider(CustomerAuthProvider):
 			return
 
 		token = create_customer_password_reset_token(identifier, self.identifier)
-		for method in frappe.get_hooks("ceto_auth_password_reset", []):
-			# Hook paths come exclusively from installed-app configuration. This is the
-			# standard Frappe extension boundary, not request-controlled dynamic code.
-			frappe.call(
-				frappe.get_attr(method),  # nosemgrep: frappe-codeinjection-eval
+		for handler in frappe.get_hooks("ceto_auth_password_reset", []):
+			callback = _resolve_hook_handler(handler)
+			callback(
 				identifier=identifier,
 				token=token,
 				metadata=data.metadata or {},
@@ -96,7 +96,7 @@ class EmailPasswordProvider(CustomerAuthProvider):
 		user = get_bearer_password_reset_user(self.identifier)
 
 		if str(data.email).lower() != user.lower():
-			frappe.throw("Email does not match the reset-password token", frappe.ValidationError)
+			frappe.throw(_("Email does not match the reset-password token"), frappe.ValidationError)
 		_validate_password_policy(user, data.password.get_secret_value())
 
 		update_password(user, data.password.get_secret_value(), logout_all_sessions=True)
@@ -104,6 +104,28 @@ class EmailPasswordProvider(CustomerAuthProvider):
 		frappe.db.set_value("User", user, "reset_password_key", "")
 		delete_login_failed_cache(user)
 		return True
+
+
+def _resolve_hook_handler(path: str) -> Callable[..., Any]:
+	"""Resolve a dotted ``ceto_auth_password_reset`` hook path to a verified callable.
+
+	Hook paths come exclusively from installed-app ``hooks.py`` configuration, the
+	standard Frappe extension boundary. Resolving them module-by-attribute with an
+	explicit callable check keeps dispatch auditable and rejects malformed paths.
+	"""
+	module_name, _sep, attribute = path.rpartition(".")
+	if not module_name or not attribute:
+		frappe.throw(
+			_("Invalid hook handler {0}: expected a dotted path to a callable").format(path),
+			frappe.ValidationError,
+		)
+	callback = getattr(import_module(module_name), attribute, None)
+	if not callable(callback):
+		frappe.throw(
+			_("Hook handler {0} is not callable").format(path),
+			frappe.ValidationError,
+		)
+	return callback
 
 
 def _validate_password_policy(email: str, password: str) -> None:

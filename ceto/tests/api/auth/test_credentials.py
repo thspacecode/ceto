@@ -68,6 +68,17 @@ class TestCredentials(CetoTestSuite):
 		self.assertEqual(response.status_code, 200)
 		self.assertEqual(_delivered_reset_tokens, [])
 
+	def test_reset_password_rejects_malformed_hook_handler(self):
+		for malformed in ("not-a-dotted-path", "ceto.tests.api.auth.test_credentials.no_such_handler"):
+			hooks = {"ceto_auth_password_reset": [malformed]}
+			with (
+				self.patch_hooks(hooks),
+				self.assertRaises(frappe.ValidationError),
+			):
+				generate_customer_password_reset_token("emailpass", identifier=TEST_CUSTOMER)
+
+		self.assertEqual(_delivered_reset_tokens, [])
+
 	def test_update_credentials_consumes_reset_token(self):
 		token = self._reset_token_for(TEST_CUSTOMER)
 		new_password = "A brand new correct horse battery staple 7!"

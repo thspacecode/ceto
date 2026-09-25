@@ -4,7 +4,11 @@ from werkzeug.wrappers import Response
 
 from ceto.routing import ceto_router
 from ceto.services.auth.verification import confirm_verification, request_verification
-from ceto.types.http.auth import VerificationConfirmInput, VerificationRequestInput
+from ceto.types.http.auth import (
+	VerificationConfirmInput,
+	VerificationRequestInput,
+	VerificationTokenInput,
+)
 
 
 @ceto_router.post("/auth/verification/request", allow_guest=True)
@@ -25,4 +29,12 @@ def confirm_customer_verification(**payload: Any) -> Response:
 	"""Confirm and consume a customer verification code."""
 	data = VerificationConfirmInput.model_validate(payload)
 	confirm_verification(code=data.code, code_provider=data.code_provider)
+	return Response(status=200)
+
+
+@ceto_router.post("/auth/customer/emailpass/verification/confirm", allow_guest=True)
+def confirm_emailpass_customer_verification(**payload: Any) -> Response:
+	"""Verify a customer's email using the token delivered out of band."""
+	data = VerificationTokenInput.model_validate(payload)
+	confirm_verification(code=data.token)
 	return Response(status=200)

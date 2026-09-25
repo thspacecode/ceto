@@ -61,6 +61,27 @@ class CustomerAuthProvider(ABC):
 			frappe.ValidationError,
 		)
 
+	def register(self, credentials: dict[str, Any]) -> AuthenticationResult:
+		"""Register credentials with the provider and return a registration token."""
+		frappe.throw(
+			f"Authentication provider {self.identifier!r} does not support registration",
+			frappe.ValidationError,
+		)
+
+	def reset_password(self, payload: dict[str, Any]) -> None:
+		"""Generate a password-reset token and notify configured subscribers."""
+		frappe.throw(
+			f"Authentication provider {self.identifier!r} does not support password resets",
+			frappe.ValidationError,
+		)
+
+	def update_credentials(self, credentials: dict[str, Any]) -> bool:
+		"""Update credentials using the request's single-purpose bearer token."""
+		frappe.throw(
+			f"Authentication provider {self.identifier!r} does not support credential updates",
+			frappe.ValidationError,
+		)
+
 
 def validate_input[Model: BaseModel](model: type[Model], values: dict[str, Any]) -> Model:
 	try:

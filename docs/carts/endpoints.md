@@ -2,8 +2,9 @@
 
 Phase 0 pinned a machine-readable contract manifest that later phases
 implement against. **Phase 1 implemented routes 1–3, Phase 2 implemented
-routes 4–6** (line items) and **Phase 3 implemented route 14** (customer
-claim/transfer); the remaining routes are unimplemented.
+routes 4–6** (line items), **Phase 3 implemented route 14** (customer
+claim/transfer) and **Phase 4 implemented routes 8–9** (promotions); the
+remaining routes are unimplemented.
 
 ## Manifest
 

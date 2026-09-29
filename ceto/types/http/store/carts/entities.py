@@ -54,6 +54,19 @@ class StoreCartLineItem(BaseModel):
 	updated_at: datetime | None = None
 
 
+class StoreCartPromotion(BaseModel):
+	"""Medusa ``StoreCart.promotions`` entry (Phase 4 subset).
+
+	Every field is derived from the ERPNext ``Coupon Code`` linked to the
+	Quotation; no discount value is invented here (the ERPNext-calculated
+	discounts surface in the cart/line money fields).
+	"""
+
+	id: str
+	code: str
+	is_automatic: bool = False
+
+
 class StoreCart(BaseModel):
 	id: str
 	region_id: str | None = None
@@ -70,7 +83,7 @@ class StoreCart(BaseModel):
 	completed_at: datetime | None = None
 	items: list[StoreCartLineItem] = Field(default_factory=list)
 	shipping_methods: list[dict[str, Any]] = Field(default_factory=list)
-	promotions: list[dict[str, Any]] = Field(default_factory=list)
+	promotions: list[StoreCartPromotion] = Field(default_factory=list)
 	original_item_total: float = 0
 	original_item_subtotal: float = 0
 	original_item_tax_total: float = 0

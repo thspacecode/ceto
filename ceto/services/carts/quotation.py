@@ -13,8 +13,11 @@ from ceto.services.carts.access import CartAccess
 from ceto.services.carts.addresses import CartAddresses
 from ceto.services.carts.configuration import CartConfiguration
 from ceto.services.carts.line_items import CartLineItems, dump_metadata, merged_metadata
+from ceto.services.carts.promotions import CartPromotions
 from ceto.types.http.store.carts import (
 	StoreAddCartLineItem,
+	StoreCartAddPromotion,
+	StoreCartRemovePromotion,
 	StoreCreateCart,
 	StoreUpdateCart,
 	StoreUpdateCartLineItem,
@@ -30,7 +33,6 @@ class CartService:
 		self.addresses = CartAddresses()
 
 	def create(self, payload: StoreCreateCart) -> tuple["Document", "Document"]:
-		self._reject_deferred_create_fields(payload)
 		configuration = CartConfiguration.resolve(
 			region_id=payload.region_id,
 			sales_channel_id=payload.sales_channel_id,
@@ -65,6 +67,11 @@ class CartService:
 				# and totals.
 				CartLineItems.save(quotation)
 				self.addresses.enforce_cleared(quotation, payload)
+			if payload.promo_codes is not None:
+				# Promo codes ride the same create transaction: an invalid or
+				# multi-code request rolls back the whole cart.
+				CartPromotions.set_promo_codes(quotation, payload.promo_codes)
+				CartLineItems.save(quotation)
 		return reference, quotation
 
 	def retrieve(self, cart_id: str) -> tuple["Document", "Document"]:
@@ -84,7 +91,6 @@ class CartService:
 		before a Quotation is touched; checking inside ``lock`` avoids TOCTOU
 		races with concurrent scope/cart updates.
 		"""
-		self._reject_deferred_update_fields(payload)
 		with self.access.lock(cart_id) as (reference, quotation):
 			if guard is not None:
 				guard(reference)
@@ -156,6 +162,46 @@ class CartService:
 				mapping = CartLineItems.delete(reference, quotation, line_id)
 			return reference, quotation, mapping
 
+	def add_promotions(
+		self,
+		cart_id: str,
+		payload: StoreCartAddPromotion,
+		*,
+		guard: Callable[["Document"], None] | None = None,
+	) -> tuple["Document", "Document"]:
+		"""Apply promotion codes to a locked cart.
+
+		``guard`` is validated against the locked reference before any
+		mutation, so a wrong-scoped key never modifies the cart. The Quotation
+		saves through ERPNext controllers inside the same locked transaction,
+		so an unknown/invalid/multi-code request leaves the cart untouched.
+		"""
+		with self.access.lock(cart_id) as (reference, quotation):
+			if guard is not None:
+				guard(reference)
+			with as_administrator():
+				CartPromotions.apply(quotation, payload.promo_codes)
+				return reference, quotation
+
+	def remove_promotions(
+		self,
+		cart_id: str,
+		payload: StoreCartRemovePromotion,
+		*,
+		guard: Callable[["Document"], None] | None = None,
+	) -> tuple["Document", "Document"]:
+		"""Remove an applied promotion code from a locked cart.
+
+		``guard`` is validated against the locked reference before any
+		mutation (see :meth:`add_promotions`).
+		"""
+		with self.access.lock(cart_id) as (reference, quotation):
+			if guard is not None:
+				guard(reference)
+			with as_administrator():
+				CartPromotions.remove(quotation, payload.promo_codes)
+				return reference, quotation
+
 	def _apply_update(self, reference: "Document", quotation: "Document", payload: StoreUpdateCart) -> None:
 		fields = payload.model_fields_set
 		if "region_id" in fields or "sales_channel_id" in fields:
@@ -175,6 +221,11 @@ class CartService:
 			reference.locale = payload.locale
 		if "metadata" in fields:
 			reference.metadata = merged_metadata(reference.metadata, payload.metadata)
+		if "promo_codes" in fields:
+			# Medusa update semantics: the submitted promo codes replace the
+			# cart's codes. The Quotation save below runs the ERPNext
+			# pricing-rule controllers for the new coupon state.
+			CartPromotions.set_promo_codes(quotation, payload.promo_codes or [])
 
 	@staticmethod
 	def _new_quotation(configuration: CartConfiguration, email: str | None) -> "Document":
@@ -234,16 +285,6 @@ class CartService:
 	def _validate_currency(requested: str | None, configured: str) -> None:
 		if requested and requested.lower() != configured.lower():
 			raise InvalidDataError("Cart currency must match the configured price list currency")
-
-	@staticmethod
-	def _reject_deferred_create_fields(payload: StoreCreateCart) -> None:
-		if payload.promo_codes:
-			raise InvalidDataError("Cart promotions are not supported yet")
-
-	@staticmethod
-	def _reject_deferred_update_fields(payload: StoreUpdateCart) -> None:
-		if payload.promo_codes:
-			raise InvalidDataError("Cart promotions are not supported yet")
 
 	@staticmethod
 	def _new_cart_id() -> str:

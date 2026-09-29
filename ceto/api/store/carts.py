@@ -7,6 +7,8 @@ from ceto.services.carts.quotation import CartService
 from ceto.services.carts.serialization import CartSerializer
 from ceto.types.http.store.carts import (
 	StoreAddCartLineItem,
+	StoreCartAddPromotion,
+	StoreCartRemovePromotion,
 	StoreCreateCart,
 	StoreUpdateCart,
 	StoreUpdateCartLineItem,
@@ -76,6 +78,28 @@ def delete_cart_line_item(id: str, line_id: str) -> dict[str, Any]:
 		"deleted": True,
 		"parent": reference.cart_id,
 	}
+
+
+@ceto_router.post("/store/carts/{id}/promotions", allow_guest=True)
+def add_cart_promotions(id: str, fields: str | None = None, **payload: Any) -> dict[str, Any]:
+	publishable_key = CartPublishableKey.from_request()
+	validated = StoreCartAddPromotion.model_validate(payload)
+	# guard validates the key scope against the locked reference before the
+	# Quotation is mutated (see update_cart).
+	reference, quotation = CartService().add_promotions(id, validated, guard=publishable_key.check_reference)
+	return {"cart": CartSerializer().serialize(reference, quotation, fields=fields)}
+
+
+@ceto_router.delete("/store/carts/{id}/promotions", allow_guest=True)
+def delete_cart_promotions(id: str, fields: str | None = None, **payload: Any) -> dict[str, Any]:
+	publishable_key = CartPublishableKey.from_request()
+	validated = StoreCartRemovePromotion.model_validate(payload)
+	# guard validates the key scope against the locked reference before the
+	# Quotation is mutated (see update_cart).
+	reference, quotation = CartService().remove_promotions(
+		id, validated, guard=publishable_key.check_reference
+	)
+	return {"cart": CartSerializer().serialize(reference, quotation, fields=fields)}
 
 
 @ceto_router.post("/store/carts/{id}/customer", allow_guest=True)

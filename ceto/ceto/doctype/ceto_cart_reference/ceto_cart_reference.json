@@ -1,0 +1,85 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:cart_id",
+ "creation": "2026-09-25 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "cart_id",
+  "quotation",
+  "owner_user",
+  "owner_customer",
+  "region_id",
+  "sales_channel_id",
+  "locale",
+  "metadata"
+ ],
+ "fields": [
+  {
+   "fieldname": "cart_id",
+   "fieldtype": "Data",
+   "label": "Cart ID",
+   "reqd": 1,
+   "search_index": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "quotation",
+   "fieldtype": "Link",
+   "label": "Quotation",
+   "options": "Quotation",
+   "reqd": 1,
+   "search_index": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "owner_user",
+   "fieldtype": "Link",
+   "label": "Owner User",
+   "options": "User",
+   "search_index": 1
+  },
+  {
+   "fieldname": "owner_customer",
+   "fieldtype": "Link",
+   "label": "Owner Customer",
+   "options": "Customer",
+   "search_index": 1
+  },
+  {
+   "fieldname": "region_id",
+   "fieldtype": "Data",
+   "label": "Region ID",
+   "search_index": 1
+  },
+  {
+   "fieldname": "sales_channel_id",
+   "fieldtype": "Data",
+   "label": "Sales Channel ID",
+   "search_index": 1
+  },
+  {
+   "fieldname": "locale",
+   "fieldtype": "Data",
+   "label": "Locale"
+  },
+  {
+   "fieldname": "metadata",
+   "fieldtype": "Long Text",
+   "label": "Metadata"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-09-25 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Ceto",
+ "name": "Ceto Cart Reference",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

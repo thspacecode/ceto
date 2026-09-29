@@ -10,6 +10,7 @@ from frappe.utils import getdate, today
 
 from ceto.routing.exceptions import InvalidDataError
 from ceto.services.carts.access import CartAccess
+from ceto.services.carts.addresses import CartAddresses
 from ceto.services.carts.configuration import CartConfiguration
 from ceto.services.carts.line_items import CartLineItems, dump_metadata, merged_metadata
 from ceto.types.http.store.carts import (
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
 class CartService:
 	def __init__(self, access: CartAccess | None = None) -> None:
 		self.access = access or CartAccess()
+		self.addresses = CartAddresses()
 
 	def create(self, payload: StoreCreateCart) -> tuple["Document", "Document"]:
 		self._reject_deferred_create_fields(payload)
@@ -54,6 +56,15 @@ class CartService:
 			# cart itself; a failure rolls back the whole create.
 			for line in payload.items or []:
 				CartLineItems.add(reference, quotation, line)
+			if (
+				"shipping_address" in payload.model_fields_set
+				or "billing_address" in payload.model_fields_set
+			):
+				self.addresses.apply(reference, quotation, payload)
+				# Re-saving lets ERPNext refresh the address display snapshots
+				# and totals.
+				CartLineItems.save(quotation)
+				self.addresses.enforce_cleared(quotation, payload)
 		return reference, quotation
 
 	def retrieve(self, cart_id: str) -> tuple["Document", "Document"]:
@@ -77,11 +88,13 @@ class CartService:
 		with self.access.lock(cart_id) as (reference, quotation):
 			if guard is not None:
 				guard(reference)
-			self._apply_update(reference, quotation, payload)
 			with _as_administrator():
+				self._apply_update(reference, quotation, payload)
+				self.addresses.apply(reference, quotation, payload)
 				# Shared save helper: keeps the mandatory-items relaxation only
 				# while the cart is empty and recomputes totals otherwise.
 				CartLineItems.save(quotation)
+				self.addresses.enforce_cleared(quotation, payload)
 				reference.save(ignore_permissions=True)
 			return reference, quotation
 
@@ -224,15 +237,11 @@ class CartService:
 
 	@staticmethod
 	def _reject_deferred_create_fields(payload: StoreCreateCart) -> None:
-		if payload.shipping_address is not None or payload.billing_address is not None:
-			raise InvalidDataError("Cart addresses are not supported yet")
 		if payload.promo_codes:
 			raise InvalidDataError("Cart promotions are not supported yet")
 
 	@staticmethod
 	def _reject_deferred_update_fields(payload: StoreUpdateCart) -> None:
-		if payload.shipping_address is not None or payload.billing_address is not None:
-			raise InvalidDataError("Cart addresses are not supported yet")
 		if payload.promo_codes:
 			raise InvalidDataError("Cart promotions are not supported yet")
 

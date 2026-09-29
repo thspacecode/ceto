@@ -4,6 +4,26 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+class StoreCartAddress(BaseModel):
+	"""Medusa ``StoreCartAddress`` entity (pinned baseline fields)."""
+
+	id: str
+	customer_id: str | None = None
+	company: str | None = None
+	first_name: str | None = None
+	last_name: str | None = None
+	phone: str | None = None
+	address_1: str | None = None
+	address_2: str | None = None
+	city: str | None = None
+	province: str | None = None
+	postal_code: str | None = None
+	country_code: str | None = None
+	metadata: dict[str, Any] | None = None
+	created_at: datetime | None = None
+	updated_at: datetime | None = None
+
+
 class StoreCartLineItem(BaseModel):
 	"""Medusa ``StoreCartLineItem`` shape (Phase 2 subset).
 
@@ -43,6 +63,8 @@ class StoreCart(BaseModel):
 	currency_code: str
 	metadata: dict[str, Any] | None = None
 	locale: str | None = None
+	billing_address: StoreCartAddress | None = None
+	shipping_address: StoreCartAddress | None = None
 	created_at: datetime | None = None
 	updated_at: datetime | None = None
 	completed_at: datetime | None = None

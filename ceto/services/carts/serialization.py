@@ -5,6 +5,7 @@ import frappe
 from frappe.utils import flt, get_datetime
 
 from ceto.routing.exceptions import InvalidDataError
+from ceto.services.carts.addresses import serialize_address
 from ceto.types.http.store.carts import StoreCart, StoreCartLineItem
 
 if TYPE_CHECKING:
@@ -38,6 +39,8 @@ class CartSerializer:
 			currency_code=quotation.currency.lower(),
 			metadata=json.loads(reference.metadata) if reference.metadata else None,
 			locale=reference.locale or None,
+			billing_address=serialize_address(quotation.customer_address),
+			shipping_address=serialize_address(quotation.shipping_address_name),
 			created_at=min(get_datetime(reference.creation), get_datetime(quotation.creation)),
 			updated_at=updated_at,
 			items=CartSerializer._items(reference, quotation),

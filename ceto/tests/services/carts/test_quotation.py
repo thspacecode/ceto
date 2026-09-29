@@ -7,8 +7,12 @@ from ceto.services.carts.access import CartAccess
 from ceto.services.carts.quotation import CartService
 from ceto.services.carts.serialization import CartSerializer
 from ceto.tests.data.cart_test_data import CartTestData
-from ceto.tests.utils import CetoTestSuite
-from ceto.types.http.store.carts import StoreCreateCart, StoreUpdateCart
+from ceto.tests.testsuite import CetoTestSuite
+from ceto.types.http.store.carts import (
+	StoreAddCartLineItem,
+	StoreCreateCart,
+	StoreUpdateCart,
+)
 
 
 class TestCartQuotation(CetoTestSuite):
@@ -96,8 +100,13 @@ class TestCartQuotation(CetoTestSuite):
 		with self.set_conf(ceto_cart=configuration), self.set_user("Guest"):
 			with self.assertRaisesRegex(InvalidDataError, "Unknown cart region"):
 				CartService().create(StoreCreateCart(region_id="reg_missing"))
-			with self.assertRaisesRegex(InvalidDataError, "line items"):
-				CartService().create(StoreCreateCart(items=[{"variant_id": "x", "quantity": 1}]))
+			with self.assertRaisesRegex(InvalidDataError, "addresses"):
+				CartService().create(
+					StoreCreateCart(
+						items=[StoreAddCartLineItem(variant_id=self.masters.item, quantity=1)],
+						shipping_address={"first_name": "X"},
+					)
+				)
 
 	def test_selects_requested_response_fields(self) -> None:
 		with self.set_conf(ceto_cart=self.masters.configuration), self.set_user("Guest"):

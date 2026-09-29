@@ -12,6 +12,7 @@ class CartConfiguration:
 	company: str
 	selling_price_list: str
 	currency: str
+	taxes_and_charges: str | None
 	territory: str | None
 	region_id: str | None
 	sales_channel_id: str | None
@@ -44,6 +45,7 @@ class CartConfiguration:
 			company=company,
 			selling_price_list=price_list,
 			currency=currency,
+			taxes_and_charges=resolved.get("taxes_and_charges"),
 			territory=resolved.get("territory"),
 			region_id=region_id,
 			sales_channel_id=sales_channel_id,

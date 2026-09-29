@@ -1,4 +1,4 @@
-# Core cart configuration (Phase 1)
+# Core cart configuration (Phase 1 + Phase 2 line items)
 
 Ceto stores each open cart as a draft ERPNext `Quotation` with
 `order_type = "Shopping Cart"`. A lightweight `Ceto Cart Reference` record
@@ -55,3 +55,25 @@ Guest access is capability-based: possession of the cryptographically random
 `cart_...` ID grants access while `owner_user` is empty. Carts created in an
 authenticated session are restricted to that Frappe User. Mutations lock both
 the reference and Quotation rows before validation and save.
+
+
+## Phase 2: line items (implemented)
+
+- Each cart line is a `Quotation Item` child row paired with a
+  `Ceto Cart Line Item Reference` record that owns the stable public id
+  (`li_` + 128 bits of crypto random), per-line metadata, and the link to the
+  Quotation row. Rows are added/updated/deleted through `CartLineItems`, which
+  always persists through ERPNext controllers.
+- `variant_id` in add payloads maps directly to the enabled ERPNext Item code
+  in Phase 2 (resolution isolated in `ceto/services/carts/variants.py` for a
+  future variant provider); quantities must be positive integers.
+- All rates, discounts, taxes and totals — including document-level totals —
+  are produced by ERPNext (price list / pricing rules, taxes template); Ceto
+  never derives totals itself. Empty carts keep a zeroed summary baseline
+  because ERPNext skips recalculation for itemless documents.
+- Cart saves go through the shared `CartLineItems.save` helper: the mandatory
+  items check is relaxed only while the cart has no rows, never for carts with
+  line items.
+- Mutations lock the cart reference and Quotation rows (`SELECT … FOR UPDATE`)
+  and validate the publishable-key scope inside that lock before mutating, so
+  wrong-scoped keys cause no mutation and cannot race the check (no TOCTOU).

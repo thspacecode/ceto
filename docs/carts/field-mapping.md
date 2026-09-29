@@ -34,7 +34,7 @@ Classification legend for every mapping row:
 
 | Medusa `StoreCartLineItem` field | ERPNext `Quotation Item` field | Classification |
 |---|---|---|
-| `id` (`li_…`) | Ceto external-identity record linked to the Quotation Item row | gap |
+| `id` (`li_…`) | `Ceto Cart Line Item Reference` record linking the line id to the Quotation Item row | gap |
 | `product_variant_id` | `item_code` (public variant provider → Item) | derived |
 | `title`, `product_title`, `variant_title` | `item_name` / `description` | direct |
 | `thumbnail` | `image` | direct |
@@ -46,6 +46,29 @@ Classification legend for every mapping row:
 | `is_discountable` | gates Pricing Rule application for the row | derived |
 | `variant` (payload on add/update, `variant_id` option) | `item_code` resolution at add time | direct |
 | gift-card / store-credit line adjustments | Ceto ledger rows, not Quotation Item | gap |
+
+Phase 2 serialization notes:
+
+- The public line `id` is `li_` + 128 bits of cryptographic random, mapped to the
+  Quotation Item child-row `name` through `Ceto Cart Line Item Reference`; line
+  metadata lives on that mapping record and follows the cart metadata merge
+  semantics (null removes a key, explicit `metadata: null` clears all keys).
+- The public variant id equals the enabled ERPNext Item code for now; resolution
+  is isolated behind the variants module.
+- Line money values are read straight from ERPNext row calculations:
+  `unit_price` ← `net_rate` (fallback `rate`), `original_unit_price` ←
+  `price_list_rate`, `subtotal` ← `net_amount`, `discount_total` ←
+  `discount_amount`. Per-line `tax_total` is the ERPNext-calculated tax
+  allocation for the row (from the Quotation's `item_wise_tax_details` child
+  rows, with the legacy per-tax-row `item_wise_tax_detail` JSON as fallback),
+  and `total` = `net_amount` + that allocation; no tax rate is ever invented
+  in Ceto, so summing the line tax totals reconciles with the cart-level
+  `item_tax_total` for supported percentage/template taxes.
+- Adding an already-present variant merges quantities into the existing row
+  (Medusa default); the existing line keeps its identity and metadata.
+- Empty carts keep a zeroed baseline: ERPNext skips `calculate_taxes_and_totals`
+  for itemless documents, so deleting the last line resets the Quotation summary
+  fields instead of recomputing them.
 
 ## Address → Address
 

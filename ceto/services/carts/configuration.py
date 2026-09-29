@@ -1,0 +1,73 @@
+from dataclasses import dataclass
+from typing import Any
+
+import frappe
+
+from ceto.routing.exceptions import InvalidDataError
+
+
+@dataclass(frozen=True)
+class CartConfiguration:
+	guest_customer: str
+	company: str
+	selling_price_list: str
+	currency: str
+	territory: str | None
+	region_id: str | None
+	sales_channel_id: str | None
+	valid_for_days: int
+
+	@classmethod
+	def resolve(
+		cls,
+		*,
+		region_id: str | None = None,
+		sales_channel_id: str | None = None,
+	) -> "CartConfiguration":
+		settings = _as_dict(frappe.conf.get("ceto_cart"))
+		region_id = region_id or settings.get("default_region_id")
+		sales_channel_id = sales_channel_id or settings.get("default_sales_channel_id")
+
+		resolved = dict(settings)
+		resolved.update(_mapped_settings(settings, "regions", region_id, "region"))
+		resolved.update(_mapped_settings(settings, "sales_channels", sales_channel_id, "sales channel"))
+
+		guest_customer = _required(resolved, "guest_customer")
+		company = _required(resolved, "company")
+		price_list = _required(resolved, "selling_price_list")
+		currency = resolved.get("currency") or frappe.db.get_value("Price List", price_list, "currency")
+		if not currency:
+			raise InvalidDataError("Cart price list must have a currency")
+
+		return cls(
+			guest_customer=guest_customer,
+			company=company,
+			selling_price_list=price_list,
+			currency=currency,
+			territory=resolved.get("territory"),
+			region_id=region_id,
+			sales_channel_id=sales_channel_id,
+			valid_for_days=int(resolved.get("valid_for_days") or 30),
+		)
+
+
+def _mapped_settings(
+	settings: dict[str, Any], mapping_name: str, key: str | None, label: str
+) -> dict[str, Any]:
+	mapping = _as_dict(settings.get(mapping_name))
+	if not mapping:
+		return {}
+	if not key or key not in mapping:
+		raise InvalidDataError(f"Unknown cart {label}: {key or '(not set)'}")
+	return _as_dict(mapping[key])
+
+
+def _required(settings: dict[str, Any], key: str) -> str:
+	value = settings.get(key)
+	if not value:
+		raise InvalidDataError(f"Missing ceto_cart.{key} configuration")
+	return str(value)
+
+
+def _as_dict(value: Any) -> dict[str, Any]:
+	return dict(value) if isinstance(value, dict) else {}

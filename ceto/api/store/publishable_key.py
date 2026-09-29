@@ -15,11 +15,11 @@ class CartPublishableKey:
 
 	@classmethod
 	def from_request(cls) -> Self:
-		provided = frappe.request.headers.get("x-publishable-api-key", "")
+		provided = frappe.request.headers.get("x-publishable-api-key", "").encode()
 		settings = frappe.conf.get("ceto_cart") or {}
 		configured = settings.get("publishable_keys") or {}
 		for key, scope in configured.items():
-			if secrets.compare_digest(str(provided), str(key)):
+			if secrets.compare_digest(provided, str(key).encode()):
 				scope = dict(scope or {})
 				return cls(
 					region_id=scope.get("region_id"),

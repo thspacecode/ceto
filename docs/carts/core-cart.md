@@ -77,3 +77,30 @@ the reference and Quotation rows before validation and save.
 - Mutations lock the cart reference and Quotation rows (`SELECT … FOR UPDATE`)
   and validate the publishable-key scope inside that lock before mutating, so
   wrong-scoped keys cause no mutation and cannot race the check (no TOCTOU).
+
+
+## Phase 4: promotions (implemented)
+
+- `POST /store/carts/{id}/promotions` and `DELETE /store/carts/{id}/promotions`
+  map Medusa promotion codes onto ERPNext's native coupon model: a `Coupon
+  Code` record linked to a `Pricing Rule`, stored on the Quotation through its
+  single `coupon_code` link (see `ceto/services/carts/promotions.py`).
+- ERPNext's document model natively supports exactly **one** coupon per
+  transaction, and Ceto exposes exactly that capacity honestly: submitting two
+  distinct codes in one request, or a second distinct code while one is
+  already applied, is rejected with `invalid_data` (`400`) instead of silently
+  dropping a code. Duplicate copies of the same code are collapsed.
+- Application runs ERPNext's own checks (`validate_coupon_code`: validity
+  window, maximum use) and lets the Quotation save/validate pipeline apply the
+  linked pricing rule; Ceto never computes a discount. Removal drops the
+  coupon link, zeroes the document-level additional discount fields and
+  recalculates through the same controllers, so a removed coupon can never
+  leave a lingering discount.
+- `promo_codes` is also accepted on cart create (applied inside the same
+  transaction) and cart update (Medusa replace semantics: an empty list clears
+  the coupon, a single code replaces the current one).
+- Applied promotions serialize as `promotions: [{id, code, is_automatic}]`
+  derived from the linked `Coupon Code`; discount amounts surface only through
+  the ERPNext-calculated cart/line money fields.
+- Like every cart mutation, promotion mutations run under the existing cart
+  reference + Quotation row locks, after the publishable-key scope guard.

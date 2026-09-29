@@ -51,6 +51,35 @@ class StoreAddCartLineItem(BaseModel):
 	metadata: dict[str, Any] | None = None
 
 
+class _StoreCartPromoCodesPayload(BaseModel):
+	"""Shared ``promo_codes`` body of the Medusa promotions routes.
+
+	Mirrors ``StoreCartAddPromotion`` / ``StoreCartRemovePromotion`` of the
+	pinned ``HttpTypes`` of ``@medusajs/types@2.21.1``: a non-empty list of
+	promotion code strings. Unknown fields are rejected; blank codes are
+	rejected rather than being silently dropped.
+	"""
+
+	model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+	promo_codes: list[str] = Field(min_length=1)
+
+	@field_validator("promo_codes")
+	@classmethod
+	def _validate_codes(cls, codes: list[str]) -> list[str]:
+		if any(not code for code in codes):
+			raise ValueError("promo_codes must not contain empty codes")
+		return codes
+
+
+class StoreCartAddPromotion(_StoreCartPromoCodesPayload):
+	"""Body of ``POST /store/carts/{id}/promotions``."""
+
+
+class StoreCartRemovePromotion(_StoreCartPromoCodesPayload):
+	"""Body of ``DELETE /store/carts/{id}/promotions``."""
+
+
 class StoreCreateCart(CartPayload):
 	currency_code: str | None = None
 	shipping_address: StoreCartAddressPayload | str | None = None

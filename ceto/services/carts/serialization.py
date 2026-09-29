@@ -6,7 +6,7 @@ from frappe.utils import flt, get_datetime
 
 from ceto.routing.exceptions import InvalidDataError
 from ceto.services.carts.addresses import serialize_address
-from ceto.types.http.store.carts import StoreCart, StoreCartLineItem
+from ceto.types.http.store.carts import StoreCart, StoreCartLineItem, StoreCartPromotion
 
 if TYPE_CHECKING:
 	from frappe.model.document import Document
@@ -45,7 +45,7 @@ class CartSerializer:
 			updated_at=updated_at,
 			items=CartSerializer._items(reference, quotation),
 			shipping_methods=[],
-			promotions=[],
+			promotions=CartSerializer._promotions(quotation),
 			original_item_total=original_item_subtotal + tax_total,
 			original_item_subtotal=original_item_subtotal,
 			original_item_tax_total=tax_total,
@@ -60,6 +60,23 @@ class CartSerializer:
 			tax_total=tax_total,
 			discount_total=discount_total,
 		)
+
+	@staticmethod
+	def _promotions(quotation: "Document") -> list[StoreCartPromotion]:
+		"""Serialize the applied coupon derived from the Quotation.
+
+		The Quotation carries at most one ``Coupon Code`` link (ERPNext's
+		native model), so the list holds zero or one entry. Only stable
+		identity fields are derived; discount amounts come from the ERPNext
+		totals already serialized into the cart's money fields.
+		"""
+		applied = quotation.get("coupon_code")
+		if not applied:
+			return []
+		code = frappe.db.get_value("Coupon Code", applied, "coupon_code")
+		if not code:
+			return []
+		return [StoreCartPromotion(id=applied, code=code, is_automatic=False)]
 
 	@staticmethod
 	def _items(reference: "Document", quotation: "Document") -> list[StoreCartLineItem]:
@@ -146,7 +163,7 @@ class CartSerializer:
 			if isinstance(detail, str):
 				try:
 					detail = json.loads(detail)
-				except (TypeError, ValueError):
+				except TypeError, ValueError:
 					continue
 			if not isinstance(detail, dict):
 				continue

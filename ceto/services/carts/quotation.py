@@ -1,16 +1,23 @@
-import json
 import secrets
+from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import frappe
+from erpnext.controllers.accounts_controller import get_taxes_and_charges
 from frappe.utils import getdate, today
 
 from ceto.routing.exceptions import InvalidDataError
 from ceto.services.carts.access import CartAccess
 from ceto.services.carts.configuration import CartConfiguration
-from ceto.types.http.store.carts import StoreCreateCart, StoreUpdateCart
+from ceto.services.carts.line_items import CartLineItems, dump_metadata, merged_metadata
+from ceto.types.http.store.carts import (
+	StoreAddCartLineItem,
+	StoreCreateCart,
+	StoreUpdateCart,
+	StoreUpdateCartLineItem,
+)
 
 if TYPE_CHECKING:
 	from frappe.model.document import Document
@@ -40,23 +47,101 @@ class CartService:
 					"region_id": configuration.region_id,
 					"sales_channel_id": configuration.sales_channel_id,
 					"locale": payload.locale,
-					"metadata": self._dump_metadata(payload.metadata),
+					"metadata": dump_metadata(payload.metadata),
 				}
 			).insert(ignore_permissions=True)
+			# All initial lines are created inside the same transaction as the
+			# cart itself; a failure rolls back the whole create.
+			for line in payload.items or []:
+				CartLineItems.add(reference, quotation, line)
 		return reference, quotation
 
 	def retrieve(self, cart_id: str) -> tuple["Document", "Document"]:
 		return self.access.get(cart_id)
 
-	def update(self, cart_id: str, payload: StoreUpdateCart) -> tuple["Document", "Document"]:
+	def update(
+		self,
+		cart_id: str,
+		payload: StoreUpdateCart,
+		*,
+		guard: Callable[["Document"], None] | None = None,
+	) -> tuple["Document", "Document"]:
+		"""Update cart fields inside the cart row lock.
+
+		``guard`` runs against the locked reference before any mutation so
+		callers (notably the publishable-key scope check) reject the request
+		before a Quotation is touched; checking inside ``lock`` avoids TOCTOU
+		races with concurrent scope/cart updates.
+		"""
 		self._reject_deferred_update_fields(payload)
 		with self.access.lock(cart_id) as (reference, quotation):
+			if guard is not None:
+				guard(reference)
 			self._apply_update(reference, quotation, payload)
 			with _as_administrator():
-				quotation.flags.ignore_mandatory = True
-				quotation.save(ignore_permissions=True)
+				# Shared save helper: keeps the mandatory-items relaxation only
+				# while the cart is empty and recomputes totals otherwise.
+				CartLineItems.save(quotation)
 				reference.save(ignore_permissions=True)
 			return reference, quotation
+
+	def add_line_item(
+		self,
+		cart_id: str,
+		payload: StoreAddCartLineItem,
+		*,
+		guard: Callable[["Document"], None] | None = None,
+	) -> tuple["Document", "Document", "Document"]:
+		"""Add one line to a locked cart; returns (reference, quotation, mapping).
+
+		``guard`` is validated against the locked reference before any
+		mutation, so a wrong-scoped key never modifies the cart.
+		"""
+		with self.access.lock(cart_id) as (reference, quotation):
+			if guard is not None:
+				guard(reference)
+			with _as_administrator():
+				mapping = CartLineItems.add(reference, quotation, payload)
+			return reference, quotation, mapping
+
+	def update_line_item(
+		self,
+		cart_id: str,
+		line_id: str,
+		payload: StoreUpdateCartLineItem,
+		*,
+		guard: Callable[["Document"], None] | None = None,
+	) -> tuple["Document", "Document", "Document"]:
+		"""Update one line of a locked cart; returns (reference, quotation, mapping).
+
+		``guard`` is validated against the locked reference before any
+		mutation, so a wrong-scoped key never modifies the cart.
+		"""
+		with self.access.lock(cart_id) as (reference, quotation):
+			if guard is not None:
+				guard(reference)
+			with _as_administrator():
+				mapping = CartLineItems.update(reference, quotation, line_id, payload)
+			return reference, quotation, mapping
+
+	def delete_line_item(
+		self,
+		cart_id: str,
+		line_id: str,
+		*,
+		guard: Callable[["Document"], None] | None = None,
+	) -> tuple["Document", "Document", "Document"]:
+		"""Remove one line from a locked cart; returns (reference, quotation, mapping).
+
+		``guard`` is validated against the locked reference before any
+		mutation, so a wrong-scoped key never modifies the cart.
+		"""
+		with self.access.lock(cart_id) as (reference, quotation):
+			if guard is not None:
+				guard(reference)
+			with _as_administrator():
+				mapping = CartLineItems.delete(reference, quotation, line_id)
+			return reference, quotation, mapping
 
 	def _apply_update(self, reference: "Document", quotation: "Document", payload: StoreUpdateCart) -> None:
 		fields = payload.model_fields_set
@@ -76,7 +161,7 @@ class CartService:
 		if "locale" in fields:
 			reference.locale = payload.locale
 		if "metadata" in fields:
-			reference.metadata = self._updated_metadata(reference.metadata, payload.metadata)
+			reference.metadata = merged_metadata(reference.metadata, payload.metadata)
 
 	@staticmethod
 	def _new_quotation(configuration: CartConfiguration, email: str | None) -> "Document":
@@ -89,6 +174,15 @@ class CartService:
 				"company": configuration.company,
 				"currency": configuration.currency,
 				"selling_price_list": configuration.selling_price_list,
+				"taxes_and_charges": configuration.taxes_and_charges,
+				# The template rows are loaded explicitly (with ERPNext's own
+				# loader) because set_taxes_and_charges() only appends them when
+				# Accounts Settings enables template taxes globally.
+				"taxes": get_taxes_and_charges(
+					"Sales Taxes and Charges Template", configuration.taxes_and_charges
+				)
+				if configuration.taxes_and_charges
+				else [],
 				"territory": configuration.territory,
 				"contact_email": str(email) if email else None,
 				"transaction_date": today(),
@@ -110,8 +204,8 @@ class CartService:
 				"base_discount_amount": 0,
 			}
 		)
-		# Medusa creates carts before they have lines. ERPNext's mandatory child
-		# table check is deferred until Phase 2 adds the first Quotation Item.
+		# Medusa creates carts before they have lines. CartLineItems.save only
+		# keeps this relaxation while the cart has no Quotation Item rows.
 		quotation.flags.ignore_mandatory = True
 		return quotation.insert(ignore_permissions=True)
 
@@ -120,6 +214,7 @@ class CartService:
 		quotation.company = configuration.company
 		quotation.currency = configuration.currency
 		quotation.selling_price_list = configuration.selling_price_list
+		quotation.taxes_and_charges = configuration.taxes_and_charges
 		quotation.territory = configuration.territory
 
 	@staticmethod
@@ -131,8 +226,6 @@ class CartService:
 	def _reject_deferred_create_fields(payload: StoreCreateCart) -> None:
 		if payload.shipping_address is not None or payload.billing_address is not None:
 			raise InvalidDataError("Cart addresses are not supported yet")
-		if payload.items:
-			raise InvalidDataError("Cart line items are not supported yet")
 		if payload.promo_codes:
 			raise InvalidDataError("Cart promotions are not supported yet")
 
@@ -146,22 +239,6 @@ class CartService:
 	@staticmethod
 	def _new_cart_id() -> str:
 		return f"cart_{secrets.token_hex(16)}"
-
-	@staticmethod
-	def _dump_metadata(metadata: dict[str, Any] | None) -> str | None:
-		return json.dumps(metadata, separators=(",", ":"), sort_keys=True) if metadata else None
-
-	@classmethod
-	def _updated_metadata(cls, current: str | None, update: dict[str, Any] | None) -> str | None:
-		if update is None:
-			return None
-		metadata = json.loads(current) if current else {}
-		for key, value in update.items():
-			if value is None:
-				metadata.pop(key, None)
-			else:
-				metadata[key] = value
-		return cls._dump_metadata(metadata)
 
 
 @contextmanager

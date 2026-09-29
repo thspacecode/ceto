@@ -82,3 +82,219 @@ class TestCartAPI(CetoTestSuite):
 		request = Request(builder.get_environ())
 		with self.set_request(request):
 			return ceto_router.dispatch(request)
+
+
+class TestCartLineItemAPI(CetoTestSuite):
+	"""Phase 2 line-item endpoints: add, update and delete line items.
+
+	Note: a failed request rolls back the currently uncommitted transaction
+	(same as a real failed HTTP request), so every subtest that expects an
+	error provisions a fresh cart instead of reusing earlier state.
+	"""
+
+	def setUp(self) -> None:
+		frappe.set_user("Administrator")
+		self.masters = CartTestData()
+		# The router rolls back the open transaction when converting an error
+		# to a response (mirroring Frappe's commit-on-success). Error subtests
+		# below therefore need the master data committed to survive that.
+		frappe.db.commit()
+		self.configuration = {
+			**self.masters.configuration,
+			"publishable_keys": {
+				"pk_test": {"region_id": "reg_test", "sales_channel_id": "sc_test"},
+				"pk_other": {"region_id": "reg_other", "sales_channel_id": "sc_other"},
+			},
+		}
+
+	def _create_cart(self) -> str:
+		created = self._dispatch("POST", "/ceto/store/carts?fields=id", {})
+		self.assertEqual(created.status_code, 200)
+		return created.get_json()["cart"]["id"]
+
+	def _add_line(self, cart_id: str, quantity: int = 2) -> str:
+		response = self._dispatch(
+			"POST",
+			f"/ceto/store/carts/{cart_id}/line-items?fields=id,items",
+			{"variant_id": self.masters.item, "quantity": quantity},
+		)
+		self.assertEqual(response.status_code, 200)
+		return response.get_json()["cart"]["items"][-1]["id"]
+
+	def test_guest_add_update_and_delete_lifecycle(self) -> None:
+		with self.set_conf(ceto_cart=self.configuration), self.set_user("Guest"):
+			cart_id = self._create_cart()
+			line_id = self._add_line(cart_id, quantity=1)
+
+			updated = self._dispatch(
+				"POST",
+				f"/ceto/store/carts/{cart_id}/line-items/{line_id}?fields=id,items",
+				{"quantity": 3},
+			)
+			self.assertEqual(updated.status_code, 200)
+			cart = updated.get_json()["cart"]
+			self.assertEqual([item["id"] for item in cart["items"]], [line_id])
+			self.assertEqual(cart["items"][0]["quantity"], 3)
+
+			deleted = self._dispatch("DELETE", f"/ceto/store/carts/{cart_id}/line-items/{line_id}")
+			self.assertEqual(deleted.status_code, 200)
+			self.assertEqual(
+				deleted.get_json(),
+				{"id": line_id, "object": "line-item", "deleted": True, "parent": cart_id},
+			)
+
+	def test_add_response_wraps_exactly_cart_key(self) -> None:
+		with self.set_conf(ceto_cart=self.configuration), self.set_user("Guest"):
+			cart_id = self._create_cart()
+			response = self._dispatch(
+				"POST",
+				f"/ceto/store/carts/{cart_id}/line-items",
+				{"variant_id": self.masters.item, "quantity": 1, "metadata": {"gift": True}},
+			)
+			self.assertEqual(response.status_code, 200)
+			body = response.get_json()
+			self.assertEqual(set(body), {"cart"})
+			item = body["cart"]["items"][-1]
+			self.assertEqual(item["variant_id"], self.masters.item)
+			self.assertEqual(item["quantity"], 1)
+			self.assertEqual(item["metadata"], {"gift": True})
+			self.assertRegex(item["id"], r"^li_[0-9a-f]{32}$")
+
+	def test_fields_query_is_honoured_on_line_mutations(self) -> None:
+		with self.set_conf(ceto_cart=self.configuration), self.set_user("Guest"):
+			cart_id = self._create_cart()
+			line_id = self._add_line(cart_id)
+
+			added = self._dispatch(
+				"POST",
+				f"/ceto/store/carts/{cart_id}/line-items?fields=id",
+				{"variant_id": self.masters.other_item, "quantity": 2},
+			)
+			self.assertEqual(added.status_code, 200)
+			self.assertEqual(added.get_json()["cart"], {"id": cart_id})
+
+			updated = self._dispatch(
+				"POST",
+				f"/ceto/store/carts/{cart_id}/line-items/{line_id}?fields=id",
+				{"quantity": 2},
+			)
+			self.assertEqual(updated.status_code, 200)
+			self.assertEqual(updated.get_json()["cart"], {"id": cart_id})
+
+	def test_add_rejects_invalid_payloads(self) -> None:
+		with self.set_conf(ceto_cart=self.configuration), self.set_user("Guest"):
+			for payload in (
+				{"variant_id": self.masters.item, "quantity": 0},
+				{"variant_id": self.masters.item, "quantity": -1},
+				{"variant_id": "no-such-item", "quantity": 1},
+				{"quantity": 1},
+				{"variant_id": self.masters.item, "quantity": 1, "title": "x"},
+			):
+				with self.subTest(payload=payload):
+					cart_id = self._create_cart()
+					response = self._dispatch("POST", f"/ceto/store/carts/{cart_id}/line-items", payload)
+					self.assertEqual(response.status_code, 400)
+					self.assertEqual(response.get_json()["type"], "invalid_data")
+
+	def test_update_rejects_invalid_payloads(self) -> None:
+		with self.set_conf(ceto_cart=self.configuration), self.set_user("Guest"):
+			for payload in ({"quantity": 0}, {"quantity": 2, "variant_id": "x"}):
+				with self.subTest(payload=payload):
+					cart_id = self._create_cart()
+					line_id = self._add_line(cart_id)
+					response = self._dispatch(
+						"POST", f"/ceto/store/carts/{cart_id}/line-items/{line_id}", payload
+					)
+					self.assertEqual(response.status_code, 400)
+					self.assertEqual(response.get_json()["type"], "invalid_data")
+
+	def test_disabled_variant_is_rejected(self) -> None:
+		frappe.db.set_value("Item", self.masters.other_item, "disabled", 1)
+		with self.set_conf(ceto_cart=self.configuration), self.set_user("Guest"):
+			cart_id = self._create_cart()
+			response = self._dispatch(
+				"POST",
+				f"/ceto/store/carts/{cart_id}/line-items",
+				{"variant_id": self.masters.other_item, "quantity": 1},
+			)
+			self.assertEqual(response.status_code, 400)
+			self.assertEqual(response.get_json()["type"], "invalid_data")
+
+	def test_unknown_and_foreign_lines_are_masked(self) -> None:
+		with self.set_conf(ceto_cart=self.configuration), self.set_user("Guest"):
+			for case in ("unknown", "foreign"):
+				for method, payload in (("POST", {"quantity": 1}), ("DELETE", None)):
+					with self.subTest(case=case, method=method):
+						cart_id = self._create_cart()
+						line_id = (
+							self._add_line(self._create_cart()) if case == "foreign" else "li_" + "0" * 32
+						)
+						response = self._dispatch(
+							method, f"/ceto/store/carts/{cart_id}/line-items/{line_id}", payload
+						)
+						self.assertEqual(response.status_code, 404)
+						self.assertEqual(response.get_json()["type"], "not_found")
+						self.assertNotIn("cart", response.get_json())
+
+	def test_wrong_scoped_publishable_key_causes_no_mutation(self) -> None:
+		# The not_allowed response proves the guard rejected the request; the
+		# service test with persistence patched out proves no save (mutation)
+		# is ever attempted for a rejecting guard.
+		with self.set_conf(ceto_cart=self.configuration), self.set_user("Guest"):
+			for method, path, payload in (
+				(
+					"POST",
+					"/ceto/store/carts/{cart_id}/line-items",
+					{"variant_id": self.masters.item, "quantity": 5},
+				),
+				("POST", "/ceto/store/carts/{cart_id}/line-items/{line_id}", {"quantity": 9}),
+				("DELETE", "/ceto/store/carts/{cart_id}/line-items/{line_id}", None),
+				("POST", "/ceto/store/carts/{cart_id}", {"email": "attacker@example.com"}),
+			):
+				with self.subTest(method=method, path=path):
+					cart_id = self._create_cart()
+					line_id = self._add_line(cart_id, quantity=1)
+					response = self._dispatch(
+						method,
+						path.format(cart_id=cart_id, line_id=line_id),
+						payload,
+						publishable_key="pk_other",
+					)
+					self.assertEqual(response.status_code, 403)
+					self.assertEqual(response.get_json()["type"], "not_allowed")
+
+	def test_delete_returns_exact_body_and_repeat_is_404(self) -> None:
+		with self.set_conf(ceto_cart=self.configuration), self.set_user("Guest"):
+			cart_id = self._create_cart()
+			line_id = self._add_line(cart_id)
+
+			deleted = self._dispatch("DELETE", f"/ceto/store/carts/{cart_id}/line-items/{line_id}")
+			self.assertEqual(deleted.status_code, 200)
+			self.assertEqual(
+				deleted.get_json(),
+				{"id": line_id, "object": "line-item", "deleted": True, "parent": cart_id},
+			)
+			repeat = self._dispatch("DELETE", f"/ceto/store/carts/{cart_id}/line-items/{line_id}")
+			self.assertEqual(repeat.status_code, 404)
+			self.assertEqual(repeat.get_json()["type"], "not_found")
+
+	def _dispatch(
+		self,
+		method: str,
+		path: str,
+		payload: dict | None = None,
+		*,
+		publishable_key: str | None = "pk_test",
+	):
+		headers = {"x-publishable-api-key": publishable_key} if publishable_key else None
+		builder = EnvironBuilder(
+			path=path,
+			method=method,
+			data=json.dumps(payload) if payload is not None else None,
+			content_type="application/json" if payload is not None else None,
+			headers=headers,
+			environ_base={"REMOTE_ADDR": "127.0.0.1"},
+		)
+		request = Request(builder.get_environ())
+		with self.set_request(request):
+			return ceto_router.dispatch(request)

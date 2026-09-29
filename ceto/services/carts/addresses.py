@@ -75,10 +75,10 @@ class CartAddresses:
 			if previous:
 				quotation.db_set(link_field, None, notify=False)
 			if value is None:
-				self._discard_temporary(quotation, previous)
+				self.discard_temporary(quotation, previous)
 				continue
 			resolved = self._resolve(reference, quotation, value, address_type)
-			self._discard_temporary(quotation, previous)
+			self.discard_temporary(quotation, previous)
 			setattr(quotation, link_field, resolved)
 
 	@staticmethod
@@ -98,6 +98,92 @@ class CartAddresses:
 			if field in payload.model_fields_set and getattr(payload, field) is None:
 				quotation.db_set(link_field, None, notify=False)
 				quotation.db_set(displays[link_field], None, notify=False)
+
+	def attach_owner(self, quotation: "Document", customer: str) -> None:
+		"""Re-scope the Quotation's address links to the claiming customer.
+
+		Implements Recorded Decision 4 (``docs/carts/field-mapping.md``): every
+		cart-scoped temporary address still attached on claim is copied to a
+		new ``Address`` linked **only** to the claiming Customer (never to the
+		shared guest Customer or the Quotation, so no other cart can reach
+		it), the billing/shipping slots are relinked to that copy — one shared
+		copy when both slots reference the same temporary — and the temporary
+		itself is deleted. Addresses already linked to ``customer`` stay
+		attached unchanged; anything else is detached without being copied.
+		"""
+		displays = {"customer_address": "address_display", "shipping_address_name": "shipping_address"}
+		attached = {quotation.get(field) for field in displays} - {None}
+		copies: dict[str, str] = {}
+		for address_name in attached:
+			if CartAddresses.is_customer_address(address_name, customer):
+				continue
+			if not CartAddresses.is_cart_temporary(address_name, quotation.name):
+				# Neither the customer's nor this cart's temporary: never
+				# attach it to the claiming customer.
+				for link_field, display_field in displays.items():
+					if quotation.get(link_field) == address_name:
+						quotation.db_set(link_field, None, notify=False)
+						quotation.db_set(display_field, None, notify=False)
+				continue
+			if address_name not in copies:
+				copies[address_name] = CartAddresses._copy_for_customer(address_name, customer)
+			for link_field, display_field in displays.items():
+				if quotation.get(link_field) == address_name:
+					quotation.db_set(link_field, copies[address_name], notify=False)
+					# ERPNext re-renders the display snapshot on save.
+					quotation.db_set(display_field, None, notify=False)
+		# Deleting only after every referencing slot points at the copy keeps
+		# ERPNext's delete-time link check (live Quotation row) satisfied.
+		for original in copies:
+			CartAddresses.discard_temporary(quotation, original)
+
+	@staticmethod
+	def is_cart_temporary(address_name: str, quotation_name: str) -> bool:
+		"""Return whether ``address_name`` is this cart's scoped temporary."""
+		title = frappe.db.get_value("Address", address_name, "address_title")
+		if not title or not title.startswith("Cart "):
+			return False
+		return bool(
+			frappe.db.exists(
+				"Dynamic Link",
+				{
+					"parenttype": "Address",
+					"parent": address_name,
+					"link_doctype": "Quotation",
+					"link_name": quotation_name,
+				},
+			)
+		)
+
+	@staticmethod
+	def _copy_for_customer(address_name: str, customer: str) -> str:
+		"""Clone a cart temporary as an Address owned by ``customer``."""
+		source = frappe.get_doc("Address", address_name)
+		address = frappe.get_doc(
+			{
+				"doctype": "Address",
+				"address_title": source.address_title,
+				"address_type": source.address_type,
+				"address_line1": source.address_line1,
+				"address_line2": source.address_line2,
+				"city": source.city,
+				"state": source.state,
+				"pincode": source.pincode,
+				"country": source.country,
+				"phone": source.phone,
+				"is_primary_address": 0,
+				"is_shipping_address": 0,
+				"links": [
+					# The copy is customer-owned only: no guest Customer link
+					# (shared across all guest carts) and no Quotation link,
+					# so it can never leak into another cart.
+					{"link_doctype": "Customer", "link_name": customer},
+				],
+			}
+		)
+		address.flags.ignore_permissions = True
+		address.insert()
+		return address.name
 
 	def _resolve(
 		self,
@@ -161,12 +247,29 @@ class CartAddresses:
 			address = frappe.get_doc("Address", address_id)
 		except frappe.DoesNotExistError:
 			raise InvalidDataError(f"Unknown address: {address_id}") from None
-		if not self._belongs_to_cart(address.name, quotation.name, reference.owner_customer):
+		if not self.belongs_to_party(address.name, quotation.name, reference.owner_customer):
 			raise InvalidDataError("Address does not belong to this cart")
 		return address.name
 
 	@staticmethod
-	def _belongs_to_cart(address_name: str, quotation_name: str, owner_customer: str | None) -> bool:
+	def is_customer_address(address_name: str, customer: str | None) -> bool:
+		"""Return whether ``address_name`` is linked to ``customer``."""
+		if not customer:
+			return False
+		return bool(
+			frappe.db.exists(
+				"Dynamic Link",
+				{
+					"parenttype": "Address",
+					"parent": address_name,
+					"link_doctype": "Customer",
+					"link_name": customer,
+				},
+			)
+		)
+
+	@staticmethod
+	def belongs_to_party(address_name: str, quotation_name: str, owner_customer: str | None) -> bool:
 		links = frappe.get_all(
 			"Dynamic Link",
 			filters={"parenttype": "Address", "parent": address_name},
@@ -180,7 +283,7 @@ class CartAddresses:
 		return False
 
 	@staticmethod
-	def _discard_temporary(quotation: "Document", previous: str | None) -> None:
+	def discard_temporary(quotation: "Document", previous: str | None) -> None:
 		"""Delete the previous cart-scoped temporary address, if it is one."""
 		if not previous:
 			return

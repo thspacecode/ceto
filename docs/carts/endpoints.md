@@ -1,8 +1,9 @@
 # Store Cart Endpoints — Source of Truth
 
 Phase 0 pinned a machine-readable contract manifest that later phases
-implement against. **Phase 1 implemented routes 1–3 and Phase 2 implemented
-routes 4–6** (line items); routes 7–15 remain unimplemented.
+implement against. **Phase 1 implemented routes 1–3, Phase 2 implemented
+routes 4–6** (line items) and **Phase 3 implemented route 14** (customer
+claim/transfer); the remaining routes are unimplemented.
 
 ## Manifest
 
@@ -53,7 +54,7 @@ When Medusa ships a new version, update `CART_API_SOURCE_URL`,
 they intentionally fail on drift.
 
 
-## Implemented routes (Phase 1 + Phase 2)
+## Implemented routes (Phase 1 + Phase 2 + Phase 3)
 
 Handler module: `ceto/api/store/carts.py`. All cart routes are guest-enabled
 and require the `x-publishable-api-key` header.
@@ -66,6 +67,33 @@ and require the `x-publishable-api-key` header.
 | 4. `POST /store/carts/{id}/line-items` | implemented (Phase 2) | `{cart: StoreCart}` |
 | 5. `POST /store/carts/{id}/line-items/{line_id}` | implemented (Phase 2) | `{cart: StoreCart}` |
 | 6. `DELETE /store/carts/{id}/line-items/{line_id}` | implemented (Phase 2) | `{id, object: "line-item", deleted: true, parent}` |
+| 14. `POST /store/carts/{id}/customer` | implemented (Phase 3) | `{cart: StoreCart}` |
+
+### Customer claim / transfer (Phase 3)
+
+- **Claim** (`SDK: transferCart`): `POST /store/carts/{id}/customer` with an
+  empty body and a publishable key. Requires an **authenticated session** —
+  a guest request gets `401 unauthorized`, as does an authenticated Frappe
+  User with no Customer linked through its `Contact` (resolver:
+  `ceto/services/carts/customers.py`).
+- The claim runs inside the cart row lock (same lock order as every other
+  mutation, with the publishable-key scope guard evaluated inside the lock):
+  the session user resolves to its ERPNext Customer, the guest party,
+  contact and address context is replaced, item pricing is re-fetched by
+  ERPNext for the new customer (pricing rules) while the
+  **sales-channel price list stays configured** — it is never re-inferred
+  from the claiming Customer's default (Recorded Decision 1) — taxes/totals
+  are recalculated by the controller, and `owner_user` / `owner_customer`
+  persist on the `Ceto Cart Reference`.
+- Cart-scoped temporary addresses captured under the guest Customer are
+  **copied to customer-owned Addresses** (Recorded Decision 4): each still
+  attached temporary is cloned as an Address linked only to the claiming
+  Customer, the billing/shipping slots are relinked to the copy (one shared
+  copy when both slots reference the same temporary) and the temporary is
+  deleted. Addresses already linked to the claiming Customer stay attached
+  unchanged; nothing else is ever attached to the claiming Customer.
+- Claiming a cart owned by a different user is masked as `404 not_found`;
+  claiming again as the same user is idempotent (no mutation).
 
 ### Line-item endpoints (Phase 2)
 

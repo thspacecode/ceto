@@ -42,7 +42,7 @@ class TestCartAddresses(CetoTestSuite):
 					"template": "{{ address_line1 }}\n{{ city }}\n{{ country }}",
 				}
 			).insert(ignore_permissions=True)
-		self.masters = CartTestData()
+		self.masters = CartTestData.shared()
 
 	def _create_cart(self, payload: StoreCreateCart | None = None):
 		return CartService().create(payload or StoreCreateCart())

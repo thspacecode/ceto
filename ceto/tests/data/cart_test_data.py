@@ -39,6 +39,23 @@ ITEM_PRICE_B = _bootstrap_rate("DEV-HOODIE-001")
 class CartTestData:
 	"""Expose the bootstrap commerce masters as cart test configuration."""
 
+	_shared: "CartTestData | None" = None
+
+	@classmethod
+	def shared(cls) -> "CartTestData":
+		"""One committed master dataset per test process.
+
+		Creating a Company (chart of accounts, defaults, warehouses) costs
+		~24s, which dominated every test when masters were built per test
+		method. Masters are read-only inputs for the tests, so a single
+		committed instance is shared by all of them; per-test documents
+		are still isolated by the suite's rollback teardown.
+		"""
+		if cls._shared is None:
+			cls._shared = cls()
+			frappe.db.commit()
+		return cls._shared
+
 	def __init__(self) -> None:
 		self.settings: BootstrapSettings = boot_strap_test_master_data.resolve_baseline_settings()
 		self.company = resolve_company(self.settings)

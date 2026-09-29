@@ -2,6 +2,7 @@ from typing import Any
 
 from ceto.api.store.publishable_key import CartPublishableKey
 from ceto.routing import ceto_router
+from ceto.services.carts.claim import CartClaim
 from ceto.services.carts.quotation import CartService
 from ceto.services.carts.serialization import CartSerializer
 from ceto.types.http.store.carts import (
@@ -75,3 +76,16 @@ def delete_cart_line_item(id: str, line_id: str) -> dict[str, Any]:
 		"deleted": True,
 		"parent": reference.cart_id,
 	}
+
+
+@ceto_router.post("/store/carts/{id}/customer", allow_guest=True)
+def claim_cart_customer(id: str, fields: str | None = None) -> dict[str, Any]:
+	"""Medusa ``transferCart``: claim a guest cart for the logged-in customer.
+
+	The route is guest-enabled like the other cart routes but always rejects
+	an unauthenticated session with ``401 unauthorized``; the publishable-key
+	scope is validated inside the cart row lock via ``guard``.
+	"""
+	publishable_key = CartPublishableKey.from_request()
+	reference, quotation = CartClaim().claim(id, guard=publishable_key.check_reference)
+	return {"cart": CartSerializer().serialize(reference, quotation, fields=fields)}

@@ -38,7 +38,7 @@ class CartService:
 		self._validate_currency(payload.currency_code, configuration.currency)
 
 		owner_user = self.access.owner_user()
-		with _as_administrator():
+		with as_administrator():
 			quotation = self._new_quotation(configuration, payload.email)
 			reference = frappe.get_doc(
 				{
@@ -88,7 +88,7 @@ class CartService:
 		with self.access.lock(cart_id) as (reference, quotation):
 			if guard is not None:
 				guard(reference)
-			with _as_administrator():
+			with as_administrator():
 				self._apply_update(reference, quotation, payload)
 				self.addresses.apply(reference, quotation, payload)
 				# Shared save helper: keeps the mandatory-items relaxation only
@@ -113,7 +113,7 @@ class CartService:
 		with self.access.lock(cart_id) as (reference, quotation):
 			if guard is not None:
 				guard(reference)
-			with _as_administrator():
+			with as_administrator():
 				mapping = CartLineItems.add(reference, quotation, payload)
 			return reference, quotation, mapping
 
@@ -133,7 +133,7 @@ class CartService:
 		with self.access.lock(cart_id) as (reference, quotation):
 			if guard is not None:
 				guard(reference)
-			with _as_administrator():
+			with as_administrator():
 				mapping = CartLineItems.update(reference, quotation, line_id, payload)
 			return reference, quotation, mapping
 
@@ -152,7 +152,7 @@ class CartService:
 		with self.access.lock(cart_id) as (reference, quotation):
 			if guard is not None:
 				guard(reference)
-			with _as_administrator():
+			with as_administrator():
 				mapping = CartLineItems.delete(reference, quotation, line_id)
 			return reference, quotation, mapping
 
@@ -251,7 +251,7 @@ class CartService:
 
 
 @contextmanager
-def _as_administrator():
+def as_administrator():
 	"""Run trusted ERPNext controller work with account read access."""
 	user = frappe.session.user
 	try:

@@ -14,7 +14,7 @@ from ceto.services.carts.line_items import CartLineItems
 from ceto.services.carts.quotation import CartService
 from ceto.services.carts.serialization import CartSerializer
 from ceto.tests.data.cart_test_data import ITEM_PRICE, ITEM_PRICE_B, CartTestData
-from ceto.tests.testsuite import CetoTestSuite
+from ceto.tests.utils import CetoTestSuite
 from ceto.types.http.store.carts import (
 	StoreAddCartLineItem,
 	StoreCreateCart,
@@ -73,7 +73,7 @@ class TestCartLineItems(CetoTestSuite):
 		self.assertEqual([item["id"] for item in cart["items"]], [first, second])
 		item = cart["items"][0]
 		self.assertEqual(item["cart_id"], reference.cart_id)
-		self.assertEqual(item["title"], f"Ceto Cart Item {self.masters.suffix}")
+		self.assertEqual(item["title"], frappe.db.get_value("Item", self.masters.item, "item_name"))
 		self.assertEqual(item["variant_id"], self.masters.item)
 		self.assertEqual(item["quantity"], 1)
 		self.assertEqual(item["unit_price"], ITEM_PRICE)
@@ -292,7 +292,7 @@ class TestCartLineItems(CetoTestSuite):
 			with self.assertRaisesRegex(InvalidDataError, "Unknown variant id"):
 				self.service.add_line_item(
 					reference.cart_id,
-					StoreAddCartLineItem(variant_id=f"missing-{self.masters.suffix}", quantity=1),
+					StoreAddCartLineItem(variant_id="DEV-MISSING-001", quantity=1),
 				)
 			reference, quotation = self.service.retrieve(reference.cart_id)
 		self.assertEqual(quotation.items, [])

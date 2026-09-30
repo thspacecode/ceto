@@ -304,13 +304,14 @@ class TestCartLineItemAPI(CetoTestSuite):
 class TestCartCustomerClaimAPI(CetoTestSuite):
 	"""Phase 3 claim endpoint: ``POST /store/carts/{id}/customer``.
 
-	Error subtests rely on the router's rollback of the open transaction, so
-	carts and masters are committed before the failing requests.
+	Error subtests rely on the router's rollback of the open transaction;
+	masters are the committed bootstrap baseline, and carts that must
+	survive a rollback are committed before the failing requests.
 	"""
 
 	def setUp(self) -> None:
 		frappe.set_user("Administrator")
-		self.masters = CartTestData.shared()
+		self.masters = CartTestData()
 		self.configuration = {
 			**self.masters.configuration,
 			"publishable_keys": {"pk_test": {"region_id": "reg_test", "sales_channel_id": "sc_test"}},

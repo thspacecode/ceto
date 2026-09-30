@@ -7,7 +7,7 @@ from ceto.routing.exceptions import RouteNotFoundError, UnauthorizedError
 from ceto.services.carts.claim import CartClaim
 from ceto.services.carts.quotation import CartService
 from ceto.tests.data.cart_test_data import ITEM_PRICE, TAX_RATE, CartTestData
-from ceto.tests.testsuite import CetoTestSuite
+from ceto.tests.utils import CetoTestSuite
 from ceto.types.http.store.carts import (
 	StoreAddCartLineItem,
 	StoreCartAddressPayload,
@@ -29,9 +29,10 @@ SHIPPING = {
 class TestCartClaim(CetoTestSuite):
 	def setUp(self) -> None:
 		frappe.set_user("Administrator")
-		# Shared, committed masters survive the error-path rollbacks
-		# triggered by the router/handler in subtests below.
-		self.masters = CartTestData.shared()
+		# Masters are the committed bootstrap baseline and the adapter's
+		# test-only tax template commits itself, so the error paths in
+		# the subtests below cannot erase them.
+		self.masters = CartTestData()
 		self._previous_throttle = frappe.local.conf.get("throttle_user_limit")
 		frappe.local.conf["throttle_user_limit"] = 100000
 		self.buyer = self._make_claiming_customer("buyer")

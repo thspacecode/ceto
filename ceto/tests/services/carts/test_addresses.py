@@ -4,7 +4,7 @@ from ceto.routing.exceptions import InvalidDataError
 from ceto.services.carts.quotation import CartService
 from ceto.services.carts.serialization import CartSerializer
 from ceto.tests.data.cart_test_data import CartTestData
-from ceto.tests.testsuite import CetoTestSuite
+from ceto.tests.utils import CetoTestSuite
 from ceto.types.http.store.carts import StoreCreateCart, StoreUpdateCart
 
 SHIPPING = {
@@ -42,7 +42,7 @@ class TestCartAddresses(CetoTestSuite):
 					"template": "{{ address_line1 }}\n{{ city }}\n{{ country }}",
 				}
 			).insert(ignore_permissions=True)
-		self.masters = CartTestData.shared()
+		self.masters = CartTestData()
 
 	def _create_cart(self, payload: StoreCreateCart | None = None):
 		return CartService().create(payload or StoreCreateCart())

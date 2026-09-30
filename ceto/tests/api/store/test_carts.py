@@ -7,7 +7,7 @@ from werkzeug.wrappers import Request
 import ceto.api.routes
 from ceto.routing import ceto_router
 from ceto.tests.data.cart_test_data import CartTestData
-from ceto.tests.testsuite import CetoTestSuite
+from ceto.tests.utils import CetoTestSuite
 
 
 class TestCartAPI(CetoTestSuite):

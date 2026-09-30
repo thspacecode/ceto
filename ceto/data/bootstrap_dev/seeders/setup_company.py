@@ -2,6 +2,7 @@
 
 import erpnext
 import frappe
+from frappe import _
 
 from ceto.data.base_importer import BaseImporter, Report
 from ceto.data.bootstrap_dev.settings import BootstrapSettings
@@ -12,7 +13,7 @@ def resolve_company(settings: BootstrapSettings) -> str:
 	"""Resolve the company the bootstrap seeds into, or fail with a clear message."""
 	company = settings.company or erpnext.get_default_company()
 	if not company or not frappe.db.exists("Company", company):
-		msg = (
+		msg = _(
 			"No default Company found. Complete the site setup wizard, or pass a "
 			"'company' setting, before bootstrapping commerce data."
 		)

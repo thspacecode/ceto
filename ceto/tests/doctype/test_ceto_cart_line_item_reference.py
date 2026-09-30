@@ -13,7 +13,7 @@ import frappe
 from ceto.services.carts.quotation import CartService
 from ceto.services.carts.variants import resolve_item_code
 from ceto.tests.data.cart_test_data import CartTestData
-from ceto.tests.testsuite import CetoTestSuite
+from ceto.tests.utils import CetoTestSuite
 from ceto.types.http.store.carts import StoreCreateCart
 
 

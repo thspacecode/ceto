@@ -164,6 +164,7 @@ class StoreCart(BaseModel):
 	discount_tax_total: float = 0
 	gift_card_total: float = 0
 	gift_card_tax_total: float = 0
+	credit_line_total: float = 0
 	shipping_total: float = 0
 	shipping_subtotal: float = 0
 	shipping_tax_total: float = 0

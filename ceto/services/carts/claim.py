@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 from ceto.routing.exceptions import UnauthorizedError
 from ceto.services.carts.access import CartAccess
 from ceto.services.carts.addresses import CartAddresses
+from ceto.services.carts.credits import CartCredits
 from ceto.services.carts.customers import CartCustomers
 from ceto.services.carts.line_items import CartLineItems
 from ceto.services.carts.quotation import privileged_scope
@@ -103,6 +104,9 @@ class CartClaim:
 		for field, value in channel_pricing.items():
 			if quotation.get(field) != value:
 				quotation.db_set(field, value, notify=False)
+		# Re-priced totals move the credit holds; they are re-capped and
+		# their deduction rows rewritten under the same lock.
+		CartCredits.reconcile(quotation)
 		reference.owner_user = user
 		reference.owner_customer = customer
 		reference.save(ignore_permissions=True)

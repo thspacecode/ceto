@@ -40,6 +40,7 @@ from ceto.types.http.store.carts import (
 	StoreAddGiftCardToCart,
 	StoreAddStoreCreditsToCart,
 	StoreCreateCart,
+	StoreRemoveGiftCardFromCart,
 	StoreUpdateCart,
 	StoreUpdateCartLineItem,
 )
@@ -527,3 +528,152 @@ class TestCartStoreCreditService(CetoTestSuite):
 
 		self.assertAlmostEqual(self._holds(quotation)[0]["amount"], 10.0)
 		self.assertAlmostEqual(quotation.grand_total, flt(PAYABLE - 10.0))
+
+
+class TestCartCreditConsumption(CetoTestSuite):
+	"""Completion-time consumption: the wallet debits and the order-credit reads."""
+
+	def setUp(self) -> None:
+		frappe.set_user("Administrator")
+		self.masters = CartTestData()
+		self.service = CartService()
+		# The wallet fixtures commit, so every test's customer party survives
+		# its rollback; unique-per-test users pile up and would cross
+		# frappe's user-creation throttle on repeated runs.
+		self._previous_throttle = frappe.local.conf.get("throttle_user_limit")
+		frappe.local.conf["throttle_user_limit"] = 100000
+		self.email, self.customer = make_customer_with_user("consume")
+		self.store_wallet = self.masters.make_store_credit_wallet(customer=self.customer, credit_total=20.0)
+
+	def tearDown(self) -> None:
+		if self._previous_throttle is None:
+			frappe.local.conf.pop("throttle_user_limit", None)
+		else:
+			frappe.local.conf["throttle_user_limit"] = self._previous_throttle
+		super().tearDown()
+
+	def _cart_with_holds(self, *, gift_card_total: float = 10.0) -> tuple:
+		"""A cart holding a gift card (10 by default) and 15 store credits."""
+		code = f"GC-CON-{self.masters.suffix}"
+		gift_wallet = self.masters.make_gift_card(code, credit_total=gift_card_total)
+		reference, quotation = self._cart()
+		with self.set_conf(ceto_cart=self.masters.configuration), self.set_user("Guest"):
+			self.service.add_gift_card(reference.cart_id, StoreAddGiftCardToCart(code=code))
+		with self.set_conf(ceto_cart=self.masters.configuration), self.set_user(self.email):
+			self.service.add_store_credits(reference.cart_id, StoreAddStoreCreditsToCart(amount=15.0))
+		reference, quotation = self.service.retrieve(reference.cart_id)
+		return reference, quotation, gift_wallet
+
+	def _cart(self) -> tuple:
+		with self.set_conf(ceto_cart=self.masters.configuration), self.set_user("Guest"):
+			reference, _quotation = self.service.create(StoreCreateCart(email="guest@example.com"))
+			self.service.add_line_item(
+				reference.cart_id, StoreAddCartLineItem(variant_id=self.masters.item, quantity=1)
+			)
+			return self.service.retrieve(reference.cart_id)
+
+	def _holds(self, quotation) -> list[dict]:
+		return frappe.get_all(
+			"Ceto Cart Credit Reservation",
+			filters={"quotation": quotation.name},
+			fields=["name", "wallet", "amount", "status"],
+			order_by="creation asc",
+		)
+
+	def _ledger(self, wallet: str) -> dict:
+		return frappe.db.get_value(
+			"Ceto Credit Wallet", wallet, ["credit_total", "debit_total", "balance"], as_dict=True
+		)
+
+	def test_consume_debits_every_wallet_and_consumes_every_hold(self) -> None:
+		_reference, quotation, gift_wallet = self._cart_with_holds()
+
+		CartCredits.consume_cart_credits(quotation)
+
+		holds = {hold["wallet"]: hold for hold in self._holds(quotation)}
+		self.assertEqual([hold["status"] for hold in holds.values()], ["Consumed", "Consumed"])
+		gift_ledger = self._ledger(gift_wallet)
+		self.assertAlmostEqual(flt(gift_ledger.debit_total), 10.0)
+		self.assertAlmostEqual(flt(gift_ledger.balance), 0)
+		store_ledger = self._ledger(self.store_wallet)
+		self.assertAlmostEqual(flt(store_ledger.debit_total), 15.0)
+		self.assertAlmostEqual(flt(store_ledger.balance), 5.0)
+
+	def test_consume_refreshes_the_stored_balance_snapshot(self) -> None:
+		_reference, quotation, gift_wallet = self._cart_with_holds()
+		# A provider booking bypassing validate left the snapshot stale-high.
+		frappe.db.set_value("Ceto Credit Wallet", gift_wallet, "balance", 100, update_modified=False)
+
+		CartCredits.consume_cart_credits(quotation)
+
+		# The snapshot follows the ledger totals again: 10 credited, 10 debited.
+		self.assertAlmostEqual(flt(self._ledger(gift_wallet).balance), 0)
+
+	def test_consume_skips_released_holds(self) -> None:
+		code = f"GC-REL-{self.masters.suffix}"
+		gift_wallet = self.masters.make_gift_card(code, credit_total=10.0)
+		reference, quotation = self._cart()
+		with self.set_conf(ceto_cart=self.masters.configuration), self.set_user("Guest"):
+			self.service.add_gift_card(reference.cart_id, StoreAddGiftCardToCart(code=code))
+			# Removing the card releases its hold before the consumption.
+			self.service.remove_gift_card(reference.cart_id, StoreRemoveGiftCardFromCart(code=code))
+		quotation = self.service.retrieve(reference.cart_id)[1]
+
+		CartCredits.consume_cart_credits(quotation)
+
+		# The released hold is not re-consumed and nothing was debited: a
+		# released hold never became money.
+		self.assertEqual([hold["status"] for hold in self._holds(quotation)], ["Released"])
+		self.assertAlmostEqual(flt(self._ledger(gift_wallet).debit_total), 0)
+
+	def test_consume_locks_the_wallets_in_sorted_name_order(self) -> None:
+		wallet_a = self.masters.make_gift_card(f"GC-CON-A-{self.masters.suffix}", credit_total=10.0)
+		wallet_b = self.masters.make_gift_card(f"GC-CON-B-{self.masters.suffix}", credit_total=10.0)
+		reference, quotation = self._cart()
+		with self.set_conf(ceto_cart=self.masters.configuration), self.set_user("Guest"):
+			self.service.add_gift_card(
+				reference.cart_id, StoreAddGiftCardToCart(code=f"GC-CON-B-{self.masters.suffix}")
+			)
+			self.service.add_gift_card(
+				reference.cart_id, StoreAddGiftCardToCart(code=f"GC-CON-A-{self.masters.suffix}")
+			)
+		quotation = self.service.retrieve(reference.cart_id)[1]
+		original_get_value = frappe.db.get_value
+		locked: list[str] = []
+
+		def recording_get_value(doctype, filters=None, *args, **kwargs):
+			if doctype == "Ceto Credit Wallet" and kwargs.get("for_update"):
+				name = filters if isinstance(filters, str) else (filters or {}).get("name")
+				locked.append(name)
+			return original_get_value(doctype, filters, *args, **kwargs)
+
+		with patch.object(frappe.db, "get_value", recording_get_value):
+			CartCredits.consume_cart_credits(quotation)
+
+		# Holds were taken in B, A order; the locks must still be taken
+		# sorted, so a completion can never deadlock a concurrent
+		# application of the same wallets.
+		self.assertEqual(locked, sorted([wallet_a, wallet_b]))
+
+	def test_consume_without_holds_is_a_noop(self) -> None:
+		_reference, quotation = self._cart()
+
+		CartCredits.consume_cart_credits(quotation)
+
+		self.assertEqual(self._holds(quotation), [])
+
+	def test_order_credit_reads_return_only_the_consumed_holds(self) -> None:
+		_reference, quotation, _gift_wallet = self._cart_with_holds()
+
+		self.assertEqual(len(CartCredits.applied_credits(quotation.name)), 2)
+		self.assertEqual(CartCredits.consumed_credits(quotation.name), [])
+
+		CartCredits.consume_cart_credits(quotation)
+
+		# The order-credit view: only consumed holds count, in application
+		# order, with the wallet kind resolved for the split.
+		consumed = CartCredits.consumed_credits(quotation.name)
+		self.assertEqual([credit.amount for credit in consumed], [10.0, 15.0])
+		self.assertEqual([credit.reference for credit in consumed], ["gift-card", "store-credit"])
+		self.assertEqual(CartCredits.applied_credits(quotation.name), [])
+		self.assertEqual(len({credit.credit_line_id for credit in consumed}), 2)

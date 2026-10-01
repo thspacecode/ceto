@@ -30,7 +30,7 @@ class CartSerializer:
 		fields: str | None = None,
 	) -> dict[str, Any]:
 		cart = self._cart(reference, quotation).model_dump(mode="json")
-		return self._select_fields(cart, fields)
+		return self.select_fields(cart, fields)
 
 	@staticmethod
 	def _cart(reference: "Document", quotation: "Document") -> StoreCart:
@@ -40,7 +40,7 @@ class CartSerializer:
 		updated_at = max(get_datetime(reference.modified), get_datetime(quotation.modified))
 		shipping_charge = CartShipping.applied_charge(quotation)
 		shipping_total = flt(shipping_charge.amount) if shipping_charge else 0.0
-		credits = CartCredits.applied_credits(quotation)
+		credits = CartCredits.applied_credits(quotation.name)
 		gift_card_total = flt(sum(credit.amount for credit in credits if credit.reference == "gift-card"))
 		# Every open hold — gift card or store credit — is one credit line, so
 		# the Medusa credit-line total is the sum of all of them (it includes
@@ -315,17 +315,25 @@ class CartSerializer:
 		return flt(allocations.get(row.item_code))
 
 	@staticmethod
-	def _select_fields(cart: dict[str, Any], fields: str | None) -> dict[str, Any]:
+	def select_fields(cart: dict[str, Any], fields: str | None, *, entity: str = "cart") -> dict[str, Any]:
+		"""Apply the shared ``fields`` selector to one serialized entity.
+
+		The completion response is a union of two entities (the placed order
+		or the refused cart), so the selector takes an ``entity`` label that
+		only names the field in the error messages.
+		"""
 		if not fields:
 			return cart
 
 		tokens = [token.strip() for token in fields.split(",") if token.strip()]
-		plain_fields = {CartSerializer._field_name(token) for token in tokens if token[0] not in "+-*"}
+		plain_fields = {
+			CartSerializer._field_name(token, entity) for token in tokens if token[0] not in "+-*"
+		}
 		selected = plain_fields or set(cart)
 		for token in tokens:
-			field = CartSerializer._field_name(token)
+			field = CartSerializer._field_name(token, entity)
 			if field not in cart:
-				raise InvalidDataError(f"Unknown cart field: {field}")
+				raise InvalidDataError(f"Unknown {entity} field: {field}")
 			if token.startswith("-"):
 				selected.discard(field)
 			else:
@@ -333,8 +341,8 @@ class CartSerializer:
 		return {key: value for key, value in cart.items() if key in selected}
 
 	@staticmethod
-	def _field_name(token: str) -> str:
+	def _field_name(token: str, entity: str = "cart") -> str:
 		field = token.lstrip("+-*").split(".", 1)[0]
 		if not field:
-			raise InvalidDataError("Cart fields must not be empty")
+			raise InvalidDataError(f"{entity.capitalize()} fields must not be empty")
 		return field

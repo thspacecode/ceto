@@ -1,4 +1,4 @@
-"""Mechanical checks on docs/carts/field-mapping.md (Phase 0).
+"""Mechanical checks on docs/carts/field-mapping.md.
 
 These tests are deliberately shallow: they pin that the required mapping
 sections, classifications and recorded decisions exist so later phases can
@@ -33,6 +33,7 @@ REQUIRED_DECISION_KEYWORDS = (
 	("store credit", "ledger"),
 	("payment readiness",),
 	("no custom fields",),
+	("display_id", "order reference"),
 )
 
 TABLE_ROW_RE = re.compile(r"^\|[^|]+\|[^|]+\|[^|]+\|$")
@@ -94,9 +95,9 @@ class TestCartsFieldMappingDoc(unittest.TestCase):
 		self.assertIn("negative `Actual` row", self.text)
 		self.assertIn("total + discount_total + credit_line_total == subtotal + tax_total", self.text)
 
-	def test_eight_decisions_are_recorded(self):
+	def test_nine_decisions_are_recorded(self):
 		decision_lines = re.findall(r"^\d+\. \*\*", self.text, re.MULTILINE)
-		self.assertEqual(len(decision_lines), 8)
+		self.assertEqual(len(decision_lines), 9)
 
 	def test_decisions_cover_required_topics(self):
 		decisions = re.findall(
@@ -104,7 +105,7 @@ class TestCartsFieldMappingDoc(unittest.TestCase):
 			self.text,
 			re.MULTILINE | re.DOTALL,
 		)
-		self.assertEqual(len(decisions), 8)
+		self.assertEqual(len(decisions), 9)
 		for title, body in decisions:
 			blob = (title + " " + body).lower()
 			for keywords in REQUIRED_DECISION_KEYWORDS:

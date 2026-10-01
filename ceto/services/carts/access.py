@@ -22,11 +22,48 @@ class CartAccess:
 	@contextmanager
 	def lock(self, cart_id: str) -> Iterator[tuple["Document", "Document"]]:
 		reference = self._get_reference(cart_id)
-		self._lock_row("Ceto Cart Reference", cart_id)
-		self._lock_row("Quotation", reference.quotation)
+		self._lock_rows(cart_id, reference.quotation)
 		reference.reload()
 		self._check_owner(reference)
 		yield reference, self._get_open_quotation(reference.quotation)
+
+	@contextmanager
+	def lock_for_completion(self, cart_id: str) -> Iterator[tuple["Document", "Document"]]:
+		"""Row-lock a cart for completion, tolerating an already-completed one.
+
+		Same lock discipline and order as :meth:`lock`, but a *submitted*
+		Quotation is yielded instead of rejected: completion itself submits
+		the Quotation, and the replay path must still resolve the order an
+		earlier completion booked. Anything that cannot complete — unknown
+		cart, missing or cancelled Quotation, a draft that is not a Shopping
+		Cart — is masked as ``404 not_found``; a draft cart yields normally
+		so the preflight can refuse it.
+		"""
+		reference = self._get_reference(cart_id)
+		self._lock_rows(cart_id, reference.quotation)
+		reference.reload()
+		self._check_owner(reference)
+		yield reference, self._get_completion_quotation(reference.quotation)
+
+	@staticmethod
+	def _lock_rows(cart_id: str, quotation_name: str) -> None:
+		CartAccess._lock_row("Ceto Cart Reference", cart_id)
+		CartAccess._lock_row("Quotation", quotation_name)
+
+	@staticmethod
+	def _get_completion_quotation(name: str) -> "Document":
+		try:
+			quotation = frappe.get_doc("Quotation", name)
+		except frappe.DoesNotExistError:
+			raise RouteNotFoundError("Cart not found")
+		if quotation.docstatus == 2:
+			# A cancelled cart never completes and has no order to replay.
+			raise RouteNotFoundError("Cart not found")
+		if quotation.docstatus == 0 and quotation.order_type != "Shopping Cart":
+			# Only Shopping Cart Quotations are carts; a submitted (completed)
+			# Quotation skips this check — the replay branch owns it.
+			raise RouteNotFoundError("Cart not found")
+		return quotation
 
 	@staticmethod
 	def _lock_row(doctype: str, name: str) -> None:

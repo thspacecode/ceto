@@ -50,6 +50,7 @@ class CartPromotions:
 		# name; ERPNext's own pricing-rule pipeline (run on save/validate via
 		# set_missing_values with coupon_code in args) applies the discount.
 		quotation.coupon_code = coupon.name
+		cls._reset_line_pricing(quotation)
 		CartLineItems.save(quotation)
 
 	@classmethod
@@ -103,6 +104,16 @@ class CartPromotions:
 		quotation.discount_amount = 0
 		quotation.base_discount_amount = 0
 		quotation.additional_discount_percentage = 0
+		CartPromotions._reset_line_pricing(quotation)
+
+	@staticmethod
+	def _reset_line_pricing(quotation: "Document") -> None:
+		"""Force ERPNext to resolve pricing rules for the current coupon."""
+		for item in quotation.get("items", []):
+			item.pricing_rules = ""
+			item.discount_percentage = 0
+			item.discount_amount = 0
+			item.rate = item.price_list_rate
 
 	@staticmethod
 	def _distinct(codes: list[str]) -> list[str]:

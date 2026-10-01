@@ -40,6 +40,7 @@ class TestCartPromotions(CetoTestSuite):
 		self.other_code = f"SAVE20{self.masters.suffix}"
 
 	def _make_coupon(self, label: str, percentage: float, **overrides) -> str:
+		valid_from = add_days(overrides["valid_upto"], -1) if "valid_upto" in overrides else today()
 		rule = {
 			"doctype": "Pricing Rule",
 			"title": f"Ceto Coupon {label} {self.masters.suffix}",
@@ -53,9 +54,9 @@ class TestCartPromotions(CetoTestSuite):
 			"for_price_list": self.masters.price_list,
 			"currency": "USD",
 			"priority": {"SAVE10": 1, "SAVE20": 2, "OLDE": 3, "MAXED": 4, "APISAVE": 1, "APIOTHER": 2}[label],
-			"valid_from": today(),
+			"valid_from": valid_from,
 		}
-		rule.update({key: overrides.pop(key) for key in ("valid_upto",) if key in overrides})
+		rule.update({key: overrides[key] for key in ("valid_upto",) if key in overrides})
 		rule = frappe.get_doc(rule).insert(ignore_permissions=True)
 		frappe.get_doc(
 			{
@@ -64,7 +65,7 @@ class TestCartPromotions(CetoTestSuite):
 				"coupon_code": f"{label}{self.masters.suffix}",
 				"coupon_type": "Promotional",
 				"pricing_rule": rule.name,
-				"valid_from": today(),
+				"valid_from": valid_from,
 				**overrides,
 			}
 		).insert(ignore_permissions=True)

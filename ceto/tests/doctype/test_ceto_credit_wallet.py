@@ -86,6 +86,28 @@ class TestCetoCreditWallet(CetoTestSuite):
 		with self.assertRaises(frappe.exceptions.ValidationError):
 			self._make_wallet(code_hash="gc-code-1234")
 
+	def test_code_hint_is_normalized(self) -> None:
+		wallet = self._make_wallet(code_hint="  GC-****-1234  ")
+		self.assertEqual(wallet.code_hint, "GC-****-1234")
+
+	def test_code_hint_must_stay_a_masked_display_fragment(self) -> None:
+		# The hint is serialized into cart responses and Quotation tax-row
+		# descriptions, so it must stay a short masked fragment: a longer or
+		# freer-form value could carry the plaintext code or smuggle markup.
+		for hint in (
+			hashlib.sha256(b"whole code pasted as hint").hexdigest(),  # 64 hex chars
+			"my secret gift card code",
+			"GC-****-1234 extra",
+			"GC-***-1234",  # too short a mask
+			"GC-*********-1234",  # too long a mask
+			"GC-****-12 34",  # whitespace inside
+			"GC-<b>****</b>-1234",  # markup
+			"GC-****-1234; DROP TABLE",
+			"GC-****-1234\nsecond line",
+		):
+			with self.subTest(hint=hint), self.assertRaises(frappe.exceptions.ValidationError):
+				self._make_wallet(code_hint=hint)
+
 	def _store_credit(self) -> dict:
 		"""Fresh customer-owned store-credit overrides with a unique public id."""
 		return {

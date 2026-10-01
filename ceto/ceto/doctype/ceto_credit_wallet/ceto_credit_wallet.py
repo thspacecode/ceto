@@ -5,6 +5,13 @@ from frappe.model.document import Document
 from frappe.utils import flt
 
 _CODE_HASH_PATTERN = re.compile(r"[0-9a-f]{64}")
+# A masked display hint only: a short prefix and suffix around a 4-8
+# asterisk mask (``GC-****-1234``). The bound segments and the restricted
+# charset keep the hint a display fragment — too short to carry a plaintext
+# code, with no whitespace, control characters or markup — so serializing it
+# into a cart response or a Quotation tax-row description can never leak the
+# code or smuggle arbitrary text.
+_CODE_HINT_PATTERN = re.compile(r"^[A-Za-z0-9_-]{0,8}\*{4,8}[A-Za-z0-9_-]{0,8}$")
 
 
 class CetoCreditWallet(Document):
@@ -29,6 +36,10 @@ class CetoCreditWallet(Document):
 			self.code_hash = self.code_hash.strip().lower()
 			if not _CODE_HASH_PATTERN.fullmatch(self.code_hash):
 				frappe.throw("Code hash must be a 64-character lowercase SHA-256 hex digest")
+		if self.code_hint is not None:
+			self.code_hint = self.code_hint.strip()
+			if not _CODE_HINT_PATTERN.fullmatch(self.code_hint):
+				frappe.throw("Code hint must be a masked display form like GC-****-1234")
 		if bool(self.code_hash) != bool(self.code_hint):
 			frappe.throw("Code hash and code hint must be set together")
 		if self.wallet_type == "Gift Card" and not self.code_hash:

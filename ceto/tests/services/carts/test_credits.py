@@ -6,6 +6,8 @@ produced by ERPNext; the tests assert on the resulting documents, the open
 holds and the serialized cart.
 """
 
+from unittest.mock import patch
+
 import frappe
 from frappe.utils import add_to_date, flt, now_datetime
 
@@ -285,6 +287,90 @@ class TestCartGiftCardService(CetoTestSuite):
 		for field in ("total", "subtotal", "tax_total", "gift_card_total", "gift_cards", "credit_lines"):
 			self.assertEqual(after[field], before[field], field)
 
+	def test_deleted_cart_releases_its_holds(self) -> None:
+		reference, quotation = self._cart()
+		reference, quotation = self._apply(reference.cart_id, self.code)
+		hold = self._holds(quotation)[0]
+		self.assertEqual(hold["status"], "Reserved")
+		# The second cart exists before the deletion: the deleted cart's
+		# reference keeps pointing at the freed quotation name (frappe
+		# recycles the series), so no new cart may be created after it.
+		second, _second_quotation = self._cart()
+
+		# A deleted cart Quotation must not leave a hold behind: it would
+		# keep shrinking the wallet with no payable ever to absorb it.
+		# ``force`` skips the link check against the cart reference; the
+		# ``on_trash`` hook has already released the holds by then.
+		frappe.delete_doc("Quotation", quotation.name, force=True, ignore_permissions=True)
+
+		self.assertEqual(
+			frappe.db.get_value("Ceto Cart Credit Reservation", hold["name"], "status"), "Released"
+		)
+		# The released hold stops counting: the second cart can take the card.
+		reference, quotation = self._apply(second.cart_id, self.code)
+		self.assertAlmostEqual(self._holds(quotation)[0]["amount"], PAYABLE)
+
+	def test_cancelled_cart_releases_its_holds(self) -> None:
+		code = f"GC-CXL-{self.masters.suffix}"
+		self.masters.make_gift_card(code, credit_total=5.0)
+		reference, quotation = self._cart()
+		reference, quotation = self._apply(reference.cart_id, code)
+		self.assertAlmostEqual(self._holds(quotation)[0]["amount"], 5.0)
+
+		quotation.flags.ignore_mandatory = True
+		quotation.submit()
+		quotation.cancel()
+
+		self.assertEqual([hold["status"] for hold in self._holds(quotation)], ["Released"])
+		# The cancelled cart's payable is gone; the card is spendable again.
+		reference, quotation = self._cart()
+		reference, quotation = self._apply(reference.cart_id, code)
+		self.assertAlmostEqual(self._holds(quotation)[0]["amount"], 5.0)
+
+	def test_wallet_locks_are_taken_in_sorted_name_order(self) -> None:
+		wallet_a = self.masters.make_gift_card(f"GC-A-{self.masters.suffix}", credit_total=30.0)
+		wallet_b = self.masters.make_gift_card(f"GC-B-{self.masters.suffix}", credit_total=30.0)
+		self.assertNotEqual(wallet_a, wallet_b)
+		original_get_value = frappe.db.get_value
+		locked: list[str] = []
+
+		def recording_get_value(doctype, filters=None, *args, **kwargs):
+			if doctype == "Ceto Credit Wallet" and kwargs.get("for_update"):
+				name = filters if isinstance(filters, str) else (filters or {}).get("name")
+				locked.append(name)
+			return original_get_value(doctype, filters, *args, **kwargs)
+
+		# The holds are handed over in reverse name order; the locks must
+		# still be taken sorted, so two carts sharing wallets can never
+		# deadlock each other by locking the same rows in opposite orders.
+		with patch.object(frappe.db, "get_value", recording_get_value):
+			wallets = CartCredits._locked_wallets(
+				[frappe._dict(wallet=wallet_b), frappe._dict(wallet=wallet_a)]
+			)
+
+		self.assertEqual(locked, sorted([wallet_a, wallet_b]))
+		self.assertEqual(set(wallets), {wallet_a, wallet_b})
+
+	def test_gift_card_capping_uses_ledger_totals_not_the_balance_snapshot(self) -> None:
+		self.masters.make_gift_card(self.code, credit_total=40.0)
+		# A provider booking bypassing validate left the snapshot stale-low.
+		frappe.db.set_value("Ceto Credit Wallet", self.wallet, "balance", 4, update_modified=False)
+
+		reference, quotation = self._cart()
+		reference, quotation = self._apply(reference.cart_id, self.code)
+
+		# The ledger totals (40) are the authority; the stale snapshot (4)
+		# would have capped the hold there.
+		self.assertAlmostEqual(self._holds(quotation)[0]["amount"], PAYABLE)
+
+	def test_exhausted_card_rejects_despite_a_stale_balance_snapshot(self) -> None:
+		empty = self.masters.make_gift_card(f"GC-EMPTY-{self.masters.suffix}", credit_total=0)
+		frappe.db.set_value("Ceto Credit Wallet", empty, "balance", 50, update_modified=False)
+		reference, _quotation = self._cart()
+
+		with self.assertRaisesRegex(InvalidDataError, GIFT_CARD_EXHAUSTED):
+			self._apply(reference.cart_id, f"GC-EMPTY-{self.masters.suffix}")
+
 
 class TestCartStoreCreditService(CetoTestSuite):
 	def setUp(self) -> None:
@@ -407,3 +493,37 @@ class TestCartStoreCreditService(CetoTestSuite):
 				CartCredits.apply_store_credits(
 					frappe.get_doc("Quotation", _quotation.name), other_customer, None
 				)
+
+	def test_default_reservation_uses_ledger_totals_not_the_balance_snapshot(self) -> None:
+		# The ledger backs 20; a provider booking bypassing validate left
+		# the stored snapshot stale-high at 100.
+		self.masters.make_store_credit_wallet(customer=self.customer, credit_total=20.0)
+		frappe.db.set_value("Ceto Credit Wallet", self.wallet, "balance", 100, update_modified=False)
+		reference, quotation = self._cart()
+
+		reference, quotation = self._apply(reference.cart_id, StoreAddStoreCreditsToCart())
+
+		self.assertAlmostEqual(self._holds(quotation)[0]["amount"], 20.0)
+		self.assertAlmostEqual(quotation.grand_total, flt(PAYABLE - 20.0))
+
+	def test_amount_beyond_ledger_totals_rejects_despite_stale_balance_snapshot(self) -> None:
+		self.masters.make_store_credit_wallet(customer=self.customer, credit_total=5.0)
+		frappe.db.set_value("Ceto Credit Wallet", self.wallet, "balance", 100, update_modified=False)
+		reference, quotation = self._cart()
+
+		with self.assertRaisesRegex(InvalidDataError, STORE_CREDITS_EXCEEDED):
+			self._apply(reference.cart_id, StoreAddStoreCreditsToCart(amount=10))
+
+		self.assertEqual(self._holds(quotation), [])
+
+	def test_reservation_ignores_a_stale_low_balance_snapshot(self) -> None:
+		# The ledger backs the request even though the stale snapshot (5)
+		# covers less than the requested 10.
+		self.masters.make_store_credit_wallet(customer=self.customer, credit_total=20.0)
+		frappe.db.set_value("Ceto Credit Wallet", self.wallet, "balance", 5, update_modified=False)
+		reference, quotation = self._cart()
+
+		reference, quotation = self._apply(reference.cart_id, StoreAddStoreCreditsToCart(amount=10))
+
+		self.assertAlmostEqual(self._holds(quotation)[0]["amount"], 10.0)
+		self.assertAlmostEqual(quotation.grand_total, flt(PAYABLE - 10.0))

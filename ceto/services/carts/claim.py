@@ -14,6 +14,11 @@ Customer inside the cart row lock:
   sales-channel price list itself is part of the cart configuration and is
   never re-inferred from the claiming Customer.
 - Claiming again as the same user is idempotent and causes no mutation.
+- Claiming does not transfer another customer's money: customer-owned
+  store-credit holds booked by a different customer are released before
+  the re-priced save, and the deduction rows are unbooked ahead of it so
+  a cheaper re-price for the new party cannot fail the intermediate save
+  (the same staging discipline as the other shrinking mutations).
 """
 
 from collections.abc import Callable
@@ -78,6 +83,16 @@ class CartClaim:
 		user: str,
 		customer: str,
 	) -> None:
+		# A guest cart can carry holds booked by any customer who applied
+		# store credits before the claim. Claiming must not transfer that
+		# money into the claiming customer's cart: holds owned by a different
+		# customer's wallet are released before anything else moves.
+		CartCredits.release_foreign_store_credits(quotation, customer)
+		# The re-priced totals for the new party can shrink below the booked
+		# deductions; unbooking the rows keeps the intermediate controller
+		# save valid until the reconciliation re-caps the holds (the same
+		# staging discipline as the other shrinking cart mutations).
+		CartCredits.stage_for_mutation(quotation)
 		self.addresses.attach_owner(quotation, customer)
 		quotation.party_name = customer
 		quotation.contact_person = None
@@ -104,8 +119,8 @@ class CartClaim:
 		for field, value in channel_pricing.items():
 			if quotation.get(field) != value:
 				quotation.db_set(field, value, notify=False)
-		# Re-priced totals move the credit holds; they are re-capped and
-		# their deduction rows rewritten under the same lock.
+		# Re-priced totals move the credit holds; the surviving holds are
+		# re-capped and their deduction rows rewritten under the same lock.
 		CartCredits.reconcile(quotation)
 		reference.owner_user = user
 		reference.owner_customer = customer

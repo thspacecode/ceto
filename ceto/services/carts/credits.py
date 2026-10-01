@@ -26,6 +26,18 @@ Ceto only books the deduction rows its reservations dictate.
   therefore heals on the same save instead of silently dropping the
   deduction, and the booked deductions can never exceed the
   pre-deduction grand total — no negative totals.
+- Wallet availability is always derived from the ledger totals
+  (``credit_total - debit_total``) of the row under lock, never from the
+  stored ``balance`` snapshot, and the wallet locks behind a
+  reconciliation follow a deterministic sorted-name order so overlapping
+  carts cannot deadlock each other.
+- Claiming does not transfer another customer's money: the customer-owned
+  store-credit holds of a different customer are released before the
+  re-priced save (:meth:`CartCredits.release_foreign_store_credits`).
+- When a cart Quotation is cancelled or deleted, its open holds are
+  released (:func:`release_quotation_credit_holds`, hooked in
+  ``ceto/hooks.py``) so no hold outlives the payable it was booked
+  against.
 """
 
 import hashlib
@@ -188,6 +200,51 @@ class CartCredits:
 			quotation.remove(row)
 
 	@classmethod
+	def release_foreign_store_credits(cls, quotation: "Document", customer: str) -> list[str]:
+		"""Release the cart's store-credit holds owned by a different customer.
+
+		Store credit is booked by an authenticated customer's session, and a
+		guest cart can carry holds from any customer who applied before the
+		claim — so claiming must not transfer that money into the claiming
+		customer's cart. Every open hold backed by a customer-owned wallet
+		whose customer differs from ``customer`` is released; the following
+		reconciliation rebuilds the deduction rows from the surviving holds.
+		Wallet rows are locked first — in sorted name order, the same
+		deterministic order as :meth:`_locked_wallets` — so the release
+		serializes against a concurrent application of the same wallet.
+		Returns the released hold names.
+		"""
+		holds = frappe.get_all(
+			"Ceto Cart Credit Reservation",
+			filters={"quotation": quotation.name, "status": "Reserved"},
+			fields=["name", "wallet"],
+		)
+		if not holds:
+			return []
+		holds_by_wallet: dict[str, list[str]] = {}
+		for hold in holds:
+			holds_by_wallet.setdefault(hold.wallet, []).append(hold.name)
+		foreign: list[str] = []
+		for wallet_name in sorted(holds_by_wallet):
+			wallet = frappe.db.get_value(
+				"Ceto Credit Wallet",
+				wallet_name,
+				["name", "wallet_type", "customer"],
+				as_dict=True,
+				for_update=True,
+			)
+			if (
+				wallet is not None
+				and wallet.wallet_type == "Store Credit"
+				and wallet.customer
+				and wallet.customer != customer
+			):
+				foreign.extend(holds_by_wallet[wallet_name])
+		for hold in foreign:
+			cls._release(hold)
+		return foreign
+
+	@classmethod
 	def reconcile(cls, quotation: "Document") -> None:
 		"""Re-cap the cart's open holds and rewrite the deduction rows.
 
@@ -316,20 +373,24 @@ class CartCredits:
 	def _locked_wallets(cls, reservations: list[dict]) -> dict[str, "Document | None"]:
 		"""Lock and map the wallets behind ``reservations`` (one lock each).
 
-		``name`` is part of the projection because :meth:`_cap` excludes the
-		hold's own reservation by name — a projection without it would leave
-		``wallet.name`` ``None`` and silently match no sibling holds.
+		The locks are taken in sorted wallet-name order, so two carts whose
+		holds overlap on the same wallets can never deadlock each other by
+		locking the same rows in opposite orders. ``name`` is part of the
+		projection because :meth:`_cap` excludes the hold's own reservation
+		by name — a projection without it would leave ``wallet.name`` ``None``
+		and silently match no sibling holds. The ledger totals are projected
+		because :meth:`_cap` derives availability from them (never from the
+		stored ``balance`` snapshot).
 		"""
 		wallets: dict[str, "Document | None"] = {}
-		for reservation in reservations:
-			if reservation.wallet not in wallets:
-				wallets[reservation.wallet] = frappe.db.get_value(
-					"Ceto Credit Wallet",
-					reservation.wallet,
-					["name", "company", "currency", "wallet_type", "code_hint", "balance"],
-					as_dict=True,
-					for_update=True,
-				)
+		for wallet_name in sorted({reservation.wallet for reservation in reservations}):
+			wallets[wallet_name] = frappe.db.get_value(
+				"Ceto Credit Wallet",
+				wallet_name,
+				["name", "company", "currency", "wallet_type", "code_hint", "credit_total", "debit_total"],
+				as_dict=True,
+				for_update=True,
+			)
 		return wallets
 
 	@staticmethod
@@ -340,7 +401,18 @@ class CartCredits:
 	@classmethod
 	def _available_balance(cls, wallet: "Document") -> float:
 		"""Return the wallet balance net of every open hold on any cart."""
-		return flt(wallet.balance) - cls._reserved_excluding(wallet.name, None)
+		return cls._ledger_balance(wallet) - cls._reserved_excluding(wallet.name, None)
+
+	@staticmethod
+	def _ledger_balance(wallet: "Document | dict") -> float:
+		"""Return the wallet's ledger balance: ``credit_total - debit_total``.
+
+		The totals are the ledger's authority; the stored ``balance`` column
+		is only a snapshot that a provider booking bypassing the DocType
+		validate could leave stale, so availability is computed from the
+		totals of the locked row instead of trusting it.
+		"""
+		return flt(wallet.credit_total) - flt(wallet.debit_total)
 
 	@classmethod
 	def _reserved_excluding(cls, wallet: str, hold: str | None) -> float:
@@ -392,7 +464,7 @@ class CartCredits:
 			# A cart that moved to another company or currency (region
 			# switch) cannot keep holds denominated for the old one.
 			return 0.0
-		available = flt(wallet.balance) - cls._reserved_excluding(wallet.name, reservation.name)
+		available = cls._ledger_balance(wallet) - cls._reserved_excluding(wallet.name, reservation.name)
 		target = available if wallet.wallet_type == "Gift Card" else min(flt(reservation.amount), available)
 		return max(min(flt(target), remaining), 0.0)
 
@@ -464,3 +536,24 @@ class CartCredits:
 			fields=["name", "credit_line_id", "wallet", "amount"],
 			order_by="creation asc, name asc",
 		)
+
+
+def release_quotation_credit_holds(doc: "Document", method: str | None = None) -> None:
+	"""Release a Quotation's open credit holds when it is cancelled or deleted.
+
+	Hooked on ``Quotation`` ``on_cancel``/``on_trash`` (see ``ceto/hooks.py``):
+	a hold must never outlive the payable it was booked against — a cancelled
+	cart Quotation would otherwise keep shrinking every wallet it ever
+	touched. Only this Quotation's open ``Reserved`` holds are flipped to
+	``Released`` (the same state the cart flow books); nothing else on the
+	document is read or written, and a Quotation without holds — the
+	overwhelmingly common case — costs one indexed SELECT. Reservations are
+	Ceto-owned rows, so the release needs no permissions beyond the hook's
+	direct write.
+	"""
+	for hold in frappe.get_all(
+		"Ceto Cart Credit Reservation",
+		filters={"quotation": doc.name, "status": "Reserved"},
+		pluck="name",
+	):
+		CartCredits._release(hold)

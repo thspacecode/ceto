@@ -8,7 +8,7 @@ import frappe
 from erpnext.controllers.accounts_controller import get_taxes_and_charges
 from frappe.utils import getdate, today
 
-from ceto.routing.exceptions import InvalidDataError, UnauthorizedError
+from ceto.routing.exceptions import InvalidDataError, RouteNotFoundError, UnauthorizedError
 from ceto.services.carts.access import CartAccess
 from ceto.services.carts.addresses import CartAddresses
 from ceto.services.carts.configuration import CartConfiguration
@@ -352,7 +352,9 @@ class CartService:
 		the cart is locked — as does a session user without a Customer
 		linked through its Contact (same resolver as the claim). The hold
 		is booked against that customer's wallet for the cart's company and
-		currency; reapplying replaces the cart's prior reservation(s).
+		currency; reapplying replaces the cart's prior reservation(s). A
+		cart owned by another authenticated user is rejected as
+		``not_found`` before the ledger is touched.
 		"""
 		user = CartAccess.owner_user()
 		if not user:
@@ -361,6 +363,14 @@ class CartService:
 		with self.access.lock(cart_id) as (reference, quotation):
 			if guard is not None:
 				guard(reference)
+			if reference.owner_user and reference.owner_user != user:
+				# A customer wallet is never applied to a cart owned by
+				# another authenticated user. ``CartAccess`` already masks
+				# foreign carts on every route; this restates the invariant
+				# at the money-moving boundary so it holds even if a future
+				# caller reaches past the access helper, and it masks the
+				# same way (``not_found``) instead of leaking existence.
+				raise RouteNotFoundError("Cart not found")
 			with privileged_scope():
 				CartCredits.apply_store_credits(quotation, customer, payload.amount)
 				return reference, quotation

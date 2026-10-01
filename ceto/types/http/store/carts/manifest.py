@@ -8,9 +8,14 @@ manifest is pure Python (no Frappe imports) so it can drive request validation
 codegen and be tested standalone.
 
 Request/response type names follow the official ``HttpTypes`` published in
-``@medusajs/types@2.21.1`` (the lockstep release used to verify the SDK contract). Two routes currently documented by Medusa have **no** official payload
-type in that package (``gift-cards`` and ``store-credits``); their
-``request_type`` values below are Ceto placeholders, marked with comments.
+``@medusajs/types@2.21.1`` (the lockstep release used to verify the SDK contract). The three loyalty routes (``gift-cards`` add/remove and
+``store-credits``) have **no** official payload type in that package: they
+belong to the loyalty plugin Medusa documents alongside the core Store API,
+so their ``request_type`` values are pinned to
+``@zjedene-medusa/loyalty-plugin`` (see ``CART_LOYALTY_PLUGIN_VERSION``).
+The plugin middleware also requires an authenticated customer for
+``store-credits``, while the gift-card routes stay on the optional cart
+session.
 """
 
 from dataclasses import dataclass
@@ -26,6 +31,14 @@ CART_SDK_VERSION = "2.21.1"
 CART_TYPES_PACKAGE = "@medusajs/types"
 
 CART_TYPES_VERSION = "2.21.1"
+
+#: The gift-card and store-credit cart routes are not part of the Medusa core
+#: Store API; the loyalty plugin owns them and Medusa documents them next to
+#: the core routes. Its release pins the payload names, shapes and middleware
+#: (customer authentication for store-credits) used below.
+CART_LOYALTY_PLUGIN_PACKAGE = "@zjedene-medusa/loyalty-plugin"
+
+CART_LOYALTY_PLUGIN_VERSION = "2.16.2"
 
 #: Cart methods directly exposed by the pinned SDK version. Routes without a
 #: matching method (taxes, gift cards, store credits) require a raw HTTP client.
@@ -129,34 +142,36 @@ CART_ROUTES: tuple[CartRoute, ...] = (
 		auth="publishable-key+optional-session",
 		sdk_method="removePromotions",
 	),
-	# No official HttpTypes payload for gift-cards in @medusajs/types@2.21.1;
-	# "StoreAddCartGiftCards" is a Ceto placeholder name.
+	# Pinned to the loyalty plugin validators (@zjedene-medusa/
+	# loyalty-plugin@2.16.2): StoreAddGiftCardToCart is {code} in a strict
+	# object; the route keeps the optional cart session.
 	CartRoute(
 		method="POST",
 		path="/store/carts/{id}/gift-cards",
-		request_type="StoreAddCartGiftCards",
+		request_type="StoreAddGiftCardToCart",
 		response_type="StoreCartResponse",
 		auth="publishable-key+optional-session",
 		sdk_method=None,
 	),
-	# No official HttpTypes payload for gift-cards in @medusajs/types@2.21.1;
-	# the removal route carries an empty body.
+	# The pinned removal route is bodyful: StoreRemoveGiftCardFromCart carries
+	# {code} on the DELETE, in a strict object.
 	CartRoute(
 		method="DELETE",
 		path="/store/carts/{id}/gift-cards",
-		request_type=None,
+		request_type="StoreRemoveGiftCardFromCart",
 		response_type="StoreCartResponse",
 		auth="publishable-key+optional-session",
 		sdk_method=None,
 	),
-	# No official HttpTypes payload for store-credits in @medusajs/types@2.21.1;
-	# "StoreAddCartStoreCredits" is a Ceto placeholder name.
+	# StoreAddStoreCreditsToCart carries an optional positive {amount}; the
+	# plugin middleware authenticates the customer (session or bearer), so the
+	# route requires a customer session.
 	CartRoute(
 		method="POST",
 		path="/store/carts/{id}/store-credits",
-		request_type="StoreAddCartStoreCredits",
+		request_type="StoreAddStoreCreditsToCart",
 		response_type="StoreCartResponse",
-		auth="publishable-key+optional-session",
+		auth="publishable-key+customer-session",
 		sdk_method=None,
 	),
 	CartRoute(

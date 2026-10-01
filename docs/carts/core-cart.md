@@ -109,3 +109,36 @@ promotions behavior shares the phase and is recorded here.
   the ERPNext-calculated cart/line money fields.
 - Like every cart mutation, promotion mutations run under the existing cart
   reference + Quotation row locks, after the publishable-key scope guard.
+
+
+## Phase 5: gift cards and store credits (chunk 1 — ledger records)
+
+Phase 5 pins the loyalty-plugin route contracts (see
+`docs/carts/endpoints.md`) and adds the Ceto-owned records the routes will
+apply. No ERPNext Custom Fields exist and none were added (Recorded Decision
+8): the whole ledger is Ceto compatibility layer.
+
+- **`Ceto Credit Wallet`** is the provider-backed ledger account. One wallet
+  holds the balance a loyalty provider backs for one `wallet_type` (`Gift
+  Card` / `Store Credit`), `provider`, `company`, `customer`, `currency`
+  triple. `credit_total` − `debit_total` is the `balance`; totals are
+  provider-maintained and never negative.
+- Gift-card codes are stored **hash-only**: `code_hash` (lowercase SHA-256
+  hex) plus a masked `code_hint`; the plaintext code never reaches the
+  database. Gift-card wallets must carry both. Store-credit wallets are owned
+  by a customer or claimable by code (anonymous accounts exist in the pinned
+  `store-credit-accounts/claim` surface).
+- **Company is part of wallet uniqueness**: a code hash exists once per
+  company, and a customer holds one store-credit wallet per company and
+  currency — the same code or customer can hold separate wallets per company.
+- **`Ceto Cart Credit Reservation`** is one credit-line hold: a public
+  `credit_line_id` (the `StoreCartCreditLine.id`), the `wallet`, the cart
+  `Quotation`, `currency`, a positive `amount`, and a `status`
+  (`Reserved` / `Released` / `Consumed`). Reservations must match the
+  Quotation's company and currency, may not point at a cancelled Quotation,
+  and cannot outlive an expired wallet.
+- **Reservation-aware balances**: every open `Reserved` reservation reduces
+  what further reservations may hold; `Released` and `Consumed` stop
+  counting. The wallet balance itself is untouched until completion debits it
+  (later chunk). Deleting a cart reference releases its reservations, the
+  same cleanup contract the line-item references already follow.

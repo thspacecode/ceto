@@ -1,12 +1,16 @@
 from ceto.types.http.store.carts.entities import (
 	StoreCart,
 	StoreCartAddress,
+	StoreCartCreditLine,
+	StoreCartGiftCard,
 	StoreCartLineItem,
 	StoreCartPromotion,
 	StoreCartShippingMethod,
 )
 from ceto.types.http.store.carts.manifest import (
 	CART_API_SOURCE_URL,
+	CART_LOYALTY_PLUGIN_PACKAGE,
+	CART_LOYALTY_PLUGIN_VERSION,
 	CART_ROUTES,
 	CART_SDK_METHODS,
 	CART_SDK_PACKAGE,
@@ -16,11 +20,14 @@ from ceto.types.http.store.carts.manifest import (
 from ceto.types.http.store.carts.payloads import (
 	StoreAddCartLineItem,
 	StoreAddCartShippingMethods,
+	StoreAddGiftCardToCart,
+	StoreAddStoreCreditsToCart,
 	StoreCalculateCartTaxes,
 	StoreCartAddPromotion,
 	StoreCartAddressPayload,
 	StoreCartRemovePromotion,
 	StoreCreateCart,
+	StoreRemoveGiftCardFromCart,
 	StoreUpdateCart,
 	StoreUpdateCartLineItem,
 )
@@ -28,6 +35,8 @@ from ceto.types.http.store.carts.responses import StoreCartResponse, StoreLineIt
 
 __all__ = [
 	"CART_API_SOURCE_URL",
+	"CART_LOYALTY_PLUGIN_PACKAGE",
+	"CART_LOYALTY_PLUGIN_VERSION",
 	"CART_ROUTES",
 	"CART_SDK_METHODS",
 	"CART_SDK_PACKAGE",
@@ -35,11 +44,15 @@ __all__ = [
 	"CartRoute",
 	"StoreAddCartLineItem",
 	"StoreAddCartShippingMethods",
+	"StoreAddGiftCardToCart",
+	"StoreAddStoreCreditsToCart",
 	"StoreCalculateCartTaxes",
 	"StoreCart",
 	"StoreCartAddPromotion",
 	"StoreCartAddress",
 	"StoreCartAddressPayload",
+	"StoreCartCreditLine",
+	"StoreCartGiftCard",
 	"StoreCartLineItem",
 	"StoreCartPromotion",
 	"StoreCartRemovePromotion",
@@ -47,6 +60,7 @@ __all__ = [
 	"StoreCartShippingMethod",
 	"StoreCreateCart",
 	"StoreLineItemDeleteResponse",
+	"StoreRemoveGiftCardFromCart",
 	"StoreUpdateCart",
 	"StoreUpdateCartLineItem",
 ]

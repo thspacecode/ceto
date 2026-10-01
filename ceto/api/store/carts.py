@@ -8,10 +8,13 @@ from ceto.services.carts.serialization import CartSerializer
 from ceto.types.http.store.carts import (
 	StoreAddCartLineItem,
 	StoreAddCartShippingMethods,
+	StoreAddGiftCardToCart,
+	StoreAddStoreCreditsToCart,
 	StoreCalculateCartTaxes,
 	StoreCartAddPromotion,
 	StoreCartRemovePromotion,
 	StoreCreateCart,
+	StoreRemoveGiftCardFromCart,
 	StoreUpdateCart,
 	StoreUpdateCartLineItem,
 )
@@ -114,6 +117,47 @@ def delete_cart_promotions(id: str, fields: str | None = None, **payload: Any) -
 	# guard validates the key scope against the locked reference before the
 	# Quotation is mutated (see update_cart).
 	reference, quotation = CartService().remove_promotions(
+		id, validated, guard=publishable_key.check_reference
+	)
+	return {"cart": CartSerializer().serialize(reference, quotation, fields=fields)}
+
+
+@ceto_router.post("/store/carts/{id}/gift-cards", allow_guest=True)
+def add_cart_gift_card(id: str, fields: str | None = None, **payload: Any) -> dict[str, Any]:
+	publishable_key = CartPublishableKey.from_request()
+	validated = StoreAddGiftCardToCart.model_validate(payload)
+	# guard validates the key scope against the locked reference before the
+	# ledger is touched (see update_cart). The gift-card routes keep the
+	# optional cart session, like every other cart mutation.
+	reference, quotation = CartService().add_gift_card(id, validated, guard=publishable_key.check_reference)
+	return {"cart": CartSerializer().serialize(reference, quotation, fields=fields)}
+
+
+@ceto_router.delete("/store/carts/{id}/gift-cards", allow_guest=True)
+def remove_cart_gift_card(id: str, fields: str | None = None, **payload: Any) -> dict[str, Any]:
+	publishable_key = CartPublishableKey.from_request()
+	# The pinned removal is bodyful: StoreRemoveGiftCardFromCart carries the
+	# gift-card code on the DELETE, in a strict object.
+	validated = StoreRemoveGiftCardFromCart.model_validate(payload)
+	# guard validates the key scope against the locked reference before the
+	# ledger is touched (see update_cart).
+	reference, quotation = CartService().remove_gift_card(
+		id, validated, guard=publishable_key.check_reference
+	)
+	return {"cart": CartSerializer().serialize(reference, quotation, fields=fields)}
+
+
+@ceto_router.post("/store/carts/{id}/store-credits", allow_guest=True)
+def add_cart_store_credits(id: str, fields: str | None = None, **payload: Any) -> dict[str, Any]:
+	publishable_key = CartPublishableKey.from_request()
+	# The plugin validates this body leniently (unknown fields stripped) and
+	# its middleware authenticates the customer; Ceto maps a missing or
+	# customer-less session to 401 inside the service, before the cart is
+	# locked.
+	validated = StoreAddStoreCreditsToCart.model_validate(payload)
+	# guard validates the key scope against the locked reference before the
+	# ledger is touched (see update_cart).
+	reference, quotation = CartService().add_store_credits(
 		id, validated, guard=publishable_key.check_reference
 	)
 	return {"cart": CartSerializer().serialize(reference, quotation, fields=fields)}

@@ -138,10 +138,14 @@ class CartTestData:
 		)
 		for name in temporaries:
 			# Detach the committed Quotation slots first: the delete-time link
-			# check reads the live Quotation row, like the cart flow does.
-			for field in ("customer_address", "shipping_address_name"):
-				for quotation in frappe.get_all("Quotation", filters={field: name}, pluck="name"):
-					frappe.db.set_value("Quotation", quotation, field, None)
+			# check reads the live Quotation row, like the cart flow does. A
+			# committed completed cart also leaves the temporary linked from
+			# its placed Sales Order (the mapper copies the address slots), so
+			# those slots are detached the same way.
+			for doctype in ("Quotation", "Sales Order"):
+				for field in ("customer_address", "shipping_address_name"):
+					for docname in frappe.get_all(doctype, filters={field: name}, pluck="name"):
+						frappe.db.set_value(doctype, docname, field, None)
 			frappe.delete_doc("Address", name, ignore_permissions=True)
 		if temporaries:
 			frappe.db.commit()  # nosemgrep - discarded fixtures must survive the tearDown rollback

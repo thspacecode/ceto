@@ -11,6 +11,7 @@ from ceto.routing import Router, ceto_router
 from ceto.services.auth.tokens import decode_customer_token
 from ceto.tests.data.bootstrap_test_master_data import TEST_CUSTOMER, TEST_CUSTOMER_PASSWORD
 from ceto.tests.utils import CetoTestSuite
+from ceto.types.http.store.carts.manifest import CART_ROUTES
 
 
 def overridden_products() -> dict[str, str]:
@@ -126,6 +127,19 @@ class TestRouter(CetoTestSuite):
 		router.get("/products")(lambda: None)
 		with self.assertRaisesRegex(ValueError, "Duplicate route: GET /store/products"):
 			router.get("/products")(lambda: None)
+
+	def test_every_pinned_cart_route_is_registered(self):
+		"""The cart surface is exactly the manifest: route drift fails loudly.
+
+		Phase 6 completed the surface — every pinned manifest route must be
+		wired into ``ceto_router`` (with its prefix), and Ceto must not serve
+		any cart route the manifest does not pin.
+		"""
+		registered = {
+			(route.method, route.path) for route in ceto_router._routes if "/store/carts" in route.path
+		}
+		pinned = {(route.method, f"/ceto{route.path}") for route in CART_ROUTES}
+		self.assertEqual(registered, pinned)
 
 	def test_route_override_uses_external_route_key(self):
 		router = Router(prefix="/ceto")

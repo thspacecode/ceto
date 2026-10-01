@@ -4,9 +4,11 @@ Phase 0 pinned a machine-readable contract manifest that later phases
 implement against. **Phase 1 implemented routes 1–3, Phase 2 implemented
 routes 4–6** (line items), **Phase 3 implemented route 14** (customer
 claim/transfer), **Phase 4 implemented routes 7–9 and 13** (shipping
-methods, promotions and taxes) and **Phase 5 implemented routes 10–12**
+methods, promotions and taxes), **Phase 5 implemented routes 10–12**
 (the loyalty gift-card and store-credit routes, on the Ceto-owned credit
-ledger). Route 15 (complete) is the only cart route left.
+ledger) and **Phase 6 implemented route 15** (completion). The cart surface
+is complete: every pinned manifest route is registered, and
+`ceto.tests.routing.test_router` fails loudly on any drift between the two.
 
 ## Manifest
 
@@ -60,7 +62,7 @@ When Medusa ships a new version, update `CART_API_SOURCE_URL`,
 they intentionally fail on drift.
 
 
-## Implemented routes (Phase 1 through Phase 5)
+## Implemented routes (Phase 1 through Phase 6)
 
 Handler module: `ceto/api/store/carts.py`. All cart routes are guest-enabled
 and require the `x-publishable-api-key` header.
@@ -81,6 +83,7 @@ and require the `x-publishable-api-key` header.
 | 12. `POST /store/carts/{id}/store-credits` | implemented (Phase 5) | `{cart: StoreCart}` |
 | 13. `POST /store/carts/{id}/taxes` | implemented (Phase 4) | `{cart: StoreCart}` |
 | 14. `POST /store/carts/{id}/customer` | implemented (Phase 3) | `{cart: StoreCart}` |
+| 15. `POST /store/carts/{id}/complete` | implemented (Phase 6) | `StoreCompleteCartResponse` union, no wrapper |
 
 ### Shipping methods (Phase 4)
 
@@ -296,7 +299,7 @@ and require the `x-publishable-api-key` header.
   total: booked deductions can never drive `total` negative. Cart claims
   re-cap holds under the same lock when re-priced.
 - The wallet balance itself is untouched while a cart is open; completion
-  debits it (later chunk). Released holds stop counting against the balance
+  debits it (Phase 6). Released holds stop counting against the balance
   and stop serializing.
 
 #### Credit totals semantics (Phase 5)
@@ -314,6 +317,54 @@ and require the `x-publishable-api-key` header.
   `discount_total` on ERPNext's additional discount the Medusa summary stays
   consistent:
   `total + discount_total + credit_line_total == subtotal + tax_total`.
+
+### Cart completion (Phase 6)
+
+- The route returns the **pinned `StoreCompleteCartResponse` union itself** —
+  no `{cart: …}` wrapper. `type: "order"` carries the placed `StoreOrder`;
+  `type: "cart"` carries the untouched open cart plus a structured `error`
+  object (`{message, name, type}`) that Medusa clients switch on:
+  `EmptyCartError`, `MissingCartEmailError`, `MissingShippingAddressError`
+  and `MissingShippingMethodError` (type `incomplete_cart`),
+  `InsufficientStockError` (type `insufficient_stock`),
+  `PaymentReadinessError` (type `payment_error`) and `OrderPlacementError`
+  (type `order_placement_error` — an expected Frappe/ERPNext validation
+  failure while placing, with the whole placement rolled back to the
+  settle savepoint and the cart left open and retry-ready). A refusal is a
+  `200` response, like Medusa's; the client fixes the cart and retries.
+- The body is the pinned `StoreCompleteCart`: empty by default, with an
+  optional `idempotency_key` forwarded to the payment readiness hooks and
+  unknown fields rejected (`400 invalid_data`) like every core cart payload.
+  The `fields` selector applies to whichever union member is returned.
+- **One cart completes once.** Every repeat resolves the cart's
+  `Ceto Order Reference` and re-serializes the same placed order instead of
+  mapping a second Sales Order, and the completed cart is masked as
+  `404 not_found` on the whole cart surface (its Quotation is submitted, so
+  no draft-cart route can reach it any more).
+- **Atomic settle** inside the cart row lock: the Quotation's ERPNext
+  validity is refreshed (Medusa carts never expire), the Quotation is
+  submitted, ERPNext's own mapper produces the submitted Sales Order with
+  the cart's stored pricing re-asserted (`ceto/services/carts/conversion.py`),
+  every Sales Order row is asserted onto a cart line mapping (an unmapped
+  or free-item row refuses the completion instead of vanishing from the
+  order), the `Ceto Order Reference` is booked, and the wallets behind the
+  cart's credit holds are debited (`CartCredits.consume_cart_credits`).
+  The writes run inside the `ceto_cart_completion_settle` savepoint: an
+  expected Frappe/ERPNext validation failure rolls the whole placement
+  back to the savepoint and returns the pinned `OrderPlacementError`
+  refusal (a `200` union member) for the open cart, while unexpected
+  faults (programming/infrastructure errors) still surface as `500
+  internal_error` with the full request rollback — the cart stays exactly
+  as the preflight saw it either way.
+- **Payment readiness is open by default** (Recorded Decision 7): a payment
+  provider registers the `ceto_cart_payment_readiness` hook, and the first
+  falsy verdict fails the completion closed before anything is written.
+  Hooks are called synchronously under the cart row lock, so a hook must
+  be local and bounded (no network I/O); gateway providers decide
+  asynchronously. The optional pre-completion stock check is **off by
+  default** (`ceto_cart_stock_check` site config) and refuses with
+  `InsufficientStockError` when a stocked row's warehouse cannot cover the
+  cart quantity.
 
 ### Publishable-key scoping on mutations
 

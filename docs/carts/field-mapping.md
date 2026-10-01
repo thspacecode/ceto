@@ -158,7 +158,7 @@ Accounting semantics (Phase 5):
   tax-template reload heals on the same save. Shrinking mutations unbook the
   rows first so the intermediate ERPNext save stays valid.
 - The wallet balance is untouched while the cart is open; completion debits
-  it (later phase). Released holds stop counting and stop serializing.
+  it (Phase 6). Released holds stop counting and stop serializing.
 
 ## Tax Lines → Quotation taxes and charges
 
@@ -186,7 +186,37 @@ recreate the Shipping Rule charge row exactly once
 | `type: "cart"` (incomplete) | Quotation left open; completion error surfaced | gap |
 | `payment_collection` requirement | Ceto requires payment readiness (authorized/captured per provider settings) **before** creating the Sales Order | gap |
 | `order.id`, `order.display_id` | Ceto order-correlation record (Sales Order ↔ Medusa order id) | gap |
-| payment status / credits | tracked in the provider ledger; credits recorded later | gap |
+| payment status / credits | tracked in the provider ledger; cart credits consumed on completion | gap |
+
+Phase 6 pins the completion contracts (the completion payload/response of the
+carts types plus the `ceto/types/http/store/orders/` package), adds the
+**Ceto Order Reference** record and implements the completion service
+(`ceto/services/carts/completion.py`) that books it: the public
+`order_…` id names the document, the linked Sales Order is the ERPNext
+identity it stands for, and `cart_id` keeps the completed cart's public id
+for the complete replay.
+
+- `StoreOrder` mirrors the pinned `@medusajs/types@2.21.1` order for the
+  columns the completion serializer can derive from the Sales Order and the
+  cart's reference; the summary follows the cart reconciliation (shipping
+  charge and consumed credit deductions carved out of the tax fields,
+  `total` on the ERPNext grand total).
+- `display_id` / `custom_display_id` are deliberately omitted (Recorded
+  Decision 9), as are `version`, `summary`, `transactions`,
+  `payment_collections`, `fulfillments` and `customer` until the matching
+  provider exists. The pinned `item_discount_total` /
+  `shipping_discount_total` split is omitted for the same reason of
+  honesty: ERPNext carries a single order-level `discount_amount` (the
+  coupon/additional discount; per-row pricing discounts ride the item
+  rows) and gives the Shipping Rule charge no discount bucket, so the
+  Medusa item/shipping discount split cannot be derived without inventing
+  numbers — `discount_total` keeps the order-level amount.
+- An order reference can only be born from a completed cart: its Quotation
+  must be submitted. Submitted Quotations fail the draft check every cart
+  route makes, so a completed cart is masked as `404 not_found` on the whole
+  cart surface — the complete route replays by resolving the order reference
+  through `cart_id` (one order per cart: unique on `order_id`, `sales_order`
+  and `cart_id`).
 
 ## Recorded Decisions
 
@@ -211,14 +241,21 @@ recreate the Shipping Rule charge row exactly once
 6. **Store credits** — applied cart credits are held as `Ceto Cart Credit
    Reservation` rows in the Ceto provider ledger and surfaced on the
    Quotation as negative `Actual` tax rows (Phase 5); the wallet balance is
-   debited in the provider ledger only at completion time (later phase).
+   debited in the provider ledger only at completion time, inside the same
+   locked transaction that places the order (Phase 6).
    Credits never create ERPNext payment vouchers.
-7. **Payment readiness gate** — cart completion refuses to create the Sales
-   Order until payment readiness is confirmed by the payment provider
-   integration (per provider settings).
+7. **Payment readiness gate** — before creating the Sales Order, cart
+   completion consults the registered `ceto_cart_payment_readiness` provider
+   hooks. With no provider registered the gate is open and completion
+   proceeds; the first falsy hook verdict refuses the completion closed
+   before any money moves or any order is created.
 8. **No Custom Fields** — every Medusa field without an ERPNext equivalent is
    classified **gap** and handled by Ceto compatibility doctypes/behavior
    only; no Custom Fields are added to core ERPNext doctypes.
+9. **Order display ids** — Ceto orders carry only the public `order_…` id.
+   Medusa's `display_id` / `custom_display_id` are omitted: no ERPNext
+   equivalent exists and the ERPNext Sales Order name stays internal to the
+   `Ceto Order Reference` mapping.
 
 ## Demonstrated Phase 0 behavior
 

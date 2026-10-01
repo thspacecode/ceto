@@ -113,6 +113,39 @@ class CartTestData:
 		if rules:
 			frappe.db.commit()  # nosemgrep
 
+	def discard_committed_cart_temporaries(self) -> None:
+		"""Delete committed cart-scoped temporary Addresses left by earlier tests.
+
+		Error-path tests commit their cart so a failing request's rollback cannot
+		erase it, and that commit also persists the cart's temporary Address,
+		which stays linked to the shared guest Customer while it is attached. A
+		committed temporary is the guest party's only Shipping address, so
+		ERPNext fills the empty address slots of later addressless carts from it
+		(``party.get_party_shipping_address``): a fresh cart silently inherits
+		the earlier fixture — the committed country-mismatch cart leaks its
+		mismatched shipping address into tests that apply the country rule.
+		Discarding committed ``Cart *`` temporaries keeps later addressless
+		carts free of addresses from earlier committed carts.
+		"""
+		temporaries = frappe.get_all(
+			"Address",
+			filters=[
+				["Dynamic Link", "link_doctype", "=", "Customer"],
+				["Dynamic Link", "link_name", "=", self.customer],
+				["address_title", "like", "Cart %"],
+			],
+			pluck="name",
+		)
+		for name in temporaries:
+			# Detach the committed Quotation slots first: the delete-time link
+			# check reads the live Quotation row, like the cart flow does.
+			for field in ("customer_address", "shipping_address_name"):
+				for quotation in frappe.get_all("Quotation", filters={field: name}, pluck="name"):
+					frappe.db.set_value("Quotation", quotation, field, None)
+			frappe.delete_doc("Address", name, ignore_permissions=True)
+		if temporaries:
+			frappe.db.commit()  # nosemgrep - discarded fixtures must survive the tearDown rollback
+
 	@property
 	def configuration(self) -> dict[str, Any]:
 		return {

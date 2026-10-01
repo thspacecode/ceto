@@ -157,6 +157,26 @@ class TestCetoCartCreditReservation(CetoTestSuite):
 		first.save(ignore_permissions=True)
 		self.assertTrue(self._make_reservation(amount=60).name)
 
+	def test_available_balance_derives_from_ledger_totals_not_the_snapshot(self) -> None:
+		# The ledger backs the hold (100); a stale-low snapshot (10) must
+		# not reject it.
+		frappe.db.set_value("Ceto Credit Wallet", self.wallet.name, "balance", 10, update_modified=False)
+		self.assertTrue(self._make_reservation(amount=40).name)
+
+		# The other way round: a stale-high snapshot (500) must not admit a
+		# hold beyond what the ledger (50) still backs. A gift-card wallet
+		# avoids the store-credit uniqueness rule (one per customer).
+		other = self._make_wallet(
+			wallet_type="Gift Card",
+			code_hash=hashlib.sha256(b"stale high snapshot").hexdigest(),
+			code_hint="GC-****-9999",
+			credit_total=50,
+		)
+		frappe.db.set_value("Ceto Credit Wallet", other.name, "balance", 500, update_modified=False)
+		self._make_reservation(wallet=other.name, amount=40)
+		with self.assertRaises(frappe.exceptions.ValidationError):
+			self._make_reservation(wallet=other.name, amount=20)
+
 	def test_reservation_update_counts_the_other_holds(self) -> None:
 		first = self._make_reservation(amount=60)
 		self._make_reservation(amount=40)

@@ -37,7 +37,7 @@ class CetoCartCreditReservation(Document):
 		wallet = frappe.db.get_value(
 			"Ceto Credit Wallet",
 			self.wallet,
-			["company", "currency", "expires_at", "balance"],
+			["company", "currency", "expires_at", "credit_total", "debit_total"],
 			as_dict=True,
 		)
 		if wallet is None:
@@ -48,19 +48,29 @@ class CetoCartCreditReservation(Document):
 			frappe.throw("Reservation must use the wallet and Quotation currency")
 		if wallet.expires_at and wallet.expires_at < now_datetime():
 			frappe.throw(f"Wallet {self.wallet} has expired")
-		self._validate_available_balance(wallet.balance)
+		self._validate_available_balance(wallet)
 		return wallet
 
-	def _validate_available_balance(self, balance: float) -> None:
-		"""Compare the amount against the balance net of the other open holds."""
-		reserved = frappe.get_all(
-			"Ceto Cart Credit Reservation",
-			filters={"wallet": self.wallet, "name": ("!=", self.name), "status": "Reserved"},
-			pluck="amount",
-		)
-		available = flt(balance) - flt(sum(flt(amount) for amount in reserved))
+	def _validate_available_balance(self, wallet: dict) -> None:
+		"""Compare the amount against the balance net of the other open holds.
+
+		The balance is derived from the ledger totals (``credit_total -
+		debit_total``, the authority) instead of the stored ``balance``
+		snapshot, mirroring the locked-row arithmetic in the cart credit
+		service.
+		"""
+		available = flt(wallet.credit_total) - flt(wallet.debit_total) - self._reserved_excluding()
 		if flt(self.amount) > available:
 			frappe.throw(
 				f"Wallet {self.wallet} has {available} available after open reservations,"
 				f" {flt(self.amount)} requested"
 			)
+
+	def _reserved_excluding(self) -> float:
+		"""Sum the wallet's other open ``Reserved`` holds."""
+		reserved = frappe.get_all(
+			"Ceto Cart Credit Reservation",
+			filters={"wallet": self.wallet, "name": ("!=", self.name), "status": "Reserved"},
+			pluck="amount",
+		)
+		return flt(sum(flt(amount) for amount in reserved))

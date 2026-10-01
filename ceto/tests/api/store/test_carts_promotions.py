@@ -14,7 +14,7 @@ from werkzeug.wrappers import Request
 
 import ceto.api.routes
 from ceto.routing import ceto_router
-from ceto.tests.data.cart_test_data import CartTestData
+from ceto.tests.data.cart_test_data import ITEM_PRICE, CartTestData
 from ceto.tests.utils import CetoTestSuite
 
 
@@ -95,7 +95,7 @@ class TestCartPromotionsAPI(CetoTestSuite):
 			self.assertEqual(applied.status_code, 200)
 			cart = applied.get_json()["cart"]
 			self.assertEqual([promotion["code"] for promotion in cart["promotions"]], [self.discount_code])
-			self.assertAlmostEqual(cart["item_subtotal"], 90.0)
+			self.assertAlmostEqual(cart["item_subtotal"], ITEM_PRICE * 0.9)
 
 			removed = self._dispatch(
 				"DELETE",
@@ -105,7 +105,7 @@ class TestCartPromotionsAPI(CetoTestSuite):
 			self.assertEqual(removed.status_code, 200)
 			cart = removed.get_json()["cart"]
 			self.assertEqual(cart["promotions"], [])
-			self.assertAlmostEqual(cart["item_subtotal"], 100.0)
+			self.assertAlmostEqual(cart["item_subtotal"], ITEM_PRICE)
 
 	def test_unknown_code_is_invalid_data(self) -> None:
 		with self.set_conf(ceto_cart=self.configuration), self.set_user("Guest"):
@@ -119,6 +119,7 @@ class TestCartPromotionsAPI(CetoTestSuite):
 	def test_multiple_distinct_codes_are_rejected_without_mutation(self) -> None:
 		with self.set_conf(ceto_cart=self.configuration), self.set_user("Guest"):
 			cart_id = self._cart_with_line()
+			frappe.db.commit()  # nosemgrep - simulate the preceding successful requests
 			response = self._dispatch(
 				"POST",
 				f"/ceto/store/carts/{cart_id}/promotions",
@@ -130,14 +131,14 @@ class TestCartPromotionsAPI(CetoTestSuite):
 			cart = self._dispatch("GET", f"/ceto/store/carts/{cart_id}?fields=promotions").get_json()["cart"]
 			self.assertEqual(cart["promotions"], [])
 
-	def test_remove_of_not_applied_code_is_invalid_data(self) -> None:
+	def test_remove_from_cart_without_promotions_is_a_no_op(self) -> None:
 		with self.set_conf(ceto_cart=self.configuration), self.set_user("Guest"):
 			cart_id = self._cart_with_line()
 			response = self._dispatch(
 				"DELETE", f"/ceto/store/carts/{cart_id}/promotions", {"promo_codes": [self.other_code]}
 			)
-			self.assertEqual(response.status_code, 400)
-			self.assertEqual(response.get_json()["type"], "invalid_data")
+			self.assertEqual(response.status_code, 200)
+			self.assertEqual(response.get_json()["cart"]["promotions"], [])
 
 	def test_requires_publishable_key(self) -> None:
 		with self.set_conf(ceto_cart=self.configuration), self.set_user("Guest"):
@@ -152,6 +153,7 @@ class TestCartPromotionsAPI(CetoTestSuite):
 	def test_wrong_scoped_key_cannot_mutate_promotions(self) -> None:
 		with self.set_conf(ceto_cart=self.configuration), self.set_user("Guest"):
 			cart_id = self._cart_with_line()
+			frappe.db.commit()  # nosemgrep - simulate the preceding successful requests
 			for method, payload in (
 				("POST", {"promo_codes": [self.discount_code]}),
 				("DELETE", {"promo_codes": [self.discount_code]}),

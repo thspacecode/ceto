@@ -28,6 +28,10 @@ class TestCartShippingMethodsAPI(CetoTestSuite):
 	def setUp(self) -> None:
 		frappe.set_user("Administrator")
 		self.masters = CartTestData()
+		# An earlier test's committed cart (kept to survive a request rollback)
+		# leaves its guest-linked temporary Address behind; ERPNext would refill
+		# this module's addressless carts from it as the guest party default.
+		self.masters.discard_committed_cart_temporaries()
 		self.alt_rule = self._make_alt_rate_rule()
 		# The router rolls back the open transaction when converting an error
 		# to a response (mirroring Frappe's commit-on-success). Error subtests
@@ -206,6 +210,9 @@ class TestCartShippingMethodsAPI(CetoTestSuite):
 		# The country-rate rule only accepts the bootstrap country; ERPNext
 		# rejects it for a shipping address elsewhere on the controller save.
 		with self.set_conf(ceto_cart=self.configuration), self.set_user("Guest"):
+			# The commit below persists the cart's India temporary Address; it
+			# must not outlive this test as the shared guest Customer's default.
+			self.addCleanup(self.masters.discard_committed_cart_temporaries)
 			cart_id = self._cart_with_line(
 				shipping_address={"country_code": "IN", "address_1": "1 Main Rd", "city": "Mumbai"}
 			)
@@ -223,6 +230,47 @@ class TestCartShippingMethodsAPI(CetoTestSuite):
 			]
 			self.assertEqual(cart["shipping_methods"], [])
 			self.assertIsNone(self._quotation_of(cart_id).shipping_rule)
+
+	def test_mismatch_fixture_is_not_inherited_by_addressless_carts(self) -> None:
+		# Regression: the mismatch subtest commits its cart so the failing
+		# request's rollback cannot erase it, and the commit persists its India
+		# temporary Address on the shared guest Customer. The next addressless
+		# cart must stay addressless (ERPNext must not refill its empty slot
+		# from that leftover as the guest party default) and must still be able
+		# to apply the country rule.
+		with self.set_conf(ceto_cart=self.configuration), self.set_user("Guest"):
+			self._cart_with_line(
+				shipping_address={"country_code": "IN", "address_1": "1 Main Rd", "city": "Mumbai"}
+			)
+			frappe.db.commit()  # nosemgrep - recreate the committed mismatch fixture
+
+			# The fixture cleanup under test must leave no guest-linked
+			# temporary behind for ERPNext to refill the empty slot from.
+			self.masters.discard_committed_cart_temporaries()
+			self.addCleanup(self.masters.discard_committed_cart_temporaries)
+			self.assertFalse(
+				frappe.get_all(
+					"Address",
+					filters=[
+						["Dynamic Link", "link_doctype", "=", "Customer"],
+						["Dynamic Link", "link_name", "=", self.masters.customer],
+						["address_title", "like", "Cart %"],
+					],
+				)
+			)
+
+			cart_id = self._cart_with_line()
+			self.assertIsNone(self._quotation_of(cart_id).shipping_address_name)
+			applied = self._dispatch(
+				"POST",
+				f"/ceto/store/carts/{cart_id}/shipping-methods?fields=shipping_methods",
+				{"option_id": self.masters.country_rate_rule},
+			)
+			self.assertEqual(applied.status_code, 200)
+			self.assertEqual(
+				applied.get_json()["cart"]["shipping_methods"][0]["shipping_option_id"],
+				self.masters.country_rate_rule,
+			)
 
 	def test_eligible_country_applies_the_country_rule(self) -> None:
 		with self.set_conf(ceto_cart=self.configuration), self.set_user("Guest"):

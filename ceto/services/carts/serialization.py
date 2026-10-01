@@ -163,7 +163,7 @@ class CartSerializer:
 			if isinstance(detail, str):
 				try:
 					detail = json.loads(detail)
-				except TypeError, ValueError:
+				except (TypeError, ValueError):
 					continue
 			if not isinstance(detail, dict):
 				continue

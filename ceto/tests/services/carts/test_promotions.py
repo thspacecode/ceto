@@ -15,7 +15,7 @@ from ceto.routing.exceptions import InvalidDataError, NotAllowedError
 from ceto.services.carts.quotation import CartService
 from ceto.services.carts.serialization import CartSerializer
 from ceto.tests.data.cart_test_data import ITEM_PRICE, CartTestData
-from ceto.tests.testsuite import CetoTestSuite
+from ceto.tests.utils import CetoTestSuite
 from ceto.types.http.store.carts import (
 	StoreAddCartLineItem,
 	StoreCartAddPromotion,
@@ -30,7 +30,8 @@ DISCOUNT_PERCENTAGE = 10.0
 class TestCartPromotions(CetoTestSuite):
 	def setUp(self) -> None:
 		frappe.set_user("Administrator")
-		self.masters = CartTestData.shared()
+		self.masters = CartTestData()
+		self.masters.disable_stale_promotion_rules()
 		self.service = CartService()
 		self.discount_code = self._make_coupon("SAVE10", DISCOUNT_PERCENTAGE)
 		# Most rejection paths only need a distinct public code. Creating a
@@ -48,7 +49,7 @@ class TestCartPromotions(CetoTestSuite):
 			"selling": 1,
 			"rate_or_discount": "Discount Percentage",
 			"discount_percentage": percentage,
-			"company": self.masters.company.name,
+			"company": self.masters.company,
 			"for_price_list": self.masters.price_list,
 			"currency": "USD",
 			"priority": {"SAVE10": 1, "SAVE20": 2, "OLDE": 3, "MAXED": 4, "APISAVE": 1, "APIOTHER": 2}[label],

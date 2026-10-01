@@ -19,6 +19,18 @@ class TestCartQuotation(CetoTestSuite):
 	def setUp(self) -> None:
 		frappe.set_user("Administrator")
 		self.masters = CartTestData()
+		# The claim-visibility test creates Website Users; Frappe throttles
+		# user creation per hour on the shared test site, so lift it here like
+		# the other user-creating cart modules do.
+		self._previous_throttle = frappe.local.conf.get("throttle_user_limit")
+		frappe.local.conf["throttle_user_limit"] = 100000
+
+	def tearDown(self) -> None:
+		if self._previous_throttle is None:
+			frappe.local.conf.pop("throttle_user_limit", None)
+		else:
+			frappe.local.conf["throttle_user_limit"] = self._previous_throttle
+		super().tearDown()
 
 	def test_creates_and_retrieves_guest_cart(self) -> None:
 		payload = StoreCreateCart(

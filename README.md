@@ -58,21 +58,21 @@ Medusa API implementation status, grouped by scope. Routes follow the [Medusa St
 
 | Method | Route | Status |
 | --- | --- | --- |
-| GET | `/store/carts/{id}` | ⚪️ |
-| POST | `/store/carts/{id}/gift-cards` | ⚪️ |
-| POST | `/store/carts/{id}/line-items` | ⚪️ |
-| POST | `/store/carts/{id}/promotions` | ⚪️ |
-| POST | `/store/carts/{id}/shipping-methods` | ⚪️ |
-| POST | `/store/carts/{id}/store-credits` | ⚪️ |
-| POST | `/store/carts/{id}/taxes` | ⚪️ |
-| POST | `/store/carts/{id}/customer` | ⚪️ |
+| GET | `/store/carts/{id}` | ✅️ |
+| POST | `/store/carts/{id}/gift-cards` | ✅️ |
+| POST | `/store/carts/{id}/line-items` | ✅️ |
+| POST | `/store/carts/{id}/promotions` | ✅️ |
+| POST | `/store/carts/{id}/shipping-methods` | ✅️ |
+| POST | `/store/carts/{id}/store-credits` | ✅️ |
+| POST | `/store/carts/{id}/taxes` | ✅️ |
+| POST | `/store/carts/{id}/customer` | ✅️ |
 | POST | `/store/carts/{id}/complete` | ⚪️ |
-| POST | `/store/carts` | ⚪️ |
-| POST | `/store/carts/{id}` | ⚪️ |
-| POST | `/store/carts/{id}/line-items/{line_id}` | ⚪️ |
-| DELETE | `/store/carts/{id}/gift-cards` | ⚪️ |
-| DELETE | `/store/carts/{id}/line-items/{line_id}` | ⚪️ |
-| DELETE | `/store/carts/{id}/promotions` | ⚪️ |
+| POST | `/store/carts` | ✅️ |
+| POST | `/store/carts/{id}` | ✅️ |
+| POST | `/store/carts/{id}/line-items/{line_id}` | ✅️ |
+| DELETE | `/store/carts/{id}/gift-cards` | ✅️ |
+| DELETE | `/store/carts/{id}/line-items/{line_id}` | ✅️ |
+| DELETE | `/store/carts/{id}/promotions` | ✅️ |
 
 ### Collections
 

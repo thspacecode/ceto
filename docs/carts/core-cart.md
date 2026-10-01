@@ -111,12 +111,14 @@ promotions behavior shares the phase and is recorded here.
   reference + Quotation row locks, after the publishable-key scope guard.
 
 
-## Phase 5: gift cards and store credits (chunk 1 — ledger records)
+## Phase 5: gift cards and store credits (implemented)
 
 Phase 5 pins the loyalty-plugin route contracts (see
-`docs/carts/endpoints.md`) and adds the Ceto-owned records the routes will
-apply. No ERPNext Custom Fields exist and none were added (Recorded Decision
-8): the whole ledger is Ceto compatibility layer.
+`docs/carts/endpoints.md`), adds the Ceto-owned records the routes apply and
+maps the `gift-cards` / `store-credits` routes onto them
+(`ceto/services/carts/credits.py`). No ERPNext Custom Fields exist and none
+were added (Recorded Decision 8): the whole ledger is Ceto compatibility
+layer.
 
 - **`Ceto Credit Wallet`** is the provider-backed ledger account. One wallet
   holds the balance a loyalty provider backs for one `wallet_type` (`Gift
@@ -142,3 +144,27 @@ apply. No ERPNext Custom Fields exist and none were added (Recorded Decision
   counting. The wallet balance itself is untouched until completion debits it
   (later chunk). Deleting a cart reference releases its reservations, the
   same cleanup contract the line-item references already follow.
+- **Negative `Actual` accounting**: applying a hold books the reservation —
+  the public credit line — and writes the applied amount as a negative
+  `Actual` row on the Quotation taxes table, posted to the company's default
+  receivable account. The deduction is an ordinary ERPNext tax row: the
+  controllers fold it into `total_taxes_and_charges` and `grand_total`, so
+  ERPNext stays the totals authority and no Ceto-computed total exists. The
+  rows are recognizable without a marker field (`Actual`, receivable account,
+  negative amount) and are always rebuilt — never patched — by the
+  reconciliation.
+- **Reconciliation under the cart lock**: after every totals-moving mutation
+  `CartCredits.reconcile` re-caps the open holds (gift cards re-derive with
+  the cart, store credits only shrink), releases valueless or
+  foreign-denominated holds and rebuilds the deduction rows, healing
+  tax-template reloads on the same save. Shrinking mutations unbook the
+  deduction rows first, so the intermediate ERPNext save cannot reject a
+  negative grand total: booked deductions can never drive `total` negative,
+  and a fully-deducted cart totals exactly 0.
+- **Serialized summary**: `gift_cards` reports the masked hints of the open
+  gift-card holds; `credit_lines` reports every open hold (both kinds) in
+  application order; `gift_card_total` sums the gift-card subset and
+  `credit_line_total` all of them. The shipping charge and the negative
+  deduction rows are carved out of the Medusa tax fields, so the serialized
+  cart always satisfies
+  `total + discount_total + credit_line_total == subtotal + tax_total`.

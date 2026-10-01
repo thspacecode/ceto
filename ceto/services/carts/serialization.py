@@ -42,6 +42,10 @@ class CartSerializer:
 		shipping_total = flt(shipping_charge.amount) if shipping_charge else 0.0
 		credits = CartCredits.applied_credits(quotation)
 		gift_card_total = flt(sum(credit.amount for credit in credits if credit.reference == "gift-card"))
+		# Every open hold — gift card or store credit — is one credit line, so
+		# the Medusa credit-line total is the sum of all of them (it includes
+		# ``gift_card_total``).
+		credit_line_total = flt(sum(credit.amount for credit in credits))
 		deduction_rows = CartCredits.deduction_rows(quotation)
 		deduction_total = flt(sum(flt(row.tax_amount) for row in deduction_rows))
 		# ERPNext books the Shipping Rule charge as an ``Actual`` row inside
@@ -52,7 +56,10 @@ class CartSerializer:
 		# charges, not item tax: carve both out of the tax fields Medusa
 		# reads, keep ``total`` on ERPNext's grand total — deductions
 		# included — and reconcile the subtotal from the item and shipping
-		# subtotals.
+		# subtotals. With the credit lines reporting the carved-out
+		# deductions as positive holds, the Medusa summary stays consistent:
+		# ``total + discount_total + credit_line_total == subtotal +
+		# tax_total``.
 		tax_total = flt(quotation.total_taxes_and_charges) - shipping_total - deduction_total
 		return StoreCart(
 			id=reference.cart_id,
@@ -93,6 +100,7 @@ class CartSerializer:
 			discount_total=discount_total,
 			gift_card_total=gift_card_total,
 			gift_card_tax_total=0,
+			credit_line_total=credit_line_total,
 			shipping_total=shipping_total,
 			shipping_subtotal=shipping_total,
 			shipping_tax_total=0,

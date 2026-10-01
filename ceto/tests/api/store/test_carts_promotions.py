@@ -15,13 +15,14 @@ from werkzeug.wrappers import Request
 import ceto.api.routes
 from ceto.routing import ceto_router
 from ceto.tests.data.cart_test_data import CartTestData
-from ceto.tests.testsuite import CetoTestSuite
+from ceto.tests.utils import CetoTestSuite
 
 
 class TestCartPromotionsAPI(CetoTestSuite):
 	def setUp(self) -> None:
 		frappe.set_user("Administrator")
 		self.masters = CartTestData()
+		self.masters.disable_stale_promotion_rules()
 		self.discount_code = self._make_coupon("APISAVE", 10.0)
 		# Rejection/removal cases only require a distinct public code. Avoid a
 		# second matching Pricing Rule before the cart's initial line is priced.
@@ -49,7 +50,7 @@ class TestCartPromotionsAPI(CetoTestSuite):
 				"selling": 1,
 				"rate_or_discount": "Discount Percentage",
 				"discount_percentage": percentage,
-				"company": self.masters.company.name,
+				"company": self.masters.company,
 				"for_price_list": self.masters.price_list,
 				"currency": "USD",
 				"priority": {"SAVE10": 1, "SAVE20": 2, "OLDE": 3, "MAXED": 4, "APISAVE": 1, "APIOTHER": 2}[

@@ -10,6 +10,7 @@ carry a meaningful rate. Currency is deliberately omitted:
 bootstrap creates in the company currency.
 """
 
+import uuid
 from typing import Any
 
 import frappe
@@ -40,6 +41,9 @@ class CartTestData:
 	"""Expose the bootstrap commerce masters as cart test configuration."""
 
 	def __init__(self) -> None:
+		# Coupon Code names are globally unique, and the API suite commits its
+		# coupons so they survive request rollbacks. Keep test codes unique.
+		self.suffix = uuid.uuid4().hex[:8]
 		self.settings: BootstrapSettings = boot_strap_test_master_data.resolve_baseline_settings()
 		self.company = resolve_company(self.settings)
 		# Same identity rule as the bootstrap: the guest is located by
@@ -50,6 +54,26 @@ class CartTestData:
 		self.item = "DEV-TSHIRT-001"
 		self.other_item = "DEV-HOODIE-001"
 		self.taxes_and_charges = self._make_test_tax_template()
+
+	def disable_stale_promotion_rules(self) -> None:
+		"""Disable committed promotion fixtures left by earlier API tests."""
+		rules: set[str] = set()
+		for title_pattern in ("Ceto Coupon %", "Ceto APISAVE %"):
+			rules.update(
+				frappe.get_all(
+					"Pricing Rule",
+					filters={
+						"company": self.company,
+						"coupon_code_based": 1,
+						"title": ("like", title_pattern),
+					},
+					pluck="name",
+				)
+			)
+		for rule in rules:
+			frappe.db.set_value("Pricing Rule", rule, "disable", 1, update_modified=False)
+		if rules:
+			frappe.db.commit()  # nosemgrep
 
 	@property
 	def configuration(self) -> dict[str, Any]:

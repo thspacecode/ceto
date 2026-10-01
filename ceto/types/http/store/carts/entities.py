@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -67,6 +67,39 @@ class StoreCartPromotion(BaseModel):
 	is_automatic: bool = False
 
 
+class StoreCartGiftCard(BaseModel):
+	"""Medusa ``StoreCart.gift_cards`` entry (Phase 5 subset).
+
+	Pinned to the loyalty plugin's cart extension
+	(``@zjedene-medusa/loyalty-plugin@2.16.2``), whose applied gift cards
+	carry exactly the ``code``. Ceto stores gift-card codes hash-only with a
+	display hint, so the serialized ``code`` is that hint: clients remove an
+	applied gift card by resubmitting the original code, not the hint.
+	"""
+
+	code: str
+
+
+class StoreCartCreditLine(BaseModel):
+	"""Medusa ``StoreCart.credit_lines`` entry (Phase 5 subset).
+
+	Mirrors the core ``CartCreditLineDTO`` of the pinned ``HttpTypes`` of
+	``@medusajs/types@2.21.1`` for the columns Ceto can derive from its own
+	reservation records; ``raw_amount`` is omitted like every other money
+	field (plain floats, no minor units). ``reference`` carries the two
+	origin models the loyalty plugin produces.
+	"""
+
+	id: str
+	cart_id: str
+	amount: float = 0
+	reference: Literal["gift-card", "store-credit"]
+	reference_id: str
+	metadata: dict[str, Any] | None = None
+	created_at: datetime
+	updated_at: datetime
+
+
 class StoreCartShippingMethod(BaseModel):
 	"""Medusa ``StoreCartShippingMethod`` shape (Phase 4 subset).
 
@@ -113,6 +146,8 @@ class StoreCart(BaseModel):
 	items: list[StoreCartLineItem] = Field(default_factory=list)
 	shipping_methods: list[StoreCartShippingMethod] = Field(default_factory=list)
 	promotions: list[StoreCartPromotion] = Field(default_factory=list)
+	gift_cards: list[StoreCartGiftCard] = Field(default_factory=list)
+	credit_lines: list[StoreCartCreditLine] = Field(default_factory=list)
 	original_item_total: float = 0
 	original_item_subtotal: float = 0
 	original_item_tax_total: float = 0

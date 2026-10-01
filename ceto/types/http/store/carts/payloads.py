@@ -107,6 +107,55 @@ class StoreCartRemovePromotion(_StoreCartPromoCodesPayload):
 	"""Body of ``DELETE /store/carts/{id}/promotions``."""
 
 
+class StoreAddGiftCardToCart(BaseModel):
+	"""Body of ``POST /store/carts/{id}/gift-cards``.
+
+	Mirrors the pinned ``StoreAddGiftCardToCart`` of the loyalty plugin
+	(``@zjedene-medusa/loyalty-plugin@2.16.2``): a single gift-card code in a
+	strict object, so unknown fields are rejected exactly like the plugin's
+	``z.strictObject`` validator. The plugin accepts a blank code; Ceto rejects
+	it rather than silently ignoring the request (same rule as promo codes).
+	"""
+
+	model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+	code: str = Field(min_length=1)
+
+
+class StoreRemoveGiftCardFromCart(BaseModel):
+	"""Body of ``DELETE /store/carts/{id}/gift-cards``.
+
+	Mirrors the pinned ``StoreRemoveGiftCardFromCart`` of the loyalty plugin
+	(``@zjedene-medusa/loyalty-plugin@2.16.2``): unlike every other cart
+	removal route, the pinned removal is a bodyful ``DELETE`` carrying the
+	gift-card code to release, in a strict object. Blank codes are rejected.
+	"""
+
+	model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+	code: str = Field(min_length=1)
+
+
+class StoreAddStoreCreditsToCart(BaseModel):
+	"""Body of ``POST /store/carts/{id}/store-credits``.
+
+	Mirrors the pinned ``StoreAddStoreCreditsToCart`` of the loyalty plugin
+	(``@zjedene-medusa/loyalty-plugin@2.16.2``): an optional ``amount``. When
+	omitted the plugin reserves the customer's whole available balance, so the
+	field stays optional; a provided amount must be positive — a credit
+	reservation with no value has no ERPNext meaning and would only fake a
+	hold.
+
+	Unlike the gift-card routes the plugin validates this body with ``z.object``
+	instead of ``z.strictObject``: unknown fields are stripped, not rejected.
+	Ceto mirrors that leniency so plugin clients keep working unchanged.
+	"""
+
+	model_config = ConfigDict(extra="ignore")
+
+	amount: float | None = Field(default=None, gt=0)
+
+
 class StoreCalculateCartTaxes(BaseModel):
 	"""Body of ``POST /store/carts/{id}/taxes``.
 

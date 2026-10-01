@@ -5,6 +5,9 @@ implement against. **Phase 1 implemented routes 1–3, Phase 2 implemented
 routes 4–6** (line items), **Phase 3 implemented route 14** (customer
 claim/transfer) and **Phase 4 implemented routes 7–9 and 13** (shipping
 methods, promotions and taxes); the remaining routes are unimplemented.
+**Phase 5 (chunk 1) pinned routes 10–12** (the loyalty gift-card and
+store-credit contracts) and added the Ceto-owned ledger records they will
+apply; the routes themselves are still unimplemented.
 
 ## Manifest
 
@@ -12,6 +15,9 @@ methods, promotions and taxes); the remaining routes are unimplemented.
 - Tests: `ceto/tests/types/http/store/test_carts_manifest.py`
 - API source (pinned): <https://docs.medusajs.com/api/store#carts>
 - JS SDK (pinned): `@medusajs/js-sdk@2.21.1`
+- Loyalty plugin (pinned): `@zjedene-medusa/loyalty-plugin@2.16.2` — the
+  source of the `gift-cards` and `store-credits` route contracts, which the
+  core `@medusajs/types` package does not publish payloads for
 
 The manifest is pure Python (`dataclass` entries, no Frappe imports) so it can
 be consumed by request validation codegen and tested standalone.
@@ -193,6 +199,36 @@ and require the `x-publishable-api-key` header.
   update; delete ignores it (fixed response shape).
 - Errors use the shared Medusa translation (`invalid_data`, `unauthorized`,
   `not_allowed`, `not_found`).
+
+### Loyalty routes: gift cards and store credits (Phase 5, chunk 1)
+
+- The three routes are **not** core Medusa: the loyalty plugin owns them and
+  the manifest pins its release together with the core SDK/types pins. The
+  corrected contracts, verified against `@zjedene-medusa/loyalty-plugin@2.16.2`:
+  - `POST /store/carts/{id}/gift-cards` — body `{code}` in a strict object
+    (`StoreAddGiftCardToCart`); optional cart session, like the other cart
+    mutations.
+  - `DELETE /store/carts/{id}/gift-cards` — **bodyful**: `{code}`
+    (`StoreRemoveGiftCardFromCart`). The earlier "empty body" reading was
+    wrong; the removal mirrors the plugin's strict `{code}` validator.
+  - `POST /store/carts/{id}/store-credits` — body `{amount?}`
+    (`StoreAddStoreCreditsToCart`). The plugin middleware authenticates the
+    customer (session or bearer), so the route — unlike the gift-card routes
+    — requires an authenticated customer. The plugin validator is a lenient
+    `z.object` (unknown fields stripped), and Ceto mirrors that; a provided
+    amount must be positive. When omitted, the plugin reserves the whole
+    available balance.
+- The plugin serializes applied gift cards as `gift_cards: [{code}]` on the
+  cart and models both kinds of cart credit as core `credit_lines`
+  (`CartCreditLineDTO`: `id`, `cart_id`, `amount`, `reference`
+  (`gift-card` / `store-credit`), `reference_id`, `metadata`, timestamps).
+  `StoreCart` now carries both collections; gift-card codes are stored
+  hash-only with a display hint, so the serialized `code` is the hint and
+  clients remove an applied gift card by resubmitting the original code.
+- Ceto-owned records behind the routes: `Ceto Credit Wallet` (the
+  provider-backed gift-card / store-credit ledger) and `Ceto Cart Credit
+  Reservation` (one hold on a wallet per cart Quotation). See
+  `docs/carts/core-cart.md` for the invariants.
 
 ### Publishable-key scoping on mutations
 

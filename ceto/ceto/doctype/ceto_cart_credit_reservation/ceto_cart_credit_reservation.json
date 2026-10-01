@@ -1,0 +1,77 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:credit_line_id",
+ "creation": "2026-10-01 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "credit_line_id",
+  "wallet",
+  "quotation",
+  "currency",
+  "amount",
+  "status"
+ ],
+ "fields": [
+  {
+   "fieldname": "credit_line_id",
+   "fieldtype": "Data",
+   "label": "Credit Line ID",
+   "reqd": 1,
+   "search_index": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "wallet",
+   "fieldtype": "Link",
+   "label": "Wallet",
+   "options": "Ceto Credit Wallet",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "quotation",
+   "fieldtype": "Link",
+   "label": "Quotation",
+   "options": "Quotation",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "reqd": 1
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "Amount",
+   "options": "currency",
+   "reqd": 1
+  },
+  {
+   "default": "Reserved",
+   "description": "Reserved amounts reduce the wallet balance available to new reservations; Released and Consumed do not",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Reserved\nReleased\nConsumed",
+   "reqd": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Ceto",
+ "name": "Ceto Cart Credit Reservation",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

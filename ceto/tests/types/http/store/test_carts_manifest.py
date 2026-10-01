@@ -2,6 +2,8 @@ import unittest
 
 from ceto.types.http.store.carts.manifest import (
 	CART_API_SOURCE_URL,
+	CART_LOYALTY_PLUGIN_PACKAGE,
+	CART_LOYALTY_PLUGIN_VERSION,
 	CART_ROUTES,
 	CART_SDK_METHODS,
 	CART_SDK_PACKAGE,
@@ -64,6 +66,23 @@ EXPECTED_CONTRACTS = {
 		"StoreCartResponse",
 		"removePromotions",
 	),
+	# Loyalty-plugin routes: payload names pinned to the plugin release, not
+	# to the core HttpTypes package (which publishes no payload for them).
+	("POST", "/store/carts/{id}/gift-cards"): (
+		"StoreAddGiftCardToCart",
+		"StoreCartResponse",
+		None,
+	),
+	("DELETE", "/store/carts/{id}/gift-cards"): (
+		"StoreRemoveGiftCardFromCart",
+		"StoreCartResponse",
+		None,
+	),
+	("POST", "/store/carts/{id}/store-credits"): (
+		"StoreAddStoreCreditsToCart",
+		"StoreCartResponse",
+		None,
+	),
 	("POST", "/store/carts/{id}/taxes"): (
 		"StoreCalculateCartTaxes",
 		"StoreCartResponse",
@@ -114,9 +133,33 @@ class TestCartRouteManifest(unittest.TestCase):
 		)
 		self.assertEqual(route.request_type, "StoreCartRemovePromotion")
 
+	def test_delete_gift_cards_carries_request_body(self):
+		route = next(
+			r for r in CART_ROUTES if (r.method, r.path) == ("DELETE", "/store/carts/{id}/gift-cards")
+		)
+		self.assertEqual(route.request_type, "StoreRemoveGiftCardFromCart")
+
 	def test_transfer_cart_requires_customer_session(self):
 		route = next(r for r in CART_ROUTES if (r.method, r.path) == ("POST", "/store/carts/{id}/customer"))
 		self.assertEqual(route.auth, "publishable-key+customer-session")
+
+	def test_store_credits_require_customer_session(self):
+		route = next(
+			r for r in CART_ROUTES if (r.method, r.path) == ("POST", "/store/carts/{id}/store-credits")
+		)
+		self.assertEqual(route.auth, "publishable-key+customer-session")
+
+	def test_gift_card_routes_keep_the_optional_session(self):
+		authors = {
+			route.method: route.auth for route in CART_ROUTES if route.path == "/store/carts/{id}/gift-cards"
+		}
+		self.assertEqual(
+			authors,
+			{
+				"POST": "publishable-key+optional-session",
+				"DELETE": "publishable-key+optional-session",
+			},
+		)
 
 	def test_sdk_source_and_version_are_pinned(self):
 		self.assertEqual(CART_SDK_PACKAGE, "@medusajs/js-sdk")
@@ -124,6 +167,10 @@ class TestCartRouteManifest(unittest.TestCase):
 		self.assertEqual(CART_TYPES_PACKAGE, "@medusajs/types")
 		self.assertEqual(CART_TYPES_VERSION, "2.21.1")
 		self.assertEqual(CART_API_SOURCE_URL, "https://docs.medusajs.com/api/store/carts")
+
+	def test_loyalty_plugin_source_and_version_are_pinned(self):
+		self.assertEqual(CART_LOYALTY_PLUGIN_PACKAGE, "@zjedene-medusa/loyalty-plugin")
+		self.assertEqual(CART_LOYALTY_PLUGIN_VERSION, "2.16.2")
 
 	def test_sdk_coverage_of_pinned_methods(self):
 		self.assertEqual(

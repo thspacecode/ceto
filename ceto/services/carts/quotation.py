@@ -14,8 +14,11 @@ from ceto.services.carts.addresses import CartAddresses
 from ceto.services.carts.configuration import CartConfiguration
 from ceto.services.carts.line_items import CartLineItems, dump_metadata, merged_metadata
 from ceto.services.carts.promotions import CartPromotions
+from ceto.services.carts.shipping import CartShippingMethods
+from ceto.services.carts.taxes import CartTaxes
 from ceto.types.http.store.carts import (
 	StoreAddCartLineItem,
+	StoreAddCartShippingMethods,
 	StoreCartAddPromotion,
 	StoreCartRemovePromotion,
 	StoreCreateCart,
@@ -179,7 +182,7 @@ class CartService:
 		with self.access.lock(cart_id) as (reference, quotation):
 			if guard is not None:
 				guard(reference)
-			with as_administrator():
+			with privileged_scope():
 				CartPromotions.apply(quotation, payload.promo_codes)
 				return reference, quotation
 
@@ -198,8 +201,54 @@ class CartService:
 		with self.access.lock(cart_id) as (reference, quotation):
 			if guard is not None:
 				guard(reference)
-			with as_administrator():
+			with privileged_scope():
 				CartPromotions.remove(quotation, payload.promo_codes)
+				return reference, quotation
+
+	def calculate_taxes(
+		self,
+		cart_id: str,
+		*,
+		guard: Callable[["Document"], None] | None = None,
+	) -> tuple["Document", "Document"]:
+		"""Recalculate the locked cart's taxes and totals through ERPNext.
+
+		``guard`` is validated against the locked reference before any
+		recalculation (see :meth:`add_promotions`). The recalculation is
+		ERPNext's own controller pass (:meth:`CartTaxes.recalculate`), so the
+		numbers are the same ones every cart response serializes; a failing
+		save (disabled template, controller validation) raises inside the
+		locked transaction and the caller's rollback leaves the cart
+		untouched.
+		"""
+		with self.access.lock(cart_id) as (reference, quotation):
+			if guard is not None:
+				guard(reference)
+			with privileged_scope():
+				CartTaxes.recalculate(quotation)
+				return reference, quotation
+
+	def set_shipping_method(
+		self,
+		cart_id: str,
+		payload: StoreAddCartShippingMethods,
+		*,
+		guard: Callable[["Document"], None] | None = None,
+	) -> tuple["Document", "Document"]:
+		"""Resolve ``payload.option_id`` as the locked cart's shipping method.
+
+		``guard`` is validated against the locked reference before any
+		mutation, so a wrong-scoped key never modifies the cart (see
+		:meth:`add_promotions`). The Quotation saves through the ERPNext
+		controllers inside the same locked transaction, so an unknown,
+		disabled, buying-side, foreign-company or country-ineligible option
+		raises before anything is committed and leaves the cart untouched.
+		"""
+		with self.access.lock(cart_id) as (reference, quotation):
+			if guard is not None:
+				guard(reference)
+			with privileged_scope():
+				CartShippingMethods.apply(quotation, payload.option_id)
 				return reference, quotation
 
 	def _apply_update(self, reference: "Document", quotation: "Document", payload: StoreUpdateCart) -> None:
@@ -278,7 +327,12 @@ class CartService:
 		quotation.company = configuration.company
 		quotation.currency = configuration.currency
 		quotation.selling_price_list = configuration.selling_price_list
-		quotation.taxes_and_charges = configuration.taxes_and_charges
+		# ERPNext only loads template rows into an empty taxes table, so just
+		# switching the ``taxes_and_charges`` link would keep the previous
+		# template's rows on the cart; the reload on template change, the
+		# same-template no-op and the Shipping Rule preservation live in
+		# CartTaxes.
+		CartTaxes.refresh_template(quotation, configuration.taxes_and_charges)
 		quotation.territory = configuration.territory
 
 	@staticmethod

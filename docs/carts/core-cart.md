@@ -79,7 +79,12 @@ the reference and Quotation rows before validation and save.
   wrong-scoped keys cause no mutation and cannot race the check (no TOCTOU).
 
 
-## Phase 4: promotions (implemented)
+## Phase 4: shipping methods, promotions and taxes (implemented)
+
+Phase 4 adds the shipping-methods and taxes routes plus promotions; the
+shipping/taxes route behavior is documented in `docs/carts/endpoints.md`
+(`ceto/services/carts/shipping.py`, `ceto/services/carts/taxes.py`). The
+promotions behavior shares the phase and is recorded here.
 
 - `POST /store/carts/{id}/promotions` and `DELETE /store/carts/{id}/promotions`
   map Medusa promotion codes onto ERPNext's native coupon model: a `Coupon

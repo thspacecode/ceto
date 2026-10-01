@@ -7,6 +7,8 @@ from ceto.services.carts.quotation import CartService
 from ceto.services.carts.serialization import CartSerializer
 from ceto.types.http.store.carts import (
 	StoreAddCartLineItem,
+	StoreAddCartShippingMethods,
+	StoreCalculateCartTaxes,
 	StoreCartAddPromotion,
 	StoreCartRemovePromotion,
 	StoreCreateCart,
@@ -80,6 +82,21 @@ def delete_cart_line_item(id: str, line_id: str) -> dict[str, Any]:
 	}
 
 
+@ceto_router.post("/store/carts/{id}/shipping-methods", allow_guest=True)
+def add_cart_shipping_method(id: str, fields: str | None = None, **payload: Any) -> dict[str, Any]:
+	publishable_key = CartPublishableKey.from_request()
+	validated = StoreAddCartShippingMethods.model_validate(payload)
+	# guard validates the key scope against the locked reference before the
+	# Quotation is mutated (see update_cart). The optional provider `data` of
+	# the payload is accepted but never persisted: the ERPNext compatibility
+	# field for a shipping method is the Shipping Rule link, which carries no
+	# provider payload.
+	reference, quotation = CartService().set_shipping_method(
+		id, validated, guard=publishable_key.check_reference
+	)
+	return {"cart": CartSerializer().serialize(reference, quotation, fields=fields)}
+
+
 @ceto_router.post("/store/carts/{id}/promotions", allow_guest=True)
 def add_cart_promotions(id: str, fields: str | None = None, **payload: Any) -> dict[str, Any]:
 	publishable_key = CartPublishableKey.from_request()
@@ -99,6 +116,18 @@ def delete_cart_promotions(id: str, fields: str | None = None, **payload: Any) -
 	reference, quotation = CartService().remove_promotions(
 		id, validated, guard=publishable_key.check_reference
 	)
+	return {"cart": CartSerializer().serialize(reference, quotation, fields=fields)}
+
+
+@ceto_router.post("/store/carts/{id}/taxes", allow_guest=True)
+def calculate_cart_taxes(id: str, fields: str | None = None, **payload: Any) -> dict[str, Any]:
+	publishable_key = CartPublishableKey.from_request()
+	# The pinned StoreCalculateCartTaxes body is empty: validation exists to
+	# reject unexpected fields, not to carry options.
+	StoreCalculateCartTaxes.model_validate(payload)
+	# guard validates the key scope against the locked reference before the
+	# Quotation is recalculated (see update_cart).
+	reference, quotation = CartService().calculate_taxes(id, guard=publishable_key.check_reference)
 	return {"cart": CartSerializer().serialize(reference, quotation, fields=fields)}
 
 

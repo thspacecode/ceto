@@ -51,6 +51,33 @@ class StoreAddCartLineItem(BaseModel):
 	metadata: dict[str, Any] | None = None
 
 
+class StoreAddCartShippingMethods(BaseModel):
+	"""Body of ``POST /store/carts/{id}/shipping-methods``.
+
+	Mirrors ``StoreAddCartShippingMethods`` of the pinned ``HttpTypes`` of
+	``@medusajs/types@2.21.1``: a shipping option reference plus optional
+	provider data. Unknown fields are rejected so new Medusa fields fail
+	loudly instead of being silently dropped.
+
+	The pinned type is a union of a single ``{option_id, data?}`` object and
+	an array of them (since 2.16.0); Ceto implements the **single-object**
+	member only. The Quotation carries exactly one ``Shipping Rule`` link, so
+	an array of methods has no ERPNext target, and the router rejects
+	non-object request bodies before payload validation.
+
+	``data`` is accepted for request compatibility only. Ceto's ERPNext
+	compatibility field for a cart shipping method is the Quotation's
+	``Shipping Rule`` link, which carries no provider payload, so there is no
+	field to persist ``data`` in: it is validated and dropped (pinned by the
+	route tests).
+	"""
+
+	model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+	option_id: str = Field(min_length=1)
+	data: dict[str, Any] | None = None
+
+
 class _StoreCartPromoCodesPayload(BaseModel):
 	"""Shared ``promo_codes`` body of the Medusa promotions routes.
 
@@ -78,6 +105,17 @@ class StoreCartAddPromotion(_StoreCartPromoCodesPayload):
 
 class StoreCartRemovePromotion(_StoreCartPromoCodesPayload):
 	"""Body of ``DELETE /store/carts/{id}/promotions``."""
+
+
+class StoreCalculateCartTaxes(BaseModel):
+	"""Body of ``POST /store/carts/{id}/taxes``.
+
+	Mirrors the empty ``StoreCalculateCartTaxes`` interface of the pinned
+	``HttpTypes`` of ``@medusajs/types@2.21.1``: the route carries no body
+	fields, so any unexpected field is rejected.
+	"""
+
+	model_config = ConfigDict(extra="forbid")
 
 
 class StoreCreateCart(CartPayload):

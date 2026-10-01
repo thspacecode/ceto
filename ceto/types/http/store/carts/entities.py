@@ -67,6 +67,35 @@ class StoreCartPromotion(BaseModel):
 	is_automatic: bool = False
 
 
+class StoreCartShippingMethod(BaseModel):
+	"""Medusa ``StoreCartShippingMethod`` shape (Phase 4 subset).
+
+	Fields mirror the pinned ``HttpTypes`` of ``@medusajs/types@2.21.1`` for
+	the columns Ceto can derive from ERPNext (``Shipping Rule`` plus Quotation
+	shipping tax rows, see ``docs/carts/field-mapping.md``); fields the
+	current serializer cannot populate are omitted until the matching
+	provider exists. Money fields follow the ``StoreCart`` convention (plain
+	floats, no minor units).
+
+	``is_tax_inclusive``, ``created_at`` and ``updated_at`` are required by
+	the pinned type and always derivable: the method is the ERPNext ``Actual``
+	shipping tax row, which carries no tax allocation (tax-exclusive amount)
+	plus its own ``creation``/``modified`` timestamps.
+	"""
+
+	id: str
+	cart_id: str
+	shipping_option_id: str | None = None
+	name: str
+	amount: float = 0
+	subtotal: float = 0
+	total: float = 0
+	tax_total: float = 0
+	is_tax_inclusive: bool
+	created_at: datetime
+	updated_at: datetime
+
+
 class StoreCart(BaseModel):
 	id: str
 	region_id: str | None = None
@@ -82,7 +111,7 @@ class StoreCart(BaseModel):
 	updated_at: datetime | None = None
 	completed_at: datetime | None = None
 	items: list[StoreCartLineItem] = Field(default_factory=list)
-	shipping_methods: list[dict[str, Any]] = Field(default_factory=list)
+	shipping_methods: list[StoreCartShippingMethod] = Field(default_factory=list)
 	promotions: list[StoreCartPromotion] = Field(default_factory=list)
 	original_item_total: float = 0
 	original_item_subtotal: float = 0

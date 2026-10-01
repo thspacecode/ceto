@@ -21,11 +21,11 @@ Classification legend for every mapping row:
 | `customer_id` | `party_name` (Customer; configured Guest Customer when unset) | direct/derived |
 | `email` | `contact_email` | direct |
 | `shipping_address` / `billing_address` | `shipping_address_name` / `customer_address` (cart-scoped temporary Address) | direct |
-| `subtotal`, `item_subtotal` | `net_total` / item totals (recomputed by ERPNext) | derived |
+| `subtotal`, `original_subtotal` | item subtotal (`net_total` / `total`) **+ shipping subtotal** (Medusa reconciliation) | derived |
 | `discount_total`, `discount_subtotal` | `additional_discount_percentage` / pricing-rule discounts | derived |
 | `shipping_total` | Shipping Rule charge row | derived |
-| `tax_total` | tax rows on Quotation Item / taxes and charges | derived |
-| `total` | `grand_total` (must reconcile after recalculation) | derived |
+| `tax_total`, `item_tax_total`, `original_tax_total` | tax rows minus the Shipping Rule charge row (the `Actual` charge is a charge, not item tax) | derived |
+| `total` | `grand_total` (must reconcile after recalculation; `total + discount_total == subtotal + tax_total`) | derived |
 | `completed_at` | trigger for Sales Order submission (see Completion) | gap |
 | `metadata` | Ceto Cart Metadata child/mapping doctype | gap |
 | `item_tax_mode`, exact `sales_channel_id` | no ERPNext equivalent | gap |
@@ -103,10 +103,20 @@ the claiming Customer stay attached unchanged.
 
 | Medusa `StoreCartShippingMethod` field | ERPNext target | Classification |
 |---|---|---|
-| `shipping_option_id` | `shipping_rule` on the Quotation | derived |
-| `name` | Shipping Rule title | direct |
-| `amount` | Shipping Rule rate | direct |
-| `subtotal`, `total`, `tax_total` | shipping tax rows in taxes and charges | derived |
+| `shipping_option_id` | `shipping_rule` on the Quotation (the option id **is** the Shipping Rule name; enabled, `Selling`, cart company) | derived |
+| `name` | Shipping Rule label (stamped into the charge row description) | direct |
+| `amount` | `tax_amount` of the `Actual` charge row the controller wrote | direct |
+| `subtotal`, `total` | the same row amount (no tax-on-shipping is produced) | derived |
+| `tax_total` | always 0: the Selling taxes allocate no tax onto the charge row | derived |
+| `is_tax_inclusive` | always false: the charge row carries no tax allocation, so its amount is tax-exclusive | derived |
+| `created_at` / `updated_at` | `creation` / `modified` of the `Actual` charge row (the row is the method identity) | direct |
+| `data` (request payload) | accepted but not persisted — no compatibility field exists on the rule link | gap |
+
+The Phase 4 rate source is ERPNext `Shipping Rule` masters, priced and
+applied by ERPNext's own controllers. **Shipgi** — the shipment-gateway app
+that owns provider integrations — is currently a skeleton with no rate API;
+it is the future seam for dynamic provider rates and a shipping-options
+listing route (deliberately not built in Phase 4).
 
 ## Tax Lines → Quotation taxes and charges
 
@@ -117,6 +127,14 @@ the claiming Customer stay attached unchanged.
 | `code`, `name` (provider tax code) | `account_head` resolution via Ceto tax-code map | derived |
 | `shipping_tax_line` | shipping tax row | derived |
 | Medusa per-item inclusive/exclusive modes (`item_tax_mode`) | `included_in_print_rate` handling | gap |
+
+`POST /store/carts/{id}/taxes` (Phase 4) recalculates the cart through
+ERPNext's own `calculate_taxes_and_totals` and save — no total is derived in
+Ceto. Region/sales-channel changes that move `taxes_and_charges` reload the
+rows with ERPNext's `get_taxes_and_charges` (ERPNext only fills an empty
+taxes table), keep same-template rows untouched, and let the controller save
+recreate the Shipping Rule charge row exactly once
+(`ceto/services/carts/taxes.py`).
 
 ## Completion → Sales Order
 

@@ -12,7 +12,6 @@ The API route is a later chunk; this module drives the service directly.
 """
 
 import uuid
-from typing import ClassVar
 from unittest.mock import patch
 
 import frappe
@@ -458,8 +457,9 @@ class TestCartCompletionService(CetoTestSuite):
 
 	def test_the_mapping_assert_rejects_rows_mapped_outside_the_cart_quotation(self) -> None:
 		# The cart line mapping is keyed on this Quotation's own item rows;
-		# a mapping whose source row belongs to another Quotation is just as
-		# refusing as a missing one.
+		# a Sales Order row whose source row belongs to another Quotation is
+		# refused exactly like a missing mapping, inside the settle
+		# savepoint.
 		reference, quotation = self._cart()
 		mapping = frappe.get_all(
 			"Ceto Cart Line Item Reference",
@@ -479,13 +479,22 @@ class TestCartCompletionService(CetoTestSuite):
 		row = frappe._dict(
 			{"name": "row", "item_code": self.masters.item, "quotation_item": foreign_item.name}
 		)
+		stub_sales_order = type("StubSalesOrder", (), {"name": "SO-TEST", "items": [row]})
 
-		class StubSalesOrder:
-			name = "SO-TEST"
-			items: ClassVar[list] = [row]
+		with patch(
+			"ceto.services.carts.completion.convert_quotation_to_sales_order",
+			return_value=stub_sales_order,
+		):
+			response = self._complete(reference.cart_id)
 
-		with self.assertRaisesRegex(frappe.ValidationError, "outside the cart's Quotation"):
-			CartCompletion._assert_order_lines_are_cart_lines(reference, quotation, StubSalesOrder)
+		self.assertIsInstance(response, StoreCompleteCartFailure)
+		self.assertEqual(response.error.name, ORDER_PLACEMENT_FAILED.name)
+		self.assertEqual(response.error.type, ORDER_PLACEMENT_FAILED.type)
+		# Nothing was placed: no order reference, the submission undone.
+		self.assertIsNone(frappe.db.get_value("Ceto Order Reference", {"cart_id": reference.cart_id}, "name"))
+		self.assertEqual(frappe.db.count("Sales Order Item", {"prevdoc_docname": quotation.name}), 0)
+		self.assertEqual(frappe.db.get_value("Quotation", quotation.name, "docstatus"), 0)
+		self._assert_cart_stays_open(reference, quotation)
 
 	def test_stock_check_defaults_to_open(self) -> None:
 		reference, _quotation = self._cart()

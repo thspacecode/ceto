@@ -136,7 +136,7 @@ class TestRouter(CetoTestSuite):
 		any cart route the manifest does not pin.
 		"""
 		registered = {
-			(route.method, route.path) for route in ceto_router._routes if "/store/carts" in route.path
+			(route.method, route.path) for route in ceto_router.routes if "/store/carts" in route.path
 		}
 		pinned = {(route.method, f"/ceto{route.path}") for route in CART_ROUTES}
 		self.assertEqual(registered, pinned)

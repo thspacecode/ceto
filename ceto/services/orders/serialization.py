@@ -163,7 +163,7 @@ class OrderSerializer:
 		same id the client saw on the cart. Money values come straight from
 		the ERPNext row calculations copied by the mapper; per-line
 		``tax_total`` is the ERPNext tax allocation minus the carved-out
-		cart charges (see :meth:`CartSerializer._line_tax_allocations`).
+		cart charges (see :meth:`CartSerializer.line_tax_allocations`).
 		Line timestamps stay the cart line's: the order line is the same
 		commerce line placed.
 		"""
@@ -176,7 +176,7 @@ class OrderSerializer:
 			)
 		}
 		items: list[StoreOrderLineItem] = []
-		tax_allocations = CartSerializer._line_tax_allocations(sales_order, exclude_tax_rows)
+		tax_allocations = CartSerializer.line_tax_allocations(sales_order, exclude_tax_rows)
 		for row in sales_order.items:
 			mapping = mappings.get(row.quotation_item)
 			if mapping is None:
@@ -193,7 +193,7 @@ class OrderSerializer:
 					" has no matching cart line mapping"
 				)
 			net_amount = flt(row.net_amount) or flt(row.amount)
-			tax_total = CartSerializer._row_tax_total(tax_allocations, row)
+			tax_total = CartSerializer.row_tax_total(tax_allocations, row)
 			items.append(
 				StoreOrderLineItem(
 					id=mapping.line_id,

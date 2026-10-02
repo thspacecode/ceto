@@ -39,10 +39,9 @@ class CartSerializer:
 		shipping_total = flt(shipping_charge.amount) if shipping_charge else 0.0
 		# ERPNext books the Shipping Rule charge as an ``Actual`` row inside
 		# the ``taxes`` table, so its amount is folded into
-		# ``total_taxes_and_charges`` (and proportionally onto every item's
-		# tax allocation). It is a charge, not item tax: carve it out of the
-		# tax fields Medusa reads, keep ``total`` on ERPNext's grand total and
-		# reconcile the subtotal from the item and shipping subtotals.
+		# ``total_taxes_and_charges`` (and onto every item's tax allocation).
+		# It is a charge, not item tax: carve it out of the tax fields Medusa
+		# reads and reconcile the subtotal from the item and shipping subtotals.
 		tax_total = flt(quotation.total_taxes_and_charges) - shipping_total
 		return StoreCart(
 			id=reference.cart_id,
@@ -83,12 +82,11 @@ class CartSerializer:
 
 	@staticmethod
 	def _promotions(quotation: "Document") -> list[StoreCartPromotion]:
-		"""Serialize the applied coupon derived from the Quotation.
+		"""Serialize the applied coupon; zero or one entry.
 
 		The Quotation carries at most one ``Coupon Code`` link (ERPNext's
-		native model), so the list holds zero or one entry. Only stable
-		identity fields are derived; discount amounts come from the ERPNext
-		totals already serialized into the cart's money fields.
+		native model). Only identity fields are derived; discount amounts
+		come from the ERPNext totals already serialized into the cart.
 		"""
 		applied = quotation.get("coupon_code")
 		if not applied:
@@ -103,18 +101,15 @@ class CartSerializer:
 		reference: "Document",
 		charge: AppliedShippingCharge | None,
 	) -> list[StoreCartShippingMethod]:
-		"""Serialize the applied Shipping Rule charge derived from the Quotation.
+		"""Serialize the applied Shipping Rule charge; zero or one entry.
 
-		The Quotation carries at most one ``Shipping Rule`` link (ERPNext's
-		native model), so the list holds zero or one entry; ``None`` charge
-		means no shipping to report (no rule, a rule deleted after applying,
-		or a charge row ERPNext never wrote, e.g. an itemless cart). The
-		option reference is the rule the Quotation links, the method identity
-		is the applied charge row, and the money fields are the ERPNext-
-		calculated row amount; no amount or tax is derived here (see
-		:cmod:`ceto.services.carts.shipping` for the row's limitations). The
-		pinned-required ``is_tax_inclusive`` is false because no tax is ever
-		allocated onto the row, and the row also timestamps the method.
+		``None`` charge means no shipping to report: no rule, a rule deleted
+		after applying, or no charge row (an itemless cart). The option
+		reference is the rule the Quotation links, the method identity is the
+		applied charge row, and the money fields are the ERPNext-calculated
+		row amount — no amount or tax is derived here (see
+		:cmod:`ceto.services.carts.shipping` for the row's limitations), and
+		the row also timestamps the method.
 		"""
 		if charge is None:
 			return []
@@ -195,9 +190,7 @@ class CartSerializer:
 		return items
 
 	@staticmethod
-	def line_tax_allocations(
-		quotation: "Document", exclude_tax_row: str | None = None
-	) -> dict[str, float]:
+	def line_tax_allocations(quotation: "Document", exclude_tax_row: str | None = None) -> dict[str, float]:
 		"""Map ERPNext tax allocations onto line keys.
 
 		The primary source is the ERPNext controller-produced

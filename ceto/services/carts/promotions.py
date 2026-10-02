@@ -1,14 +1,12 @@
 """Promotion domain service for Ceto carts.
 
 Maps Medusa promotion codes onto ERPNext's native coupon model: a
-``Coupon Code`` record linked to a ``Pricing Rule``, applied to the cart's
-Quotation through the Quotation's single ``coupon_code`` link. ERPNext's
-document model natively supports exactly one coupon per transaction, so that
-is the honest capacity exposed here: applying or holding two distinct codes
-at once is rejected instead of being silently dropped.
-
-All discount values are produced by ERPNext pricing rules when the Quotation
-is saved through its controllers; this module never computes a discount.
+``Coupon Code`` record linked to a ``Pricing Rule``, applied through the
+Quotation's single ``coupon_code`` link. That link caps a cart at one
+distinct code, so applying or holding two codes is rejected rather than
+silently dropped. All discount values are produced by ERPNext pricing rules
+when the Quotation is saved through its controllers; this module never
+computes a discount.
 """
 
 from typing import TYPE_CHECKING
@@ -34,9 +32,9 @@ class CartPromotions:
 	def apply(cls, quotation: "Document", codes: list[str]) -> None:
 		"""Validate and set the cart's single coupon code.
 
-		Called with the request's ``promo_codes`` list. Duplicates of the same
-		code are collapsed; more than one distinct code is rejected because the
-		Quotation carries exactly one ``coupon_code`` link.
+		Duplicates of the same code are collapsed; more than one distinct
+		code is rejected because the Quotation carries exactly one
+		``coupon_code`` link.
 		"""
 		distinct = cls._distinct(codes)
 		if len(distinct) > 1:
@@ -71,10 +69,10 @@ class CartPromotions:
 	def set_promo_codes(cls, quotation: "Document", codes: list[str]) -> None:
 		"""Replace the cart's promo codes (Medusa update semantics).
 
-		Accepts an empty list (clears the coupon), a single code (idempotent
-		if already applied, otherwise replaces the current one), and rejects
-		more than one distinct code like :meth:`apply`. Only mutates the
-		Quotation in memory; the caller persists through the controllers.
+		An empty list clears the coupon, a single code is idempotent if
+		already applied, and more than one distinct code is rejected like
+		:meth:`apply`. Only mutates the Quotation in memory; the caller
+		persists through the controllers.
 		"""
 		distinct = cls._distinct(codes)
 		if len(distinct) > 1:
@@ -94,11 +92,10 @@ class CartPromotions:
 	def clear(quotation: "Document") -> None:
 		"""Drop the coupon link and the document-level additional discount.
 
-		ERPNext resets the coupon discount itself whenever its pricing-rule
-		pass sees an empty ``coupon_code``, but only while the rule still
-		matches; zeroing the fields here guarantees a removed coupon can never
-		leave a lingering discount. Item-level values are recomputed by
-		ERPNext on save.
+		ERPNext resets the coupon discount itself when its pricing-rule pass
+		sees an empty ``coupon_code``, but only while the rule still matches;
+		zeroing the fields here guarantees a removed coupon can never leave a
+		lingering discount.
 		"""
 		quotation.coupon_code = None
 		quotation.discount_amount = 0

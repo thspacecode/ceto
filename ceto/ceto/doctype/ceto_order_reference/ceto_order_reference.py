@@ -1,4 +1,5 @@
 import frappe
+from frappe import _
 from frappe.model.document import Document
 from frappe.utils import cint
 
@@ -32,9 +33,9 @@ class CetoOrderReference(Document):
 		"""
 		quotation = frappe.db.get_value("Ceto Cart Reference", self.cart_id, "quotation")
 		if quotation is None:
-			frappe.throw("Order reference must point to an existing cart")
+			frappe.throw(_("Order reference must point to an existing cart"))
 		if cint(frappe.db.get_value("Quotation", quotation, "docstatus")) != 1:
-			frappe.throw("Order reference must point to a completed cart")
+			frappe.throw(_("Order reference must point to a completed cart"))
 		return quotation
 
 	def _validate_sales_order(self, quotation: str) -> None:
@@ -48,9 +49,9 @@ class CetoOrderReference(Document):
 		"""
 		docstatus = frappe.db.get_value("Sales Order", self.sales_order, "docstatus")
 		if docstatus is None:
-			frappe.throw("Order reference must point to an existing Sales Order")
+			frappe.throw(_("Order reference must point to an existing Sales Order"))
 		if cint(docstatus) != 1:
-			frappe.throw("Order reference must point to a submitted Sales Order")
+			frappe.throw(_("Order reference must point to a submitted Sales Order"))
 		self._validate_sales_order_lineage(quotation)
 
 	def _validate_sales_order_lineage(self, quotation: str) -> None:
@@ -60,4 +61,4 @@ class CetoOrderReference(Document):
 			pluck="prevdoc_docname",
 		)
 		if not rows or any(row != quotation for row in rows):
-			frappe.throw("Order reference must point to a Sales Order created from the cart's Quotation")
+			frappe.throw(_("Order reference must point to a Sales Order created from the cart's Quotation"))

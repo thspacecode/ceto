@@ -201,7 +201,7 @@ class CartSerializer:
 		list, pricing rules, discounts). Conservative defaults: the public
 		variant id equals the enabled ERPNext Item code (Phase 2). Per-line
 		``tax_total`` is the ERPNext-calculated tax allocation for that row
-		(see :meth:`_line_tax_allocations`) with ``exclude_tax_rows``
+		(see :meth:`line_tax_allocations`) with ``exclude_tax_rows``
 		removed — the applied Shipping Rule charge and the negative credit
 		deduction rows are cart charges, not item tax, even though ERPNext
 		spreads their ``Actual`` amounts proportionally over the rows — and
@@ -217,7 +217,7 @@ class CartSerializer:
 			)
 		}
 		items: list[StoreCartLineItem] = []
-		tax_allocations = CartSerializer._line_tax_allocations(quotation, exclude_tax_rows)
+		tax_allocations = CartSerializer.line_tax_allocations(quotation, exclude_tax_rows)
 		for row in quotation.items:
 			mapping = mappings.get(row.name)
 			if mapping is None:
@@ -249,7 +249,7 @@ class CartSerializer:
 		return items
 
 	@staticmethod
-	def _line_tax_allocations(
+	def line_tax_allocations(
 		quotation: "Document", exclude_tax_rows: set[str] | None = None
 	) -> dict[str, float]:
 		"""Map ERPNext tax allocations onto line keys.

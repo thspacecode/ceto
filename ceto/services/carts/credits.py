@@ -42,7 +42,6 @@ dictate.
   return the consumed holds of the completed cart's Quotation — the
   order-credit view the order serializer reports.
 """
-"""
 
 import hashlib
 import secrets
@@ -341,22 +340,19 @@ class CartCredits:
 
 		Called inside the cart row lock during completion, after the Sales
 		Order exists. Wallet rows are locked first in sorted-name order (the
-		same deterministic order as :meth:`_locked_wallets`, so completion
-		can never deadlock a concurrent application of the same wallet), then
-		every open hold is debited into its wallet's ledger — ``debit_total``
-		grows by the held amount and the stored ``balance`` snapshot is
-		refreshed from the totals — and the hold is flipped to ``Consumed``:
-		a consumed hold stops counting against the balance, like a released
-		one. The negative deduction rows already booked on the Quotation ride
-		the ERPNext mapper onto the Sales Order, so the placed order's grand
-		total stays net of the consumed credits and the ledger reflects the
-		same money. Everything happens in the caller's transaction: a failure
-		rolls the whole completion back and no wallet is ever half-debited.
+		same deterministic order as :meth:`locked_wallets`, so completion
+		can never deadlock a concurrent application of the same wallet),
+		then every open hold is debited into its wallet's ledger and flipped
+		to ``Consumed``. The negative deduction rows already booked on the
+		Quotation ride the ERPNext mapper onto the Sales Order, so the placed
+		order's grand total stays net of the consumed credits. Everything
+		happens in the caller's transaction: a failure rolls the whole
+		completion back and no wallet is ever half-debited.
 		"""
 		holds = cls._open_reservations(quotation)
 		if not holds:
 			return
-		wallets = cls._locked_wallets(holds)
+		wallets = cls.locked_wallets(holds)
 		for hold in holds:
 			wallet = wallets.get(hold.wallet)
 			if wallet is None:

@@ -1,4 +1,5 @@
 import frappe
+from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, now_datetime
 
@@ -19,18 +20,16 @@ class CetoCartCreditReservation(Document):
 
 	def _validate_amount(self) -> None:
 		if flt(self.amount) <= 0:
-			frappe.throw("Reservation amount must be positive")
+			frappe.throw(_("Reservation amount must be positive"))
 
 	def _validate_quotation(self) -> dict:
 		quotation = frappe.db.get_value(
 			"Quotation", self.quotation, ["company", "currency", "docstatus", "order_type"], as_dict=True
 		)
-		if quotation is None:
-			frappe.throw("Reservation must point to a Shopping Cart Quotation")
-		if quotation.order_type != "Shopping Cart":
-			frappe.throw("Reservation must point to a Shopping Cart Quotation")
+		if quotation is None or quotation.order_type != "Shopping Cart":
+			frappe.throw(_("Reservation must point to a Shopping Cart Quotation"))
 		if quotation.docstatus == 2:
-			frappe.throw("Reservation must not point to a cancelled Quotation")
+			frappe.throw(_("Reservation must not point to a cancelled Quotation"))
 		return quotation
 
 	def _validate_wallet(self, quotation: dict) -> dict:
@@ -41,29 +40,29 @@ class CetoCartCreditReservation(Document):
 			as_dict=True,
 		)
 		if wallet is None:
-			frappe.throw("Reservation must point to an existing wallet")
+			frappe.throw(_("Reservation must point to an existing wallet"))
 		if wallet.company != quotation.company:
-			frappe.throw("Reservation wallet must belong to the Quotation's company")
+			frappe.throw(_("Reservation wallet must belong to the Quotation's company"))
 		if wallet.currency != self.currency or wallet.currency != quotation.currency:
-			frappe.throw("Reservation must use the wallet and Quotation currency")
+			frappe.throw(_("Reservation must use the wallet and Quotation currency"))
 		if wallet.expires_at and wallet.expires_at < now_datetime():
-			frappe.throw(f"Wallet {self.wallet} has expired")
+			frappe.throw(_("Wallet {0} has expired").format(self.wallet))
 		self._validate_available_balance(wallet)
 		return wallet
 
 	def _validate_available_balance(self, wallet: dict) -> None:
 		"""Compare the amount against the balance net of the other open holds.
 
-		The balance is derived from the ledger totals (``credit_total -
-		debit_total``, the authority) instead of the stored ``balance``
-		snapshot, mirroring the locked-row arithmetic in the cart credit
-		service.
+		Availability derives from the ledger totals (``credit_total -
+		debit_total``, the authority), not the stored ``balance`` snapshot,
+		mirroring the locked-row arithmetic in the cart credit service.
 		"""
 		available = flt(wallet.credit_total) - flt(wallet.debit_total) - self._reserved_excluding()
 		if flt(self.amount) > available:
 			frappe.throw(
-				f"Wallet {self.wallet} has {available} available after open reservations,"
-				f" {flt(self.amount)} requested"
+				_("Wallet {0} has {1} available after open reservations, {2} requested").format(
+					self.wallet, available, flt(self.amount)
+				)
 			)
 
 	def _reserved_excluding(self) -> float:

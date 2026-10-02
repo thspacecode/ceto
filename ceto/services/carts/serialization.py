@@ -49,17 +49,11 @@ class CartSerializer:
 		deduction_rows = CartCredits.deduction_rows(quotation)
 		deduction_total = flt(sum(flt(row.tax_amount) for row in deduction_rows))
 		# ERPNext books the Shipping Rule charge as an ``Actual`` row inside
-		# the ``taxes`` table, so its amount is folded into
-		# ``total_taxes_and_charges`` (and proportionally onto every item's
-		# tax allocation). The credit deductions are negative ``Actual``
-		# rows on the same table and spread the same way. Both are cart
-		# charges, not item tax: carve both out of the tax fields Medusa
-		# reads, keep ``total`` on ERPNext's grand total — deductions
-		# included — and reconcile the subtotal from the item and shipping
-		# subtotals. With the credit lines reporting the carved-out
-		# deductions as positive holds, the Medusa summary stays consistent:
-		# ``total + discount_total + credit_line_total == subtotal +
-		# tax_total``.
+		# the ``taxes`` table, and the credit deductions are negative rows on
+		# the same table; both spread proportionally over the item tax
+		# allocation, so both are carved out of the tax fields Medusa reads.
+		# ``total`` stays ERPNext's grand total (deductions included) and the
+		# subtotal is reconciled from the item and shipping subtotals.
 		tax_total = flt(quotation.total_taxes_and_charges) - shipping_total - deduction_total
 		return StoreCart(
 			id=reference.cart_id,
@@ -129,10 +123,9 @@ class CartSerializer:
 	def _gift_cards(credits: list[AppliedCredit]) -> list[StoreCartGiftCard]:
 		"""Serialize the applied gift cards derived from the open holds.
 
-		Codes are stored hash-only, so the serialized ``code`` is the
-		wallet's masked hint: clients remove an applied gift card by
-		resubmitting the original code, never the hint (and no hash is ever
-		serialized).
+		Codes are stored hash-only, so the serialized ``code`` is the wallet's
+		masked hint; clients remove an applied card by resubmitting the
+		original code, never the hint.
 		"""
 		return [
 			StoreCartGiftCard(code=credit.code_hint or "")

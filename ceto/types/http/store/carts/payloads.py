@@ -167,6 +167,19 @@ class StoreCalculateCartTaxes(BaseModel):
 	model_config = ConfigDict(extra="forbid")
 
 
+class StoreCompleteCart(BaseModel):
+	"""Body of ``POST /store/carts/{id}/complete``.
+
+	Mirrors the pinned ``StoreCompleteCart`` interface of the ``HttpTypes``
+	of ``@medusajs/types@2.21.1``: only an optional idempotency key. Unknown
+	fields are rejected like every other core cart payload.
+	"""
+
+	model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+	idempotency_key: str | None = None
+
+
 class StoreCreateCart(CartPayload):
 	currency_code: str | None = None
 	shipping_address: StoreCartAddressPayload | str | None = None

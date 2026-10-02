@@ -30,7 +30,17 @@ dictate.
   store-credit holds of a different customer are released before the
   re-priced save (:meth:`CartCredits.release_foreign_store_credits`), and a
   cancelled or deleted Quotation releases its open holds
-  (:func:`release_quotation_credit_holds`, hooked in ``ceto/hooks.py``).
+  (:func:`release_quotation_credit_holds`, hooked in ``ceto/hooks.py``) so
+  no hold outlives the payable it was booked against.
+- Completion consumes the money (:meth:`CartCredits.consume_cart_credits`):
+  inside the cart lock the wallets behind the cart's open holds are locked
+  in sorted-name order, each hold is debited into its wallet's ledger
+  (``debit_total``) and flipped to ``Consumed``. The negative deduction
+  rows already booked on the Quotation ride the ERPNext mapper onto the
+  Sales Order, so the placed order's grand total stays net of the consumed
+  credits. Reads for the placed order (:meth:`CartCredits.consumed_credits`)
+  return the consumed holds of the completed cart's Quotation — the
+  order-credit view the order serializer reports.
 """
 
 import hashlib
@@ -271,16 +281,31 @@ class CartCredits:
 		CartLineItems.save(quotation)
 
 	@classmethod
-	def applied_credits(cls, quotation: "Document") -> list[AppliedCredit]:
+	def applied_credits(cls, quotation_name: str) -> list[AppliedCredit]:
 		"""Return the cart's open holds in application order.
 
 		Read-only view for serialization: only ``Reserved`` reservations
 		count — released or consumed holds no longer reduce what the cart
 		owes and drop out of ``gift_cards`` and ``credit_lines``.
 		"""
+		return cls._credits(quotation_name, "Reserved")
+
+	@classmethod
+	def consumed_credits(cls, quotation_name: str) -> list[AppliedCredit]:
+		"""Return the holds completion consumed on the cart, oldest first.
+
+		Order-credit read for the placed order's serialization: the holds
+		are keyed on the completed cart's Quotation (the payable they were
+		booked against), and only ``Consumed`` ones count — released holds
+		never became money and stay out of the order's credit totals.
+		"""
+		return cls._credits(quotation_name, "Consumed")
+
+	@classmethod
+	def _credits(cls, quotation_name: str, status: str) -> list[AppliedCredit]:
 		rows = frappe.get_all(
 			"Ceto Cart Credit Reservation",
-			filters={"quotation": quotation.name, "status": "Reserved"},
+			filters={"quotation": quotation_name, "status": status},
 			fields=["credit_line_id", "wallet", "amount", "creation", "modified"],
 			order_by="creation asc, name asc",
 		)
@@ -308,6 +333,43 @@ class CartCredits:
 				)
 			)
 		return credits
+
+	@classmethod
+	def consume_cart_credits(cls, quotation: "Document") -> None:
+		"""Debit the wallets behind the cart's open holds and consume the holds.
+
+		Called inside the cart row lock during completion, after the Sales
+		Order exists. Wallet rows are locked first in sorted-name order (the
+		same deterministic order as :meth:`locked_wallets`, so completion
+		can never deadlock a concurrent application of the same wallet),
+		then every open hold is debited into its wallet's ledger and flipped
+		to ``Consumed``. The negative deduction rows already booked on the
+		Quotation ride the ERPNext mapper onto the Sales Order, so the placed
+		order's grand total stays net of the consumed credits. Everything
+		happens in the caller's transaction: a failure rolls the whole
+		completion back and no wallet is ever half-debited.
+		"""
+		holds = cls._open_reservations(quotation)
+		if not holds:
+			return
+		wallets = cls.locked_wallets(holds)
+		for hold in holds:
+			wallet = wallets.get(hold.wallet)
+			if wallet is None:
+				# Unreachable through the cart flow (the reconciliation
+				# releases holds whose wallet is gone); fail loudly rather
+				# than book money without a wallet.
+				frappe.throw(
+					_("Wallet {0} of credit line {1} is missing").format(hold.wallet, hold.credit_line_id)
+				)
+			amount = flt(hold.amount)
+			debit_total = flt(wallet.debit_total) + amount
+			frappe.db.set_value(
+				"Ceto Credit Wallet",
+				hold.wallet,
+				{"debit_total": debit_total, "balance": flt(wallet.credit_total) - debit_total},
+			)
+			frappe.db.set_value("Ceto Cart Credit Reservation", hold.name, "status", "Consumed")
 
 	@classmethod
 	def deduction_rows(cls, quotation: "Document") -> list["Document"]:

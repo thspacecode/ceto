@@ -66,7 +66,7 @@ Medusa API implementation status, grouped by scope. Routes follow the [Medusa St
 | POST | `/store/carts/{id}/store-credits` | ✅️ |
 | POST | `/store/carts/{id}/taxes` | ✅️ |
 | POST | `/store/carts/{id}/customer` | ✅️ |
-| POST | `/store/carts/{id}/complete` | ⚪️ |
+| POST | `/store/carts/{id}/complete` | ✅️ |
 | POST | `/store/carts` | ✅️ |
 | POST | `/store/carts/{id}` | ✅️ |
 | POST | `/store/carts/{id}/line-items/{line_id}` | ✅️ |

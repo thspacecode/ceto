@@ -142,7 +142,7 @@ layer.
 - **Reservation-aware balances**: every open `Reserved` reservation reduces
   what further reservations may hold; `Released` and `Consumed` stop
   counting. The wallet balance itself is untouched until completion debits it
-  (later chunk). Deleting a cart reference releases its reservations, the
+  (Phase 6). Deleting a cart reference releases its reservations, the
   same cleanup contract the line-item references already follow.
 - **Negative `Actual` accounting**: applying a hold books the reservation —
   the public credit line — and writes the applied amount as a negative
@@ -168,3 +168,71 @@ layer.
   deduction rows are carved out of the Medusa tax fields, so the serialized
   cart always satisfies
   `total + discount_total + credit_line_total == subtotal + tax_total`.
+
+## Phase 6: cart completion (implemented)
+
+Completion (`POST /store/carts/{id}/complete`,
+`ceto/services/carts/completion.py`) turns the cart's draft Quotation into a
+placed order inside one locked, atomic transaction. The route returns the
+pinned `StoreCompleteCartResponse` union itself — no `{cart: …}` wrapper —
+and the route-level behavior is documented in `docs/carts/endpoints.md`;
+this section records the configuration and the ERPNext side.
+
+- **Locking**: completion locks the cart reference row and then the
+  Quotation row, the same order as every cart mutation
+  (`CartAccess.lock_for_completion`). Unlike the mutation lock it tolerates a
+  *submitted* Quotation, so the replay path can resolve the order an earlier
+  completion booked; unknown carts, missing or cancelled Quotations and
+  non-Shopping-Cart drafts stay masked as `404 not_found`.
+- **Preflight refusals** leave the cart open and return the pinned
+  `type: "cart"` member with a structured error instead of raising: empty
+  cart, missing email, missing shipping address, missing shipping method,
+  the optional stock check and the payment readiness gate, evaluated in that
+  order so a provider is never asked to authorize a cart that cannot be
+  placed anyway.
+- **Payment readiness** (Recorded Decision 7) is **open by default**: with
+  no provider hook registered, completion proceeds without a payment gate.
+  A provider registers the `ceto_cart_payment_readiness` hook; each
+  registered method receives `cart_id`, `quotation` and `idempotency_key`
+  (any subset), `None` means "no opinion", and the first falsy verdict
+  fails the completion closed before any money moves or any order is
+  created. Hook calls are synchronous and run while the cart reference and
+  Quotation rows are row-locked inside the completion transaction, so a
+  registered method must be **local and bounded** — no network I/O, no
+  awaited jobs, no unbounded reads. A slow or remote hook stalls every
+  concurrent cart mutation of the same cart and stretches the open
+  transaction; a provider that has to reach a gateway records its intent
+  locally and answers asynchronously (a `None` verdict keeps the gate open
+  until then).
+- **Stock check** is **off by default**: `bench set-config ceto_cart_stock_check 1`
+  enables it. Enabled, every stocked item row must have ERPNext projected
+  stock (`Bin.projected_qty`) in its warehouse covering the cart quantity;
+  non-stock items and rows without a warehouse are skipped, so the gate
+  never fails a cart on missing master data.
+- **Settle**: the Quotation's `valid_till` is refreshed when it has passed
+  (Medusa carts never expire; the ERPNext validity artifact must not block
+  an old cart), the Quotation is submitted, ERPNext's own mapper produces
+  the submitted Sales Order with the cart's stored per-row pricing
+  re-asserted (`ceto/services/carts/conversion.py`), every Sales Order row
+  is asserted back onto a `Ceto Cart Line Item Reference` mapping of this
+  cart (an ERPNext free-item row or any other unmapped row refuses the
+  completion instead of silently disappearing from the order), the **Ceto
+  Order Reference** is booked — the public `order_…` id, the Sales Order
+  and the `cart_id`, unique on all three — and the wallets behind the
+  cart's credit holds are debited (`CartCredits.consume_cart_credits`).
+  Everything shares the caller's transaction inside the
+  `ceto_cart_completion_settle` savepoint: an expected Frappe/ERPNext
+  validation failure (`frappe.ValidationError` and its subclasses — the
+  business-validation family ERPNext's controllers raise through
+  `frappe.throw`) is rolled back to the savepoint — submission, Sales
+  Order, reference and wallet debits — while the cart row lock stays held,
+  and is returned as the pinned refusal `OrderPlacementError` (type
+  `order_placement_error`) for the untouched open cart, retry-ready.
+  Anything wider (a programming or infrastructure fault) is deliberately
+  not caught: it propagates to the router and surfaces as `500
+  internal_error` with the full request rollback.
+- **Replay**: a completed cart's Quotation has left the draft state every
+  cart route requires, so the order reference — resolved by the unique
+  `cart_id` — is the only way back. Every repeat of the complete route
+  re-serializes the same placed order; the rest of the cart surface masks
+  the cart as `404 not_found`.

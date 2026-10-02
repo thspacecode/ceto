@@ -3,6 +3,7 @@ from typing import Any
 from ceto.api.store.publishable_key import CartPublishableKey
 from ceto.routing import ceto_router
 from ceto.services.carts.claim import CartClaim
+from ceto.services.carts.completion import CartCompletion
 from ceto.services.carts.quotation import CartService
 from ceto.services.carts.serialization import CartSerializer
 from ceto.types.http.store.carts import (
@@ -13,6 +14,7 @@ from ceto.types.http.store.carts import (
 	StoreCalculateCartTaxes,
 	StoreCartAddPromotion,
 	StoreCartRemovePromotion,
+	StoreCompleteCart,
 	StoreCreateCart,
 	StoreRemoveGiftCardFromCart,
 	StoreUpdateCart,
@@ -186,3 +188,30 @@ def claim_cart_customer(id: str, fields: str | None = None) -> dict[str, Any]:
 	publishable_key = CartPublishableKey.from_request()
 	reference, quotation = CartClaim().claim(id, guard=publishable_key.check_reference)
 	return {"cart": CartSerializer().serialize(reference, quotation, fields=fields)}
+
+
+@ceto_router.post("/store/carts/{id}/complete", allow_guest=True)
+def complete_cart(id: str, fields: str | None = None, **payload: Any) -> dict[str, Any]:
+	"""Medusa ``complete``: place the cart's order, or refuse with the cart.
+
+	Guest-enabled like every cart route. The pinned ``StoreCompleteCart`` body
+	is empty by default — an optional ``idempotency_key`` is forwarded to the
+	payment readiness hooks — and unknown fields are rejected like on every
+	core cart payload. The key scope is validated against the row-locked
+	reference before anything happens (see ``update_cart``).
+
+	The response is the pinned ``StoreCompleteCartResponse`` union itself: the
+	placed ``order``, or the open ``cart`` plus the structured ``error`` when
+	the completion refused — so unlike the other cart routes there is no
+	``{cart: …}`` wrapper. A completed cart replays its placed order on every
+	repeat and stays masked as ``404 not_found`` on the rest of the cart
+	surface. The ``fields`` selector applies to whichever entity the returned
+	union member carries.
+	"""
+	publishable_key = CartPublishableKey.from_request()
+	validated = StoreCompleteCart.model_validate(payload)
+	completion = CartCompletion().complete(id, validated, guard=publishable_key.check_reference)
+	body = completion.model_dump(mode="json")
+	entity = "order" if completion.type == "order" else "cart"
+	body[entity] = CartSerializer.select_fields(body[entity], fields, entity=entity)
+	return body

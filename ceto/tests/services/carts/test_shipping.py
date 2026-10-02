@@ -42,6 +42,12 @@ class TestCartShippingSerialization(CetoTestSuite):
 	def setUp(self) -> None:
 		frappe.set_user("Administrator")
 		self.masters = CartTestData()
+		# An earlier module's committed cart (kept to survive a request
+		# rollback — the completion suite commits placed orders) leaves its
+		# guest-linked temporary Address behind; ERPNext would refill this
+		# module's addressless carts from it and the country rule would
+		# reject the inherited foreign address on the controller save.
+		self.masters.discard_committed_cart_temporaries()
 		self.service = CartService()
 
 	def _create_cart_with_line(self) -> tuple:

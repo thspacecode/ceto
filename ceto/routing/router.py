@@ -85,6 +85,11 @@ class Router:
 
 		return decorator
 
+	@property
+	def routes(self) -> tuple[Route, ...]:
+		"""Return the registered routes (read-only, for introspection)."""
+		return tuple(self._routes)
+
 	def match(self, request: Request) -> tuple[Route, dict[str, Any]]:
 		"""Resolve a request to a Ceto route and extract its path parameters."""
 		route, arguments = self._url_map().bind_to_environ(request.environ).match()

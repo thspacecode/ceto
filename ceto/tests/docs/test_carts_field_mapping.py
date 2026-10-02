@@ -79,11 +79,20 @@ class TestCartsFieldMappingDoc(unittest.TestCase):
 			("country_code", "country"),
 			("promotions", "Coupon Code"),
 			("shipping_option_id", "shipping_rule"),
+			("credit_lines", "Ceto Cart Credit Reservation"),
 			("order", "Sales Order"),
 		):
 			with self.subTest(concept=concept):
 				self.assertIn(concept, self.text)
 				self.assertIn(target, self.text)
+
+	def test_credit_ledger_section_documents_the_phase_5_semantics(self):
+		self.assertIn("## Cart Credit (gift card / store credit)", self.text)
+		# Hash-only codes and the negative Actual booking are the two decisions
+		# clients and implementers must not get wrong.
+		self.assertIn("SHA-256 `code_hash`", self.text)
+		self.assertIn("negative `Actual` row", self.text)
+		self.assertIn("total + discount_total + credit_line_total == subtotal + tax_total", self.text)
 
 	def test_eight_decisions_are_recorded(self):
 		decision_lines = re.findall(r"^\d+\. \*\*", self.text, re.MULTILINE)

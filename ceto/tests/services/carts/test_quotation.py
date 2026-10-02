@@ -6,10 +6,11 @@ from ceto.routing.exceptions import InvalidDataError, RouteNotFoundError
 from ceto.services.carts.access import CartAccess
 from ceto.services.carts.quotation import CartService
 from ceto.services.carts.serialization import CartSerializer
-from ceto.tests.data.cart_test_data import CartTestData
+from ceto.tests.data.cart_test_data import CartTestData, make_customer_with_user
 from ceto.tests.utils import CetoTestSuite
 from ceto.types.http.store.carts import (
 	StoreAddCartLineItem,
+	StoreAddStoreCreditsToCart,
 	StoreCreateCart,
 	StoreUpdateCart,
 )
@@ -19,6 +20,18 @@ class TestCartQuotation(CetoTestSuite):
 	def setUp(self) -> None:
 		frappe.set_user("Administrator")
 		self.masters = CartTestData()
+		# The claim-visibility test creates Website Users; Frappe throttles
+		# user creation per hour on the shared test site, so lift it here like
+		# the other user-creating cart modules do.
+		self._previous_throttle = frappe.local.conf.get("throttle_user_limit")
+		frappe.local.conf["throttle_user_limit"] = 100000
+
+	def tearDown(self) -> None:
+		if self._previous_throttle is None:
+			frappe.local.conf.pop("throttle_user_limit", None)
+		else:
+			frappe.local.conf["throttle_user_limit"] = self._previous_throttle
+		super().tearDown()
 
 	def test_creates_and_retrieves_guest_cart(self) -> None:
 		payload = StoreCreateCart(
@@ -94,6 +107,47 @@ class TestCartQuotation(CetoTestSuite):
 					CartService().retrieve(reference.cart_id)
 			with self.set_user(owner):
 				CartService().retrieve(reference.cart_id)
+
+	def test_store_credits_cannot_be_applied_to_another_users_cart(self) -> None:
+		owner_email, owner_customer = make_customer_with_user("owner")
+		attacker_email, attacker_customer = make_customer_with_user("attacker")
+		owner_wallet = self.masters.make_store_credit_wallet(customer=owner_customer, credit_total=20.0)
+		attacker_wallet = self.masters.make_store_credit_wallet(customer=attacker_customer, credit_total=20.0)
+
+		with self.set_conf(ceto_cart=self.masters.configuration), self.set_user(owner_email):
+			reference, quotation = CartService().create(StoreCreateCart())
+			reference, quotation, _mapping = CartService().add_line_item(
+				reference.cart_id, StoreAddCartLineItem(variant_id=self.masters.item, quantity=1)
+			)
+			# The owner's own wallet applies to their own cart as usual.
+			reference, quotation = CartService().add_store_credits(
+				reference.cart_id, StoreAddStoreCreditsToCart(amount=5)
+			)
+			holds = frappe.get_all(
+				"Ceto Cart Credit Reservation",
+				filters={"quotation": quotation.name},
+				fields=["name", "wallet", "status"],
+			)
+			self.assertEqual([hold["status"] for hold in holds], ["Reserved"])
+			self.assertEqual(holds[0]["wallet"], owner_wallet)
+
+		# Another authenticated customer's wallet is never applied to a cart
+		# owned by someone else: masked as not_found before the ledger moves.
+		with self.set_conf(ceto_cart=self.masters.configuration), self.set_user(attacker_email):
+			with self.assertRaisesRegex(RouteNotFoundError, "Cart not found"):
+				CartService().add_store_credits(reference.cart_id, StoreAddStoreCreditsToCart())
+
+		self.assertEqual(
+			frappe.get_all("Ceto Cart Credit Reservation", filters={"wallet": attacker_wallet}), []
+		)
+		self.assertEqual(len(self._all_holds(quotation)), 1)
+
+	def _all_holds(self, quotation) -> list[dict]:
+		return frappe.get_all(
+			"Ceto Cart Credit Reservation",
+			filters={"quotation": quotation.name},
+			fields=["name", "wallet", "status"],
+		)
 
 	def test_rejects_unknown_region_and_deferred_operations(self) -> None:
 		configuration = {**self.masters.configuration, "regions": {"reg_test": {}}}

@@ -6,9 +6,12 @@ from frappe.utils import flt, get_datetime
 
 from ceto.routing.exceptions import InvalidDataError
 from ceto.services.carts.addresses import serialize_address
+from ceto.services.carts.credits import AppliedCredit, CartCredits
 from ceto.services.carts.shipping import AppliedShippingCharge, CartShipping
 from ceto.types.http.store.carts import (
 	StoreCart,
+	StoreCartCreditLine,
+	StoreCartGiftCard,
 	StoreCartLineItem,
 	StoreCartPromotion,
 	StoreCartShippingMethod,
@@ -37,12 +40,21 @@ class CartSerializer:
 		updated_at = max(get_datetime(reference.modified), get_datetime(quotation.modified))
 		shipping_charge = CartShipping.applied_charge(quotation)
 		shipping_total = flt(shipping_charge.amount) if shipping_charge else 0.0
+		credits = CartCredits.applied_credits(quotation)
+		gift_card_total = flt(sum(credit.amount for credit in credits if credit.reference == "gift-card"))
+		# Every open hold — gift card or store credit — is one credit line, so
+		# the Medusa credit-line total is the sum of all of them (it includes
+		# ``gift_card_total``).
+		credit_line_total = flt(sum(credit.amount for credit in credits))
+		deduction_rows = CartCredits.deduction_rows(quotation)
+		deduction_total = flt(sum(flt(row.tax_amount) for row in deduction_rows))
 		# ERPNext books the Shipping Rule charge as an ``Actual`` row inside
-		# the ``taxes`` table, so its amount is folded into
-		# ``total_taxes_and_charges`` (and onto every item's tax allocation).
-		# It is a charge, not item tax: carve it out of the tax fields Medusa
-		# reads and reconcile the subtotal from the item and shipping subtotals.
-		tax_total = flt(quotation.total_taxes_and_charges) - shipping_total
+		# the ``taxes`` table, and the credit deductions are negative rows on
+		# the same table; both spread proportionally over the item tax
+		# allocation, so both are carved out of the tax fields Medusa reads.
+		# ``total`` stays ERPNext's grand total (deductions included) and the
+		# subtotal is reconciled from the item and shipping subtotals.
+		tax_total = flt(quotation.total_taxes_and_charges) - shipping_total - deduction_total
 		return StoreCart(
 			id=reference.cart_id,
 			region_id=reference.region_id or None,
@@ -56,9 +68,17 @@ class CartSerializer:
 			shipping_address=serialize_address(quotation.shipping_address_name),
 			created_at=min(get_datetime(reference.creation), get_datetime(quotation.creation)),
 			updated_at=updated_at,
-			items=CartSerializer._items(reference, quotation, shipping_charge),
+			items=CartSerializer._items(
+				reference,
+				quotation,
+				shipping_charge,
+				{row.name for row in deduction_rows}
+				| ({shipping_charge.tax_row.name} if shipping_charge else set()),
+			),
 			shipping_methods=CartSerializer._shipping_methods(reference, shipping_charge),
 			promotions=CartSerializer._promotions(quotation),
+			gift_cards=CartSerializer._gift_cards(credits),
+			credit_lines=CartSerializer._credit_lines(reference, credits),
 			original_item_total=original_item_subtotal + tax_total,
 			original_item_subtotal=original_item_subtotal,
 			original_item_tax_total=tax_total,
@@ -72,6 +92,9 @@ class CartSerializer:
 			subtotal=item_subtotal + shipping_total,
 			tax_total=tax_total,
 			discount_total=discount_total,
+			gift_card_total=gift_card_total,
+			gift_card_tax_total=0,
+			credit_line_total=credit_line_total,
 			shipping_total=shipping_total,
 			shipping_subtotal=shipping_total,
 			shipping_tax_total=0,
@@ -95,6 +118,41 @@ class CartSerializer:
 		if not code:
 			return []
 		return [StoreCartPromotion(id=applied, code=code, is_automatic=False)]
+
+	@staticmethod
+	def _gift_cards(credits: list[AppliedCredit]) -> list[StoreCartGiftCard]:
+		"""Serialize the applied gift cards derived from the open holds.
+
+		Codes are stored hash-only, so the serialized ``code`` is the wallet's
+		masked hint; clients remove an applied card by resubmitting the
+		original code, never the hint.
+		"""
+		return [
+			StoreCartGiftCard(code=credit.code_hint or "")
+			for credit in credits
+			if credit.reference == "gift-card"
+		]
+
+	@staticmethod
+	def _credit_lines(reference: "Document", credits: list[AppliedCredit]) -> list[StoreCartCreditLine]:
+		"""Serialize the cart's open credit holds as core ``credit_lines``.
+
+		Every open hold — gift card or store credit — is one credit line in
+		application order; the ``reference_id`` is the backing wallet's
+		public id. Released or consumed holds stop serializing.
+		"""
+		return [
+			StoreCartCreditLine(
+				id=credit.credit_line_id,
+				cart_id=reference.cart_id,
+				amount=credit.amount,
+				reference=credit.reference,
+				reference_id=credit.wallet,
+				created_at=credit.creation,
+				updated_at=credit.modified,
+			)
+			for credit in credits
+		]
 
 	@staticmethod
 	def _shipping_methods(
@@ -135,6 +193,7 @@ class CartSerializer:
 		reference: "Document",
 		quotation: "Document",
 		shipping_charge: AppliedShippingCharge | None = None,
+		exclude_tax_rows: set[str] | None = None,
 	) -> list[StoreCartLineItem]:
 		"""Serialize mapped lines joined to Quotation rows, in Quotation row order.
 
@@ -142,8 +201,10 @@ class CartSerializer:
 		list, pricing rules, discounts). Conservative defaults: the public
 		variant id equals the enabled ERPNext Item code (Phase 2). Per-line
 		``tax_total`` is the ERPNext-calculated tax allocation for that row
-		(see :meth:`line_tax_allocations`) with the applied shipping charge
-		removed — a Shipping Rule charge is a cart charge, not item tax — and
+		(see :meth:`_line_tax_allocations`) with ``exclude_tax_rows``
+		removed — the applied Shipping Rule charge and the negative credit
+		deduction rows are cart charges, not item tax, even though ERPNext
+		spreads their ``Actual`` amounts proportionally over the rows — and
 		the line ``total`` is the after-discount net amount plus that tax
 		allocation.
 		"""
@@ -156,9 +217,7 @@ class CartSerializer:
 			)
 		}
 		items: list[StoreCartLineItem] = []
-		tax_allocations = CartSerializer.line_tax_allocations(
-			quotation, shipping_charge.tax_row.name if shipping_charge else None
-		)
+		tax_allocations = CartSerializer._line_tax_allocations(quotation, exclude_tax_rows)
 		for row in quotation.items:
 			mapping = mappings.get(row.name)
 			if mapping is None:
@@ -190,7 +249,9 @@ class CartSerializer:
 		return items
 
 	@staticmethod
-	def line_tax_allocations(quotation: "Document", exclude_tax_row: str | None = None) -> dict[str, float]:
+	def _line_tax_allocations(
+		quotation: "Document", exclude_tax_rows: set[str] | None = None
+	) -> dict[str, float]:
 		"""Map ERPNext tax allocations onto line keys.
 
 		The primary source is the ERPNext controller-produced
@@ -200,23 +261,23 @@ class CartSerializer:
 		that field is parsed and summed the same way. Keys are Quotation Item
 		row names when possible, else item codes; no tax rate is ever invented.
 
-		``exclude_tax_row`` drops one taxes row from the allocation — the
-		applied Shipping Rule charge, whose ``Actual`` row spreads its amount
-		proportionally over the item rows even though it is a cart charge, not
-		item tax.
+		``exclude_tax_rows`` drops taxes rows from the allocation — the
+		applied Shipping Rule charge and the negative credit deduction rows,
+		whose ``Actual`` amounts spread proportionally over the item rows
+		even though they are cart charges, not item tax.
 		"""
-		allocations = CartSerializer._allocations_from_tax_details(quotation, exclude_tax_row)
+		allocations = CartSerializer._allocations_from_tax_details(quotation, exclude_tax_rows)
 		if not allocations:
-			allocations = CartSerializer._allocations_from_legacy_tax_detail(quotation, exclude_tax_row)
+			allocations = CartSerializer._allocations_from_legacy_tax_detail(quotation, exclude_tax_rows)
 		return allocations
 
 	@staticmethod
 	def _allocations_from_tax_details(
-		quotation: "Document", exclude_tax_row: str | None = None
+		quotation: "Document", exclude_tax_rows: set[str] | None = None
 	) -> dict[str, float]:
 		allocations: dict[str, float] = {}
 		for detail in quotation.get("item_wise_tax_details") or []:
-			if exclude_tax_row and detail.get("tax_row") == exclude_tax_row:
+			if exclude_tax_rows and detail.get("tax_row") in exclude_tax_rows:
 				continue
 			item_row = detail.get("item_row")
 			if not item_row:
@@ -226,11 +287,11 @@ class CartSerializer:
 
 	@staticmethod
 	def _allocations_from_legacy_tax_detail(
-		quotation: "Document", exclude_tax_row: str | None = None
+		quotation: "Document", exclude_tax_rows: set[str] | None = None
 	) -> dict[str, float]:
 		allocations: dict[str, float] = {}
 		for tax in quotation.get("taxes") or []:
-			if exclude_tax_row and tax.get("name") == exclude_tax_row:
+			if exclude_tax_rows and tax.get("name") in exclude_tax_rows:
 				continue
 			detail = tax.get("item_wise_tax_detail")
 			if isinstance(detail, str):

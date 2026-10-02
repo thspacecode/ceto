@@ -4,11 +4,13 @@ The Company, guest Customer, selling Price List, and catalog items are owned by
 the bootstrap and imported once through ``ceto.tests.utils``; this module creates
 no commerce masters. It only derives the cart ``ceto_cart`` configuration from
 the same bootstrap settings, exposes the bootstrap items with their committed
-rates, and layers test-only templates on top: one idempotent tax template so
-cart totals carry a meaningful rate, and the idempotent selling ``Shipping
-Rule`` fixtures Phase 4 shipping tests select from. Currency is deliberately
-omitted: ``CartConfiguration`` resolves it from the selling price list, which
-the bootstrap creates in the company currency.
+rates, and layers test-only fixtures on top: one idempotent tax template so
+cart totals carry a meaningful rate, the idempotent selling ``Shipping Rule``
+fixtures Phase 4 shipping tests select from, the committed gift-card /
+store-credit wallet fixtures Phase 5 tests apply, and a Website User linked to
+its own Customer through a Contact for the authenticated-customer flows.
+Currency is deliberately omitted: ``CartConfiguration`` resolves it from the
+selling price list, which the bootstrap creates in the company currency.
 """
 
 import uuid
@@ -21,6 +23,7 @@ from ceto.data.base_importer import apply_values
 from ceto.data.bootstrap_dev.dataset import ITEM_PRICES
 from ceto.data.bootstrap_dev.seeders.setup_company import resolve_company
 from ceto.data.bootstrap_dev.settings import BootstrapSettings
+from ceto.services.carts.credits import hash_code
 from ceto.tests.utils import boot_strap_test_master_data
 
 TEST_TAX_ACCOUNT = "Ceto Test Cart Tax"
@@ -109,6 +112,39 @@ class CartTestData:
 			frappe.db.set_value("Pricing Rule", rule, "disable", 1, update_modified=False)
 		if rules:
 			frappe.db.commit()  # nosemgrep
+
+	def discard_committed_cart_temporaries(self) -> None:
+		"""Delete committed cart-scoped temporary Addresses left by earlier tests.
+
+		Error-path tests commit their cart so a failing request's rollback cannot
+		erase it, and that commit also persists the cart's temporary Address,
+		which stays linked to the shared guest Customer while it is attached. A
+		committed temporary is the guest party's only Shipping address, so
+		ERPNext fills the empty address slots of later addressless carts from it
+		(``party.get_party_shipping_address``): a fresh cart silently inherits
+		the earlier fixture — the committed country-mismatch cart leaks its
+		mismatched shipping address into tests that apply the country rule.
+		Discarding committed ``Cart *`` temporaries keeps later addressless
+		carts free of addresses from earlier committed carts.
+		"""
+		temporaries = frappe.get_all(
+			"Address",
+			filters=[
+				["Dynamic Link", "link_doctype", "=", "Customer"],
+				["Dynamic Link", "link_name", "=", self.customer],
+				["address_title", "like", "Cart %"],
+			],
+			pluck="name",
+		)
+		for name in temporaries:
+			# Detach the committed Quotation slots first: the delete-time link
+			# check reads the live Quotation row, like the cart flow does.
+			for field in ("customer_address", "shipping_address_name"):
+				for quotation in frappe.get_all("Quotation", filters={field: name}, pluck="name"):
+					frappe.db.set_value("Quotation", quotation, field, None)
+			frappe.delete_doc("Address", name, ignore_permissions=True)
+		if temporaries:
+			frappe.db.commit()  # nosemgrep - discarded fixtures must survive the tearDown rollback
 
 	@property
 	def configuration(self) -> dict[str, Any]:
@@ -250,6 +286,107 @@ class CartTestData:
 			frappe.db.commit()  # nosemgrep
 		return name
 
+	def make_gift_card(
+		self,
+		code: str,
+		*,
+		credit_total: float = 100.0,
+		customer: str | None = None,
+		currency: str | None = None,
+		company: str | None = None,
+		expires_at: Any = None,
+	) -> str:
+		"""Create or converge one committed gift-card wallet; return its name.
+
+		Public so credit tests can bind a card to another currency — the
+		wrong-currency rejection case — or expire it, without duplicating
+		masters. The wallet id is derived from the code hash, so the same
+		code converges on the same wallet in every test run instead of
+		colliding with the company-scoped code uniqueness. Creation (and
+		any convergence) commits at once because the router rolls back the
+		open transaction when it converts a failed request into an error
+		response, and the wallet must outlive that rollback.
+		"""
+		fields = {
+			"wallet_type": "Gift Card",
+			"provider": "loyalty",
+			"company": company or self.company,
+			"customer": customer,
+			"currency": currency or self.settings.wizard_currency,
+			"code_hash": hash_code(code),
+			"code_hint": gift_card_code_hint(code),
+			"expires_at": expires_at,
+			"credit_total": credit_total,
+		}
+		name = frappe.db.get_value(
+			"Ceto Credit Wallet", {"company": fields["company"], "code_hash": fields["code_hash"]}
+		)
+		if not name:
+			name = (
+				frappe.get_doc(
+					{"doctype": "Ceto Credit Wallet", "wallet_id": f"gc_{fields['code_hash'][:16]}", **fields}
+				)
+				.insert(ignore_permissions=True)
+				.name
+			)
+			frappe.db.commit()  # nosemgrep
+			return name
+		wallet = frappe.get_doc("Ceto Credit Wallet", name)
+		if apply_values(wallet, fields):
+			wallet.save(ignore_permissions=True)
+			frappe.db.commit()  # nosemgrep
+		return name
+
+	def make_store_credit_wallet(
+		self,
+		*,
+		credit_total: float = 100.0,
+		customer: str | None = None,
+		currency: str | None = None,
+		company: str | None = None,
+	) -> str:
+		"""Create or converge one committed store-credit wallet; return its name.
+
+		The customer-owned wallet (bootstrap guest by default) is unique per
+		company and currency, so re-instantiating converges on the existing
+		wallet — resetting its balance to ``credit_total`` — instead of
+		colliding with the customer-wallet uniqueness rule. Commits at once,
+		like :meth:`make_gift_card`, to survive request rollbacks.
+		"""
+		fields = {
+			"wallet_type": "Store Credit",
+			"provider": "loyalty",
+			"company": company or self.company,
+			"customer": customer or self.customer,
+			"currency": currency or self.settings.wizard_currency,
+			"credit_total": credit_total,
+			"debit_total": 0,
+		}
+		name = frappe.db.get_value(
+			"Ceto Credit Wallet",
+			{
+				"company": fields["company"],
+				"currency": fields["currency"],
+				"customer": fields["customer"],
+				"wallet_type": "Store Credit",
+			},
+		)
+		if not name:
+			name = (
+				frappe.get_doc(
+					{"doctype": "Ceto Credit Wallet", "wallet_id": f"sca_{uuid.uuid4().hex[:16]}", **fields}
+				)
+				.insert(ignore_permissions=True)
+				.name
+			)
+			frappe.db.commit()  # nosemgrep
+			return name
+		wallet = frappe.get_doc("Ceto Credit Wallet", name)
+		if apply_values(wallet, fields):
+			wallet.save(ignore_permissions=True)
+			frappe.db.commit()  # nosemgrep
+		return name
+
 	def _shipping_account(self, company: str) -> str:
 		"""Reuse or create the leaf income account shipping charges post to."""
 		account = frappe.db.get_value(
@@ -317,3 +454,51 @@ class CartTestData:
 		frappe.get_doc({"doctype": "Country", "country_name": country}).insert(ignore_permissions=True)
 		frappe.db.commit()  # nosemgrep
 		return country
+
+
+def gift_card_code_hint(code: str) -> str:
+	"""Return the masked hint shape the DocType documents: ``GC-****-1234``."""
+	return f"GC-****-{code[-4:]}"
+
+
+def make_customer_with_user(label: str) -> tuple[str, str]:
+	"""Create a Website User linked to its own Customer through a Contact.
+
+	Returns ``(email, customer)``. The records stay uncommitted: callers
+	that must survive a request rollback (the router rolls back the open
+	transaction when it converts an error into a response) commit after
+	setting up their fixtures, like the promotion API tests do.
+	"""
+	email = f"ceto.cart.{label}.{uuid.uuid4().hex[:8]}@example.com"
+	frappe.get_doc(
+		{
+			"doctype": "User",
+			"email": email,
+			"first_name": f"Cart {label}",
+			"user_type": "Website User",
+			"send_welcome_email": 0,
+		}
+	).insert(ignore_permissions=True)
+	customer = frappe.get_doc(
+		{
+			"doctype": "Customer",
+			"customer_name": f"Cart {label} {uuid.uuid4().hex[:8]}",
+			"customer_type": "Individual",
+			"customer_group": frappe.db.get_value("Customer Group", {"is_group": 0}, "name"),
+			"territory": "All Territories",
+		}
+	)
+	customer.flags.ignore_permissions = True
+	customer.insert()
+	contact = frappe.get_doc(
+		{
+			"doctype": "Contact",
+			"first_name": f"Cart {label}",
+			"email_id": email,
+			"user": email,
+			"links": [{"link_doctype": "Customer", "link_name": customer.name}],
+		}
+	)
+	contact.flags.ignore_permissions = True
+	contact.insert()
+	return email, customer.name

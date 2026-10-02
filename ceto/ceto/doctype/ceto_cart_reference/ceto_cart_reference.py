@@ -21,6 +21,12 @@ class CetoCartReference(Document):
 			pluck="name",
 		):
 			frappe.delete_doc("Ceto Cart Line Item Reference", name, ignore_permissions=True, force=True)
+		for name in frappe.get_all(
+			"Ceto Cart Credit Reservation",
+			filters={"quotation": self.quotation},
+			pluck="name",
+		):
+			frappe.delete_doc("Ceto Cart Credit Reservation", name, ignore_permissions=True, force=True)
 
 	def _validate_quotation(self) -> None:
 		order_type, docstatus = frappe.db.get_value(

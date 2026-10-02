@@ -24,8 +24,11 @@ Classification legend for every mapping row:
 | `subtotal`, `original_subtotal` | item subtotal (`net_total` / `total`) **+ shipping subtotal** (Medusa reconciliation) | derived |
 | `discount_total`, `discount_subtotal` | `additional_discount_percentage` / pricing-rule discounts | derived |
 | `shipping_total` | Shipping Rule charge row | derived |
-| `tax_total`, `item_tax_total`, `original_tax_total` | tax rows minus the Shipping Rule charge row (the `Actual` charge is a charge, not item tax) | derived |
-| `total` | `grand_total` (must reconcile after recalculation; `total + discount_total == subtotal + tax_total`) | derived |
+| `tax_total`, `item_tax_total`, `original_tax_total` | tax rows minus the Shipping Rule charge row and the negative credit deduction rows (both are `Actual` charges, not item tax) | derived |
+| `total` | `grand_total` (must reconcile after recalculation; `total + discount_total + credit_line_total == subtotal + tax_total`) | derived |
+| `gift_cards[].code` | open gift-card holds serialized as the wallet's masked `code_hint` (codes stored hash-only) | derived |
+| `gift_card_total` | sum of the cart's open gift-card credit lines | derived |
+| `credit_lines[]`, `credit_line_total` | open `Ceto Cart Credit Reservation` holds (gift card and store credit) and their amount sum | gap |
 | `completed_at` | trigger for Sales Order submission (see Completion) | gap |
 | `metadata` | Ceto Cart Metadata child/mapping doctype | gap |
 | `item_tax_mode`, exact `sales_channel_id` | no ERPNext equivalent | gap |
@@ -118,6 +121,45 @@ that owns provider integrations — is currently a skeleton with no rate API;
 it is the future seam for dynamic provider rates and a shipping-options
 listing route (deliberately not built in Phase 4).
 
+## Cart Credit (gift card / store credit) → Ceto Credit Wallet + Quotation tax row
+
+The loyalty-plugin cart credits (Phase 5) map onto the Ceto-owned ledger, not
+onto ERPNext master data (Recorded Decision 8):
+
+| Medusa loyalty field | Ceto / ERPNext target | Classification |
+|---|---|---|
+| `POST …/gift-cards` body `code` | wallet lookup by SHA-256 `code_hash`, scoped to the cart's company; plaintext never stored | gap |
+| `gift_cards[].code` (serialized) | wallet `code_hint` (masked); clients resubmit the original code to remove | derived |
+| `credit_lines[].id` (`cl_…`) | `Ceto Cart Credit Reservation.credit_line_id` | gap |
+| `credit_lines[].reference` (`gift-card` / `store-credit`) | wallet `wallet_type` | derived |
+| `credit_lines[].reference_id` | `Ceto Credit Wallet` name | direct |
+| `credit_lines[].amount` | reservation `amount`, re-capped by the reconciliation | derived |
+| `credit_line_total`, `gift_card_total` | sum of open holds (all / gift-card subset) | derived |
+| applied credit amount | negative `Actual` row on the Quotation taxes table, posted to the company's default receivable account | derived |
+| removed / released hold | reservation `status = Released`; the deduction row is rebuilt and the totals restored | derived |
+
+Accounting semantics (Phase 5):
+
+- Applying a hold books the reservation and writes the applied amount as a
+  **negative `Actual` row** on the taxes table. ERPNext's own controllers
+  fold it into `total_taxes_and_charges` and `grand_total` — ERPNext stays
+  the totals authority; Ceto never derives a total.
+- The serializer carves the shipping charge **and** the deduction rows out of
+  `tax_total`, `item_tax_total`, `original_tax_total` and the per-line tax
+  allocations (cart charges, not item tax), while `total` keeps the deducted
+  grand total. The deductions reappear as positive holds, so the summary
+  always satisfies
+  `total + discount_total + credit_line_total == subtotal + tax_total`.
+- `CartCredits.reconcile` runs inside the cart lock after every
+  totals-moving mutation: holds are re-capped to wallet availability and the
+  remaining deductible amount (gift cards re-derive, store credits only
+  shrink), valueless holds are released and the deduction rows are rebuilt —
+  so a booked deduction can never drive `total` negative, and a
+  tax-template reload heals on the same save. Shrinking mutations unbook the
+  rows first so the intermediate ERPNext save stays valid.
+- The wallet balance is untouched while the cart is open; completion debits
+  it (later phase). Released holds stop counting and stop serializing.
+
 ## Tax Lines → Quotation taxes and charges
 
 | Medusa tax line field | ERPNext target | Classification |
@@ -166,9 +208,11 @@ recreate the Shipping Rule charge row exactly once
 5. **Publishable key** — validated at the HTTP boundary (middleware) only;
    it selects the sales channel/region configuration and is not persisted on
    cart records.
-6. **Store credits** — store-credit amounts are recorded in the Ceto provider
-   ledger at completion time (later phase); they do not create ERPNext
-   vouchers during Phase 0.
+6. **Store credits** — applied cart credits are held as `Ceto Cart Credit
+   Reservation` rows in the Ceto provider ledger and surfaced on the
+   Quotation as negative `Actual` tax rows (Phase 5); the wallet balance is
+   debited in the provider ledger only at completion time (later phase).
+   Credits never create ERPNext payment vouchers.
 7. **Payment readiness gate** — cart completion refuses to create the Sales
    Order until payment readiness is confirmed by the payment provider
    integration (per provider settings).

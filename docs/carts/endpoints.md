@@ -3,8 +3,10 @@
 Phase 0 pinned a machine-readable contract manifest that later phases
 implement against. **Phase 1 implemented routes 1–3, Phase 2 implemented
 routes 4–6** (line items), **Phase 3 implemented route 14** (customer
-claim/transfer) and **Phase 4 implemented routes 7–9 and 13** (shipping
-methods, promotions and taxes); the remaining routes are unimplemented.
+claim/transfer), **Phase 4 implemented routes 7–9 and 13** (shipping
+methods, promotions and taxes) and **Phase 5 implemented routes 10–12**
+(the loyalty gift-card and store-credit routes, on the Ceto-owned credit
+ledger). Route 15 (complete) is the only cart route left.
 
 ## Manifest
 
@@ -12,6 +14,9 @@ methods, promotions and taxes); the remaining routes are unimplemented.
 - Tests: `ceto/tests/types/http/store/test_carts_manifest.py`
 - API source (pinned): <https://docs.medusajs.com/api/store#carts>
 - JS SDK (pinned): `@medusajs/js-sdk@2.21.1`
+- Loyalty plugin (pinned): `@zjedene-medusa/loyalty-plugin@2.16.2` — the
+  source of the `gift-cards` and `store-credits` route contracts, which the
+  core `@medusajs/types` package does not publish payloads for
 
 The manifest is pure Python (`dataclass` entries, no Frappe imports) so it can
 be consumed by request validation codegen and tested standalone.
@@ -26,12 +31,12 @@ be consumed by request validation codegen and tested standalone.
 | 4 | POST | `/store/carts/{id}/line-items` | `StoreAddCartLineItem` | `StoreCartResponse` | pk + optional session | `createLineItem` |
 | 5 | POST | `/store/carts/{id}/line-items/{line_id}` | `StoreUpdateCartLineItem` | `StoreCartResponse` | pk + optional session | `updateLineItem` |
 | 6 | DELETE | `/store/carts/{id}/line-items/{line_id}` | — | `StoreLineItemDeleteResponse` | pk + optional session | `deleteLineItem` |
-| 7 | POST | `/store/carts/{id}/shipping-methods` | `StoreAddCartShippingMethod` | `StoreCartResponse` | pk + optional session | `addShippingMethod` |
+| 7 | POST | `/store/carts/{id}/shipping-methods` | `StoreAddCartShippingMethods` | `StoreCartResponse` | pk + optional session | `addShippingMethod` |
 | 8 | POST | `/store/carts/{id}/promotions` | `StoreCartAddPromotion` | `StoreCartResponse` | pk + optional session | `addPromotions` |
 | 9 | DELETE | `/store/carts/{id}/promotions` | `StoreCartRemovePromotion` | `StoreCartResponse` | pk + optional session | `removePromotions` |
-| 10 | POST | `/store/carts/{id}/gift-cards` | `StoreAddCartGiftCards` | `StoreCartResponse` | pk + optional session | — |
-| 11 | DELETE | `/store/carts/{id}/gift-cards` | — | `StoreCartResponse` | pk + optional session | — |
-| 12 | POST | `/store/carts/{id}/store-credits` | `StoreAddCartStoreCredits` | `StoreCartResponse` | pk + optional session | — |
+| 10 | POST | `/store/carts/{id}/gift-cards` | `StoreAddGiftCardToCart` | `StoreCartResponse` | pk + optional session | — |
+| 11 | DELETE | `/store/carts/{id}/gift-cards` | `StoreRemoveGiftCardFromCart` | `StoreCartResponse` | pk + optional session | — |
+| 12 | POST | `/store/carts/{id}/store-credits` | `StoreAddStoreCreditsToCart` | `StoreCartResponse` | pk + customer session | — |
 | 13 | POST | `/store/carts/{id}/taxes` | `StoreCalculateCartTaxes` | `StoreCartResponse` | pk + optional session | — |
 | 14 | POST | `/store/carts/{id}/customer` | — | `StoreCartResponse` | pk + customer session | `transferCart` |
 | 15 | POST | `/store/carts/{id}/complete` | — | `StoreCompleteCartResponse` | pk + optional session | `complete` |
@@ -55,7 +60,7 @@ When Medusa ships a new version, update `CART_API_SOURCE_URL`,
 they intentionally fail on drift.
 
 
-## Implemented routes (Phase 1 + Phase 2 + Phase 3)
+## Implemented routes (Phase 1 through Phase 5)
 
 Handler module: `ceto/api/store/carts.py`. All cart routes are guest-enabled
 and require the `x-publishable-api-key` header.
@@ -69,6 +74,11 @@ and require the `x-publishable-api-key` header.
 | 5. `POST /store/carts/{id}/line-items/{line_id}` | implemented (Phase 2) | `{cart: StoreCart}` |
 | 6. `DELETE /store/carts/{id}/line-items/{line_id}` | implemented (Phase 2) | `{id, object: "line-item", deleted: true, parent}` |
 | 7. `POST /store/carts/{id}/shipping-methods` | implemented (Phase 4) | `{cart: StoreCart}` |
+| 8. `POST /store/carts/{id}/promotions` | implemented (Phase 4) | `{cart: StoreCart}` |
+| 9. `DELETE /store/carts/{id}/promotions` | implemented (Phase 4) | `{cart: StoreCart}` |
+| 10. `POST /store/carts/{id}/gift-cards` | implemented (Phase 5) | `{cart: StoreCart}` |
+| 11. `DELETE /store/carts/{id}/gift-cards` | implemented (Phase 5) | `{cart: StoreCart}` |
+| 12. `POST /store/carts/{id}/store-credits` | implemented (Phase 5) | `{cart: StoreCart}` |
 | 13. `POST /store/carts/{id}/taxes` | implemented (Phase 4) | `{cart: StoreCart}` |
 | 14. `POST /store/carts/{id}/customer` | implemented (Phase 3) | `{cart: StoreCart}` |
 
@@ -193,6 +203,117 @@ and require the `x-publishable-api-key` header.
   update; delete ignores it (fixed response shape).
 - Errors use the shared Medusa translation (`invalid_data`, `unauthorized`,
   `not_allowed`, `not_found`).
+
+### Loyalty routes: gift cards and store credits (Phase 5)
+
+- The three routes are **not** core Medusa: the loyalty plugin owns them and
+  the manifest pins its release together with the core SDK/types pins. The
+  corrected contracts, verified against `@zjedene-medusa/loyalty-plugin@2.16.2`:
+  - `POST /store/carts/{id}/gift-cards` — body `{code}` in a strict object
+    (`StoreAddGiftCardToCart`); optional cart session, like the other cart
+    mutations.
+  - `DELETE /store/carts/{id}/gift-cards` — **bodyful**: `{code}`
+    (`StoreRemoveGiftCardFromCart`). The earlier "empty body" reading was
+    wrong; the removal mirrors the plugin's strict `{code}` validator.
+  - `POST /store/carts/{id}/store-credits` — body `{amount?}`
+    (`StoreAddStoreCreditsToCart`). The plugin middleware authenticates the
+    customer (session or bearer), so the route — unlike the gift-card routes
+    — requires an authenticated customer. The plugin validator is a lenient
+    `z.object` (unknown fields stripped), and Ceto mirrors that; a provided
+    amount must be positive. When omitted, the plugin reserves the whole
+    available balance.
+- The plugin serializes applied gift cards as `gift_cards: [{code}]` on the
+  cart and models both kinds of cart credit as core `credit_lines`
+  (`CartCreditLineDTO`: `id`, `cart_id`, `amount`, `reference`
+  (`gift-card` / `store-credit`), `reference_id`, `metadata`, timestamps).
+  `StoreCart` carries both collections plus the core `credit_line_total`;
+  gift-card codes are stored hash-only with a display hint, so the
+  serialized `code` is the hint and clients remove an applied gift card by
+  resubmitting the original code.
+- Ceto-owned records behind the routes: `Ceto Credit Wallet` (the
+  provider-backed gift-card / store-credit ledger) and `Ceto Cart Credit
+  Reservation` (one hold on a wallet per cart Quotation). See
+  `docs/carts/core-cart.md` for the invariants.
+
+#### Gift cards (Phase 5, implemented)
+
+- **Apply** resolves the code by its SHA-256 **hash only**, scoped to the
+  cart's company; the plaintext code never reaches the database and only the
+  wallet's masked hint (`GC-****-1234`) is serialized back. Re-applying an
+  already-applied card is idempotent (one hold, one credit line).
+- The hold equals the card's whole remaining balance, **capped by the cart's
+  payable amount**; a smaller card deducts only its balance. Rejection shapes
+  are all `400 invalid_data` raised before any mutation: unknown code,
+  expired card, card in another currency, exhausted card, and an itemless
+  cart (nothing payable to deduct from). An unknown field in the strict
+  `{code}` object is also `400`.
+- **Remove** is the bodyful `DELETE` with `{code}`: it releases the hold
+  booked for that code and restores the totals. An unknown code and a code
+  that is not applied to this cart are both `400 invalid_data`; a missing
+  body fails payload validation with `400`.
+- Both routes keep the **optional cart session** (a guest applies a card
+  with nothing but the cart id) and run the publishable-key scope guard
+  inside the cart row lock: a wrong-scoped key gets `403 not_allowed` with
+  no mutation.
+
+#### Store credits (Phase 5, implemented)
+
+- The route **requires an authenticated customer**: a guest request fails
+  with `401 unauthorized` before the cart is locked, as does a session user
+  with no Customer linked through its Contact (same resolver as the claim).
+  The hold is booked against that customer's wallet for the cart's company
+  and currency; a customer without such a wallet gets `400 invalid_data`.
+- Without `amount` the whole available balance is reserved; an explicit
+  amount must be positive and not exceed the balance (`400` otherwise).
+  **Reapplying replaces** the cart's prior store-credit reservation(s)
+  instead of stacking holds.
+- Availability is **reservation-aware across carts**: open holds on any cart
+  reduce what a new hold may take, and every wallet read that leads to a
+  reservation locks the wallet row (`SELECT … FOR UPDATE`), so concurrent
+  applications serialize.
+- The route accepts a publishable key like every mutation; a wrong-scoped
+  key gets `403 not_allowed` inside the cart lock, leaving prior
+  reservations untouched. A cart claimed by another customer stays masked as
+  `404 not_found`.
+
+#### Credit ledger accounting (Phase 5)
+
+- Applying a credit **books a `Ceto Cart Credit Reservation`** — the public
+  `cl_…` credit line — and writes the applied amount as a **negative
+  `Actual` row** on the Quotation's taxes table, posted to the company's
+  default receivable account. The Quotation keeps saving through ERPNext's
+  own controllers, so ERPNext stays the totals authority; Ceto only books
+  the deduction rows its reservations dictate. The negative rows carry no
+  marker field: an `Actual` charge on the receivable account with a negative
+  amount is unambiguous on a cart Quotation.
+- `CartCredits.reconcile` runs inside the cart lock after every
+  totals-moving mutation: holds are re-capped to the wallet's availability
+  and the cart's remaining deductible amount (gift cards re-derive with the
+  cart, store credits only shrink), valueless or foreign-denominated holds
+  are released, and the deduction rows are rebuilt — healing tax-template
+  reloads on the same save. Shrinking mutations first unbook the deduction
+  rows so the intermediate ERPNext save cannot reject a negative grand
+  total: booked deductions can never drive `total` negative. Cart claims
+  re-cap holds under the same lock when re-priced.
+- The wallet balance itself is untouched while a cart is open; completion
+  debits it (later chunk). Released holds stop counting against the balance
+  and stop serializing.
+
+#### Credit totals semantics (Phase 5)
+
+- The shipping charge **and** the negative credit rows are `Actual` rows on
+  the taxes table, so ERPNext folds both into `total_taxes_and_charges` and
+  spreads them proportionally over the item rows. The serializer carves both
+  out of `tax_total`, `item_tax_total`, `original_tax_total` and the
+  per-line tax allocations — the tax fields carry only template item tax —
+  while `total` stays ERPNext's grand total, deductions included, and
+  `subtotal` is the item subtotal plus the shipping subtotal.
+- The carved-out deductions reappear as positive holds: `gift_card_total`
+  sums the gift-card holds, and `credit_line_total` (the core Medusa total)
+  sums **every** open credit line, gift cards included. With
+  `discount_total` on ERPNext's additional discount the Medusa summary stays
+  consistent:
+  `total + discount_total + credit_line_total == subtotal + tax_total`.
 
 ### Publishable-key scoping on mutations
 

@@ -1,15 +1,18 @@
 import uuid
 
 import frappe
-from frappe.utils import today
+from frappe.utils import flt, today
 
 from ceto.routing.exceptions import RouteNotFoundError, UnauthorizedError
 from ceto.services.carts.claim import CartClaim
+from ceto.services.carts.credits import CartCredits
 from ceto.services.carts.quotation import CartService
+from ceto.services.carts.serialization import CartSerializer
 from ceto.tests.data.cart_test_data import ITEM_PRICE, TAX_RATE, CartTestData
 from ceto.tests.utils import CetoTestSuite
 from ceto.types.http.store.carts import (
 	StoreAddCartLineItem,
+	StoreAddStoreCreditsToCart,
 	StoreCartAddressPayload,
 	StoreCreateCart,
 )
@@ -98,6 +101,14 @@ class TestCartClaim(CetoTestSuite):
 		frappe.db.commit()
 		with self.set_user("Guest"):
 			return CartService().retrieve(reference.cart_id)
+
+	def _holds(self, quotation) -> list[dict]:
+		return frappe.get_all(
+			"Ceto Cart Credit Reservation",
+			filters={"quotation": quotation.name},
+			fields=["name", "wallet", "amount", "status"],
+			order_by="creation asc",
+		)
 
 	def test_claims_guest_cart_for_authenticated_customer(self) -> None:
 		email, customer = self.buyer
@@ -305,6 +316,52 @@ class TestCartClaim(CetoTestSuite):
 					[(link.link_doctype, link.link_name) for link in foreign.links],
 					[("Customer", other_customer)],
 				)
+
+	def test_claim_releases_another_customers_store_credits(self) -> None:
+		# A guest cart is shared by id: before the claim, any authenticated
+		# customer can apply store credits to it. Claiming must not transfer
+		# that money into the claiming customer's cart.
+		other_email, other_customer = self.other
+		self.masters.make_store_credit_wallet(customer=other_customer, credit_total=20.0)
+		with self.set_conf(ceto_cart=self.masters.configuration):
+			with self.set_user("Guest"):
+				reference, quotation = self._guest_cart()
+
+			with self.set_user(other_email):
+				reference, quotation = CartService().add_store_credits(
+					reference.cart_id, StoreAddStoreCreditsToCart()
+				)
+			self.assertEqual(len(self._holds(quotation)), 1)
+
+			with self.set_user(self.buyer[0]):
+				reference, quotation = CartClaim().claim(reference.cart_id)
+
+		self.assertEqual([hold["status"] for hold in self._holds(quotation)], ["Released"])
+		self.assertEqual(CartCredits.deduction_rows(quotation), [])
+		self.assertAlmostEqual(quotation.grand_total, flt(2 * ITEM_PRICE * (1 + TAX_RATE / 100)), places=4)
+		cart = CartSerializer().serialize(reference, quotation)
+		self.assertEqual(cart["credit_lines"], [])
+
+	def test_claim_keeps_the_claiming_customers_own_store_credits(self) -> None:
+		buyer_email, buyer_customer = self.buyer
+		self.masters.make_store_credit_wallet(customer=buyer_customer, credit_total=20.0)
+		with self.set_conf(ceto_cart=self.masters.configuration):
+			with self.set_user("Guest"):
+				reference, quotation = self._guest_cart()
+
+			# The claiming customer applied their own credit pre-claim; the
+			# claim keeps it and only re-caps it against the re-priced cart.
+			with self.set_user(buyer_email):
+				reference, quotation = CartService().add_store_credits(
+					reference.cart_id, StoreAddStoreCreditsToCart(amount=15)
+				)
+				reference, quotation = CartClaim().claim(reference.cart_id)
+
+		holds = self._holds(quotation)
+		self.assertEqual([hold["status"] for hold in holds], ["Reserved"])
+		self.assertAlmostEqual(holds[0]["amount"], 15.0)
+		self.assertEqual(reference.owner_customer, buyer_customer)
+		self.assertEqual(len(CartCredits.deduction_rows(quotation)), 1)
 
 	def test_unauthenticated_claim_is_rejected_without_mutation(self) -> None:
 		with self.set_conf(ceto_cart=self.masters.configuration):

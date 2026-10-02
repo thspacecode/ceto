@@ -8,10 +8,12 @@ import frappe
 from erpnext.controllers.accounts_controller import get_taxes_and_charges
 from frappe.utils import getdate, today
 
-from ceto.routing.exceptions import InvalidDataError
+from ceto.routing.exceptions import InvalidDataError, RouteNotFoundError, UnauthorizedError
 from ceto.services.carts.access import CartAccess
 from ceto.services.carts.addresses import CartAddresses
 from ceto.services.carts.configuration import CartConfiguration
+from ceto.services.carts.credits import CartCredits
+from ceto.services.carts.customers import CartCustomers
 from ceto.services.carts.line_items import CartLineItems, dump_metadata, merged_metadata
 from ceto.services.carts.promotions import CartPromotions
 from ceto.services.carts.shipping import CartShippingMethods
@@ -19,9 +21,12 @@ from ceto.services.carts.taxes import CartTaxes
 from ceto.types.http.store.carts import (
 	StoreAddCartLineItem,
 	StoreAddCartShippingMethods,
+	StoreAddGiftCardToCart,
+	StoreAddStoreCreditsToCart,
 	StoreCartAddPromotion,
 	StoreCartRemovePromotion,
 	StoreCreateCart,
+	StoreRemoveGiftCardFromCart,
 	StoreUpdateCart,
 	StoreUpdateCartLineItem,
 )
@@ -98,12 +103,18 @@ class CartService:
 			if guard is not None:
 				guard(reference)
 			with privileged_scope():
+				# A template reload or channel re-price shrinks the payable; unbook first.
+				CartCredits.stage_for_mutation(quotation)
 				self._apply_update(reference, quotation, payload)
 				self.addresses.apply(reference, quotation, payload)
 				# Shared save helper: keeps the mandatory-items relaxation only
 				# while the cart is empty and recomputes totals otherwise.
 				CartLineItems.save(quotation)
 				self.addresses.enforce_cleared(quotation, payload)
+				# A template reload or promo/price change moves the totals;
+				# the credit holds are re-capped and their deduction rows
+				# rewritten before the cart is returned.
+				CartCredits.reconcile(quotation)
 				reference.save(ignore_permissions=True)
 			return reference, quotation
 
@@ -124,6 +135,7 @@ class CartService:
 				guard(reference)
 			with privileged_scope():
 				mapping = CartLineItems.add(reference, quotation, payload)
+				CartCredits.reconcile(quotation)
 			return reference, quotation, mapping
 
 	def update_line_item(
@@ -143,7 +155,10 @@ class CartService:
 			if guard is not None:
 				guard(reference)
 			with privileged_scope():
+				# A quantity decrease shrinks the payable; unbook first.
+				CartCredits.stage_for_mutation(quotation)
 				mapping = CartLineItems.update(reference, quotation, line_id, payload)
+				CartCredits.reconcile(quotation)
 			return reference, quotation, mapping
 
 	def delete_line_item(
@@ -162,7 +177,10 @@ class CartService:
 			if guard is not None:
 				guard(reference)
 			with privileged_scope():
+				# Removing lines shrinks what the holds can absorb; unbook first.
+				CartCredits.stage_for_mutation(quotation)
 				mapping = CartLineItems.delete(reference, quotation, line_id)
+				CartCredits.reconcile(quotation)
 			return reference, quotation, mapping
 
 	def add_promotions(
@@ -183,7 +201,11 @@ class CartService:
 			if guard is not None:
 				guard(reference)
 			with privileged_scope():
+				# A discount shrinks the payable below the booked deduction; unbook first.
+				CartCredits.stage_for_mutation(quotation)
 				CartPromotions.apply(quotation, payload.promo_codes)
+				# Discount changes move the totals; holds are re-capped.
+				CartCredits.reconcile(quotation)
 				return reference, quotation
 
 	def remove_promotions(
@@ -203,6 +225,8 @@ class CartService:
 				guard(reference)
 			with privileged_scope():
 				CartPromotions.remove(quotation, payload.promo_codes)
+				# Discount changes move the totals; holds are re-capped.
+				CartCredits.reconcile(quotation)
 				return reference, quotation
 
 	def calculate_taxes(
@@ -223,7 +247,12 @@ class CartService:
 			if guard is not None:
 				guard(reference)
 			with privileged_scope():
+				# A cheaper template rate shrinks the payable; unbook first.
+				CartCredits.stage_for_mutation(quotation)
 				CartTaxes.recalculate(quotation)
+				# The recalculation rebuilt the totals (and possibly the
+				# taxes table); the holds and their deduction rows follow.
+				CartCredits.reconcile(quotation)
 				return reference, quotation
 
 	def set_shipping_method(
@@ -244,7 +273,93 @@ class CartService:
 			if guard is not None:
 				guard(reference)
 			with privileged_scope():
+				# A cheaper replacement charge shrinks the payable; unbook first.
+				CartCredits.stage_for_mutation(quotation)
 				CartShippingMethods.apply(quotation, payload.option_id)
+				# The shipping charge moves the totals; holds are re-capped.
+				CartCredits.reconcile(quotation)
+				return reference, quotation
+
+	def add_gift_card(
+		self,
+		cart_id: str,
+		payload: StoreAddGiftCardToCart,
+		*,
+		guard: Callable[["Document"], None] | None = None,
+	) -> tuple["Document", "Document"]:
+		"""Apply a gift card to the locked cart.
+
+		``guard`` is validated against the locked reference before any
+		mutation, so a wrong-scoped key never modifies the cart (see
+		:meth:`add_promotions`). The wallet row is locked inside the cart
+		lock before its balance is read, so concurrent applications of one
+		card serialize; a failing resolution (unknown code, wrong currency,
+		expired or exhausted card, no amount payable) raises inside the
+		locked transaction and the caller's rollback leaves the cart
+		untouched.
+		"""
+		with self.access.lock(cart_id) as (reference, quotation):
+			if guard is not None:
+				guard(reference)
+			with privileged_scope():
+				CartCredits.apply_gift_card(quotation, payload.code)
+				return reference, quotation
+
+	def remove_gift_card(
+		self,
+		cart_id: str,
+		payload: StoreRemoveGiftCardFromCart,
+		*,
+		guard: Callable[["Document"], None] | None = None,
+	) -> tuple["Document", "Document"]:
+		"""Release the gift card applied to the locked cart.
+
+		``guard`` is validated against the locked reference before any
+		mutation (see :meth:`add_promotions`). The pinned removal is
+		bodyful: ``payload.code`` selects the released hold by code hash.
+		"""
+		with self.access.lock(cart_id) as (reference, quotation):
+			if guard is not None:
+				guard(reference)
+			with privileged_scope():
+				CartCredits.remove_gift_card(quotation, payload.code)
+				return reference, quotation
+
+	def add_store_credits(
+		self,
+		cart_id: str,
+		payload: StoreAddStoreCreditsToCart,
+		*,
+		guard: Callable[["Document"], None] | None = None,
+	) -> tuple["Document", "Document"]:
+		"""Reserve the authenticated customer's store credit on the locked cart.
+
+		The loyalty plugin's middleware authenticates the customer for this
+		route, so an anonymous request fails as ``401 unauthorized`` before
+		the cart is locked — as does a session user without a Customer
+		linked through its Contact (same resolver as the claim). The hold
+		is booked against that customer's wallet for the cart's company and
+		currency; reapplying replaces the cart's prior reservation(s). A
+		cart owned by another authenticated user is rejected as
+		``not_found`` before the ledger is touched.
+		"""
+		user = CartAccess.owner_user()
+		if not user:
+			raise UnauthorizedError("Store credits require an authenticated customer")
+		customer = CartCustomers().resolve(user)
+		with self.access.lock(cart_id) as (reference, quotation):
+			if guard is not None:
+				guard(reference)
+			if reference.owner_user and reference.owner_user != user:
+				# A customer wallet is never applied to a cart owned by
+				# another authenticated user. ``CartAccess`` already masks
+				# foreign carts on every route; this restates the invariant
+				# at the money-moving boundary so it holds even if a future
+				# caller reaches past the access helper, and it masks the
+				# same way (``not_found``) instead of leaking existence.
+				raise RouteNotFoundError("Cart not found")
+			with privileged_scope():
+				CartCredits.apply_store_credits(quotation, customer, payload.amount)
 				return reference, quotation
 
 	def _apply_update(self, reference: "Document", quotation: "Document", payload: StoreUpdateCart) -> None:

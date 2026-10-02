@@ -4,6 +4,36 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+class StoreCartLineItem(BaseModel):
+	"""Medusa ``StoreCartLineItem`` shape (Phase 2 subset).
+
+	Money fields mirror the ``StoreCart`` convention (plain floats, no minor
+	units); fields the current Quotation-backed serializer cannot populate are
+	omitted until the matching provider exists.
+	"""
+
+	id: str
+	cart_id: str
+	title: str | None = None
+	product_id: str | None = None
+	product_title: str | None = None
+	variant_id: str | None = None
+	variant_title: str | None = None
+	thumbnail: str | None = None
+	quantity: int
+	requires_shipping: bool = True
+	is_discountable: bool = True
+	metadata: dict[str, Any] | None = None
+	unit_price: float = 0
+	original_unit_price: float = 0
+	subtotal: float = 0
+	total: float = 0
+	discount_total: float = 0
+	tax_total: float = 0
+	created_at: datetime | None = None
+	updated_at: datetime | None = None
+
+
 class StoreCart(BaseModel):
 	id: str
 	region_id: str | None = None
@@ -16,7 +46,7 @@ class StoreCart(BaseModel):
 	created_at: datetime | None = None
 	updated_at: datetime | None = None
 	completed_at: datetime | None = None
-	items: list[dict[str, Any]] = Field(default_factory=list)
+	items: list[StoreCartLineItem] = Field(default_factory=list)
 	shipping_methods: list[dict[str, Any]] = Field(default_factory=list)
 	promotions: list[dict[str, Any]] = Field(default_factory=list)
 	original_item_total: float = 0

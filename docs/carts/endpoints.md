@@ -1,7 +1,8 @@
-# Store Cart Endpoints — Source of Truth (Phase 0)
+# Store Cart Endpoints — Source of Truth
 
-Phase 0 of the carts work does **not** implement cart API handlers. It pins a
-machine-readable contract manifest that later phases implement against.
+Phase 0 pinned a machine-readable contract manifest that later phases
+implement against. **Phase 1 implemented routes 1–3 and Phase 2 implemented
+routes 4–6** (line items); routes 7–15 remain unimplemented.
 
 ## Manifest
 
@@ -50,3 +51,47 @@ response types. The **JS SDK** is a compatibility layer only:
 When Medusa ships a new version, update `CART_API_SOURCE_URL`,
 `CART_SDK_VERSION` and the manifest entries together, then fix the tests —
 they intentionally fail on drift.
+
+
+## Implemented routes (Phase 1 + Phase 2)
+
+Handler module: `ceto/api/store/carts.py`. All cart routes are guest-enabled
+and require the `x-publishable-api-key` header.
+
+| Route | Status | Response shape |
+|---|---|---|
+| 1. `GET /store/carts/{id}` | implemented (Phase 1) | `{cart: StoreCart}` |
+| 2. `POST /store/carts` | implemented (Phase 1) | `{cart: StoreCart}` |
+| 3. `POST /store/carts/{id}` | implemented (Phase 1) | `{cart: StoreCart}` |
+| 4. `POST /store/carts/{id}/line-items` | implemented (Phase 2) | `{cart: StoreCart}` |
+| 5. `POST /store/carts/{id}/line-items/{line_id}` | implemented (Phase 2) | `{cart: StoreCart}` |
+| 6. `DELETE /store/carts/{id}/line-items/{line_id}` | implemented (Phase 2) | `{id, object: "line-item", deleted: true, parent}` |
+
+### Line-item endpoints (Phase 2)
+
+- **Add** (`StoreAddCartLineItem`): `{variant_id, quantity, metadata?}`.
+  `quantity` must be a positive integer; `variant_id` must resolve to an
+  enabled ERPNext Item (Phase 2: public variant id **is** the Item code).
+  Adding an already-present variant merges quantities into the existing line,
+  which keeps its stable `li_…` id and metadata. Returns `{cart: …}`.
+- **Update** (`StoreUpdateCartLineItem`): `{quantity?, metadata?}`. Quantity
+  must stay positive. Metadata follows cart metadata merge semantics: values
+  are merged per key, `null` values remove a key, and an explicit
+  `metadata: null` clears all keys. Returns `{cart: …}`.
+- **Delete**: returns **exactly** `{id, object: "line-item", deleted: true,
+  parent: <cart_id>}` with no `cart` wrapper. Unknown or foreign line ids are
+  masked as `404 not_found` (including lines belonging to another cart). An
+  emptied cart survives and stays mutable.
+- The `fields` query parameter behaves as on the other cart routes for add and
+  update; delete ignores it (fixed response shape).
+- Errors use the shared Medusa translation (`invalid_data`, `unauthorized`,
+  `not_allowed`, `not_found`).
+
+### Publishable-key scoping on mutations
+
+Every mutating route validates the key scope through a `guard` callback that
+`CartService` invokes against the **row-locked** cart reference *before* any
+Quotation change is applied. A wrong-scoped key therefore causes `403
+not_allowed` with **no mutation** (no quantity change, no row removal, no
+mapping deletion), and the inside-lock check cannot be raced between check and
+save (no TOCTOU).

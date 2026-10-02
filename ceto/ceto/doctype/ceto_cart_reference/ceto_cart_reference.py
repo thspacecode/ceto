@@ -13,6 +13,15 @@ class CetoCartReference(Document):
 		self._validate_quotation()
 		self._validate_metadata()
 
+	def on_trash(self) -> None:
+		"""Explicitly clean up the cart's line item references on delete."""
+		for name in frappe.get_all(
+			"Ceto Cart Line Item Reference",
+			filters={"cart_reference": self.name},
+			pluck="name",
+		):
+			frappe.delete_doc("Ceto Cart Line Item Reference", name, ignore_permissions=True, force=True)
+
 	def _validate_quotation(self) -> None:
 		order_type, docstatus = frappe.db.get_value(
 			"Quotation", self.quotation, ["order_type", "docstatus"]
@@ -27,7 +36,7 @@ class CetoCartReference(Document):
 			return
 		try:
 			value = json.loads(self.metadata)
-		except TypeError, ValueError:
+		except (TypeError, ValueError):
 			frappe.throw(_("Cart metadata must be valid JSON"))
 		if not isinstance(value, dict):
 			frappe.throw(_("Cart metadata must be a JSON object"))

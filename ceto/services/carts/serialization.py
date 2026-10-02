@@ -1,10 +1,11 @@
 import json
 from typing import TYPE_CHECKING, Any
 
+import frappe
 from frappe.utils import flt, get_datetime
 
 from ceto.routing.exceptions import InvalidDataError
-from ceto.types.http.store.carts import StoreCart
+from ceto.types.http.store.carts import StoreCart, StoreCartLineItem
 
 if TYPE_CHECKING:
 	from frappe.model.document import Document
@@ -39,7 +40,7 @@ class CartSerializer:
 			locale=reference.locale or None,
 			created_at=min(get_datetime(reference.creation), get_datetime(quotation.creation)),
 			updated_at=updated_at,
-			items=[],
+			items=CartSerializer._items(reference, quotation),
 			shipping_methods=[],
 			promotions=[],
 			original_item_total=original_item_subtotal + tax_total,
@@ -56,6 +57,108 @@ class CartSerializer:
 			tax_total=tax_total,
 			discount_total=discount_total,
 		)
+
+	@staticmethod
+	def _items(reference: "Document", quotation: "Document") -> list[StoreCartLineItem]:
+		"""Serialize mapped lines joined to Quotation rows, in Quotation row order.
+
+		Money values come straight from the ERPNext row calculations (price
+		list, pricing rules, discounts). Conservative defaults: the public
+		variant id equals the enabled ERPNext Item code (Phase 2). Per-line
+		``tax_total`` is the ERPNext-calculated tax allocation for that row
+		(see :meth:`line_tax_allocations`); the line ``total`` is the
+		after-discount net amount plus that tax allocation.
+		"""
+		mappings = {
+			mapping.quotation_item: mapping
+			for mapping in frappe.get_all(
+				"Ceto Cart Line Item Reference",
+				filters={"cart_reference": reference.name},
+				fields=["name", "line_id", "quotation_item", "metadata", "creation", "modified"],
+			)
+		}
+		items: list[StoreCartLineItem] = []
+		tax_allocations = CartSerializer.line_tax_allocations(quotation)
+		for row in quotation.items:
+			mapping = mappings.get(row.name)
+			if mapping is None:
+				continue
+			net_amount = flt(row.net_amount) or flt(row.amount)
+			tax_total = CartSerializer.row_tax_total(tax_allocations, row)
+			items.append(
+				StoreCartLineItem(
+					id=mapping.line_id,
+					cart_id=reference.cart_id,
+					title=row.item_name or row.item_code,
+					product_id=row.item_code,
+					product_title=row.item_name,
+					variant_id=row.item_code,
+					variant_title=row.item_name,
+					thumbnail=row.image or None,
+					quantity=int(row.qty or 0),
+					metadata=json.loads(mapping.metadata) if mapping.metadata else None,
+					unit_price=flt(row.net_rate) or flt(row.rate),
+					original_unit_price=flt(row.price_list_rate) or flt(row.rate),
+					subtotal=net_amount,
+					discount_total=flt(row.discount_amount),
+					tax_total=tax_total,
+					total=net_amount + tax_total,
+					created_at=get_datetime(mapping.creation),
+					updated_at=get_datetime(mapping.modified),
+				)
+			)
+		return items
+
+	@staticmethod
+	def line_tax_allocations(quotation: "Document") -> dict[str, float]:
+		"""Map ERPNext tax allocations onto line keys.
+
+		The primary source is the ERPNext controller-produced
+		``item_wise_tax_details`` child table (one row per item row / tax row,
+		including negative deduction rows). As a fallback for documents that
+		only carry the legacy ``item_wise_tax_detail`` JSON on each tax row,
+		that field is parsed and summed the same way. Keys are Quotation Item
+		row names when possible, else item codes; no tax rate is ever invented.
+		"""
+		allocations = CartSerializer._allocations_from_tax_details(quotation)
+		if not allocations:
+			allocations = CartSerializer._allocations_from_legacy_tax_detail(quotation)
+		return allocations
+
+	@staticmethod
+	def _allocations_from_tax_details(quotation: "Document") -> dict[str, float]:
+		allocations: dict[str, float] = {}
+		for detail in quotation.get("item_wise_tax_details") or []:
+			item_row = detail.get("item_row")
+			if not item_row:
+				continue
+			allocations[item_row] = flt(allocations.get(item_row)) + flt(detail.get("amount"))
+		return allocations
+
+	@staticmethod
+	def _allocations_from_legacy_tax_detail(quotation: "Document") -> dict[str, float]:
+		allocations: dict[str, float] = {}
+		for tax in quotation.get("taxes") or []:
+			detail = tax.get("item_wise_tax_detail")
+			if isinstance(detail, str):
+				try:
+					detail = json.loads(detail)
+				except (TypeError, ValueError):
+					continue
+			if not isinstance(detail, dict):
+				continue
+			for key, value in detail.items():
+				if isinstance(value, (list, tuple)) and len(value) > 1:
+					value = value[1]
+				allocations[key] = flt(allocations.get(key)) + flt(value)
+		return allocations
+
+	@staticmethod
+	def row_tax_total(allocations: dict[str, float], row: "Document") -> float:
+		"""Return the ERPNext tax allocated to ``row`` (0 when unallocated)."""
+		if row.name in allocations:
+			return flt(allocations[row.name])
+		return flt(allocations.get(row.item_code))
 
 	@staticmethod
 	def _select_fields(cart: dict[str, Any], fields: str | None) -> dict[str, Any]:

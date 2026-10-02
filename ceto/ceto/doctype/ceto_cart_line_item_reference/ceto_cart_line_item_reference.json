@@ -1,0 +1,66 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:line_id",
+ "creation": "2026-09-29 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "line_id",
+  "cart_reference",
+  "quotation",
+  "quotation_item",
+  "metadata"
+ ],
+ "fields": [
+  {
+   "fieldname": "line_id",
+   "fieldtype": "Data",
+   "label": "Line ID",
+   "reqd": 1,
+   "search_index": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "cart_reference",
+   "fieldtype": "Link",
+   "label": "Cart Reference",
+   "options": "Ceto Cart Reference",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "quotation",
+   "fieldtype": "Link",
+   "label": "Quotation",
+   "options": "Quotation",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "description": "Row name of the mapped Quotation Item child row",
+   "fieldname": "quotation_item",
+   "fieldtype": "Data",
+   "label": "Quotation Item",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "metadata",
+   "fieldtype": "Long Text",
+   "label": "Metadata"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-09-29 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Ceto",
+ "name": "Ceto Cart Line Item Reference",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

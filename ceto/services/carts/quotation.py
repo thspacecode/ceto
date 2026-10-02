@@ -103,9 +103,7 @@ class CartService:
 			if guard is not None:
 				guard(reference)
 			with privileged_scope():
-				# A template reload or channel re-price shrinks the payable
-				# below the booked deduction; the unbooking keeps the save
-				# below valid until the reconciliation re-caps the holds.
+				# A template reload or channel re-price shrinks the payable; unbook first.
 				CartCredits.stage_for_mutation(quotation)
 				self._apply_update(reference, quotation, payload)
 				self.addresses.apply(reference, quotation, payload)
@@ -157,9 +155,7 @@ class CartService:
 			if guard is not None:
 				guard(reference)
 			with privileged_scope():
-				# A quantity decrease shrinks the payable below the booked
-				# deduction; the unbooking keeps the intermediate save valid
-				# until the reconciliation re-caps the hold.
+				# A quantity decrease shrinks the payable; unbook first.
 				CartCredits.stage_for_mutation(quotation)
 				mapping = CartLineItems.update(reference, quotation, line_id, payload)
 				CartCredits.reconcile(quotation)
@@ -181,10 +177,7 @@ class CartService:
 			if guard is not None:
 				guard(reference)
 			with privileged_scope():
-				# Removing lines shrinks what the holds can absorb; the
-				# unbooking keeps the intermediate save valid (on a cart
-				# that keeps items) and the reconciliation re-caps the
-				# holds, releasing them entirely on an emptied cart.
+				# Removing lines shrinks what the holds can absorb; unbook first.
 				CartCredits.stage_for_mutation(quotation)
 				mapping = CartLineItems.delete(reference, quotation, line_id)
 				CartCredits.reconcile(quotation)
@@ -208,9 +201,7 @@ class CartService:
 			if guard is not None:
 				guard(reference)
 			with privileged_scope():
-				# A discount shrinks the payable below the booked deduction;
-				# the unbooking keeps the intermediate save valid until the
-				# reconciliation re-caps the holds.
+				# A discount shrinks the payable below the booked deduction; unbook first.
 				CartCredits.stage_for_mutation(quotation)
 				CartPromotions.apply(quotation, payload.promo_codes)
 				# Discount changes move the totals; holds are re-capped.
@@ -256,9 +247,7 @@ class CartService:
 			if guard is not None:
 				guard(reference)
 			with privileged_scope():
-				# A template with a lower rate shrinks the payable below the
-				# booked deduction; the unbooking keeps the recalculation's
-				# save valid until the reconciliation re-caps the holds.
+				# A cheaper template rate shrinks the payable; unbook first.
 				CartCredits.stage_for_mutation(quotation)
 				CartTaxes.recalculate(quotation)
 				# The recalculation rebuilt the totals (and possibly the
@@ -284,9 +273,7 @@ class CartService:
 			if guard is not None:
 				guard(reference)
 			with privileged_scope():
-				# A cheaper replacement charge shrinks the payable below the
-				# booked deduction; the unbooking keeps the intermediate
-				# save valid until the reconciliation re-caps the holds.
+				# A cheaper replacement charge shrinks the payable; unbook first.
 				CartCredits.stage_for_mutation(quotation)
 				CartShippingMethods.apply(quotation, payload.option_id)
 				# The shipping charge moves the totals; holds are re-capped.

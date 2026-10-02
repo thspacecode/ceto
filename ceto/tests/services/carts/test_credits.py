@@ -344,7 +344,7 @@ class TestCartGiftCardService(CetoTestSuite):
 		# still be taken sorted, so two carts sharing wallets can never
 		# deadlock each other by locking the same rows in opposite orders.
 		with patch.object(frappe.db, "get_value", recording_get_value):
-			wallets = CartCredits._locked_wallets(
+			wallets = CartCredits.locked_wallets(
 				[frappe._dict(wallet=wallet_b), frappe._dict(wallet=wallet_a)]
 			)
 

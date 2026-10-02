@@ -353,13 +353,16 @@ class CartCompletion:
 			source = row.get("quotation_item")
 			if not source or source not in mapped_sources:
 				frappe.throw(
-					f"Sales Order row {row.item_code or row.name} has no matching cart line"
-					" mapping; the order cannot be placed"
+					frappe._(
+						"Sales Order row {0} has no matching cart line mapping; the order cannot be placed"
+					).format(row.item_code or row.name)
 				)
 			if frappe.db.get_value("Quotation Item", source, "parent") != quotation.name:
 				frappe.throw(
-					f"Sales Order row {row.item_code or row.name} maps to a Quotation Item"
-					f" outside the cart's Quotation {quotation.name}; the order cannot be placed"
+					frappe._(
+						"Sales Order row {0} maps to a Quotation Item outside the cart's"
+						" Quotation {1}; the order cannot be placed"
+					).format(row.item_code or row.name, quotation.name)
 				)
 
 	def _placement_failed(self, reference, quotation, error: Exception) -> StoreCompleteCartFailure:

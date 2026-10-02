@@ -1,4 +1,10 @@
-from ceto.types.http.store.carts.entities import StoreCart, StoreCartAddress, StoreCartLineItem
+from ceto.types.http.store.carts.entities import (
+	StoreCart,
+	StoreCartAddress,
+	StoreCartLineItem,
+	StoreCartPromotion,
+	StoreCartShippingMethod,
+)
 from ceto.types.http.store.carts.manifest import (
 	CART_API_SOURCE_URL,
 	CART_ROUTES,
@@ -9,7 +15,11 @@ from ceto.types.http.store.carts.manifest import (
 )
 from ceto.types.http.store.carts.payloads import (
 	StoreAddCartLineItem,
+	StoreAddCartShippingMethods,
+	StoreCalculateCartTaxes,
+	StoreCartAddPromotion,
 	StoreCartAddressPayload,
+	StoreCartRemovePromotion,
 	StoreCreateCart,
 	StoreUpdateCart,
 	StoreUpdateCartLineItem,
@@ -24,11 +34,17 @@ __all__ = [
 	"CART_SDK_VERSION",
 	"CartRoute",
 	"StoreAddCartLineItem",
+	"StoreAddCartShippingMethods",
+	"StoreCalculateCartTaxes",
 	"StoreCart",
+	"StoreCartAddPromotion",
 	"StoreCartAddress",
 	"StoreCartAddressPayload",
 	"StoreCartLineItem",
+	"StoreCartPromotion",
+	"StoreCartRemovePromotion",
 	"StoreCartResponse",
+	"StoreCartShippingMethod",
 	"StoreCreateCart",
 	"StoreLineItemDeleteResponse",
 	"StoreUpdateCart",

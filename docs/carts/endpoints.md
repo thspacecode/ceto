@@ -2,8 +2,9 @@
 
 Phase 0 pinned a machine-readable contract manifest that later phases
 implement against. **Phase 1 implemented routes 1–3, Phase 2 implemented
-routes 4–6** (line items) and **Phase 3 implemented route 14** (customer
-claim/transfer); the remaining routes are unimplemented.
+routes 4–6** (line items), **Phase 3 implemented route 14** (customer
+claim/transfer) and **Phase 4 implemented routes 7–9 and 13** (shipping
+methods, promotions and taxes); the remaining routes are unimplemented.
 
 ## Manifest
 
@@ -67,7 +68,85 @@ and require the `x-publishable-api-key` header.
 | 4. `POST /store/carts/{id}/line-items` | implemented (Phase 2) | `{cart: StoreCart}` |
 | 5. `POST /store/carts/{id}/line-items/{line_id}` | implemented (Phase 2) | `{cart: StoreCart}` |
 | 6. `DELETE /store/carts/{id}/line-items/{line_id}` | implemented (Phase 2) | `{id, object: "line-item", deleted: true, parent}` |
+| 7. `POST /store/carts/{id}/shipping-methods` | implemented (Phase 4) | `{cart: StoreCart}` |
+| 13. `POST /store/carts/{id}/taxes` | implemented (Phase 4) | `{cart: StoreCart}` |
 | 14. `POST /store/carts/{id}/customer` | implemented (Phase 3) | `{cart: StoreCart}` |
+
+### Shipping methods (Phase 4)
+
+- **Add/replace** (`StoreAddCartShippingMethods`): `{option_id, data?}`.
+  `option_id` must resolve to an **enabled** ERPNext `Shipping Rule` with
+  `shipping_rule_type: "Selling"` that belongs to the cart's company;
+  anything else (unknown, disabled, buying-side, foreign company) is
+  `400 invalid_data`, as is a rule ERPNext itself rejects on save — notably
+  a shipping-address country outside the rule's `countries` list
+  (`ShippingRule.validate_countries`). With no shipping address ERPNext
+  skips the country check, exactly as on Desk.
+- Applying runs inside the cart row lock with the publishable-key scope
+  guard evaluated **after the lock and before any mutation** (same order as
+  every other mutation route), and the Quotation saves through the ERPNext
+  controllers, so the charge row, its amount and the totals are always
+  ERPNext's own output.
+- **Replacement**: the Quotation carries a single `shipping_rule` link, so a
+  new `option_id` replaces the applied one. Rules sharing account and cost
+  center rewrite the single `Actual` charge row in place; a rule with a
+  different account/cost center first drops the previous rule's charge row
+  (matched the way `SellingController.remove_shipping_charge` matches it) so
+  shipping is never counted twice.
+- **`data` is accepted but never persisted**: Ceto's compatibility field for
+  a cart shipping method is the Quotation's `Shipping Rule` link, which
+  carries no provider payload, so there is nothing to store it in. The value
+  is validated (must be an object) and dropped; a route test pins this.
+- An **itemless** cart keeps the option link but, while it has no lines,
+  reports no shipping method: ERPNext skips `calculate_taxes_and_totals` —
+  and with it the rule application — for itemless documents, so no charge
+  row exists and the charge materializes on the next save that has lines. A
+  cart that drops its **last** line after a charge row existed keeps that
+  row — the empty-cart baseline zeroes its amount — and therefore still
+  reports the method with amount 0 instead of the stale rule amount. The
+  response stays honest about the ERPNext state instead of inventing an
+  amount.
+- Cart totals reconcile under Medusa semantics: the `Actual` shipping row is
+  a **charge, not item tax**, so its amount is carved out of `tax_total`,
+  `item_tax_total`, `original_tax_total` and the per-line tax allocations,
+  while `subtotal` is the item subtotal plus the shipping subtotal and
+  `total` stays `grand_total` (`total + discount_total == subtotal +
+  tax_total` on ERPNext's own numbers).
+- **Single-object request**: the pinned `StoreAddCartShippingMethods` allows
+  a single `{option_id, data?}` object or an array of them; Ceto supports
+  the **single-object** form only. The Quotation carries exactly one
+  `shipping_rule` link (ERPNext's native model), so a multi-method body has
+  no target — non-object request bodies are rejected as `400` before
+  payload validation.
+- **Provider seam**: the rate source is ERPNext `Shipping Rule` masters,
+  applied and priced by ERPNext's own controllers. **Shipgi** — the
+  shipment-gateway app that owns provider integrations — is currently a
+  skeleton with **no rate API**; it is the future seam for dynamic provider
+  rates and, with it, a shipping-options listing route. Phase 4 therefore
+  has no listing route: the public option id is the `Shipping Rule` name.
+
+### Cart taxes (Phase 4)
+
+- **Calculate** (`StoreCalculateCartTaxes`): the pinned request body is
+  **empty** — any extra field is `400 invalid_data`.
+- The request runs inside the cart row lock with the publishable-key scope
+  guard evaluated **after the lock and before any mutation** (same order as
+  every other mutation route), then recalculates through ERPNext's own
+  `calculate_taxes_and_totals` (Shipping Rule application included) and saves
+  through the shared cart save helper (`ceto/services/carts/taxes.py`).
+- **Idempotent**: ERPNext recomputes every summary field from the rows, so
+  repeating the request reproduces the same numbers and never duplicates a
+  charge or template row. An **itemless** cart keeps the empty-cart baseline
+  (ERPNext skips the calculation for documents without lines).
+- **Configuration changes reload stale templates**: when a region/sales-channel
+  change resolves to a different `Sales Taxes and Charges Template`, the taxes
+  rows are reloaded with ERPNext's `get_taxes_and_charges` instead of being
+  left on the previous template (ERPNext only fills an *empty* taxes table on
+  its own). The same template keeps its rows untouched, and the selected
+  Shipping Rule survives a reload — its `Actual` charge row is recreated by
+  the controller save, exactly once. Missing or disabled templates reject the
+  request as `400 invalid_data` before any row is touched; deeper controller
+  validation maps through the router and rolls the transaction back.
 
 ### Customer claim / transfer (Phase 3)
 

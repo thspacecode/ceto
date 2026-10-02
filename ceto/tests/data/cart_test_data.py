@@ -4,16 +4,20 @@ The Company, guest Customer, selling Price List, and catalog items are owned by
 the bootstrap and imported once through ``ceto.tests.utils``; this module creates
 no commerce masters. It only derives the cart ``ceto_cart`` configuration from
 the same bootstrap settings, exposes the bootstrap items with their committed
-rates, and layers one idempotent, test-only tax template on top so cart totals
-carry a meaningful rate. Currency is deliberately omitted:
-``CartConfiguration`` resolves it from the selling price list, which the
-bootstrap creates in the company currency.
+rates, and layers test-only templates on top: one idempotent tax template so
+cart totals carry a meaningful rate, and the idempotent selling ``Shipping
+Rule`` fixtures Phase 4 shipping tests select from. Currency is deliberately
+omitted: ``CartConfiguration`` resolves it from the selling price list, which
+the bootstrap creates in the company currency.
 """
 
+import uuid
+from collections.abc import Sequence
 from typing import Any
 
 import frappe
 
+from ceto.data.base_importer import apply_values
 from ceto.data.bootstrap_dev.dataset import ITEM_PRICES
 from ceto.data.bootstrap_dev.seeders.setup_company import resolve_company
 from ceto.data.bootstrap_dev.settings import BootstrapSettings
@@ -22,6 +26,20 @@ from ceto.tests.utils import boot_strap_test_master_data
 TEST_TAX_ACCOUNT = "Ceto Test Cart Tax"
 TEST_TAX_TEMPLATE_TITLE = "Ceto Test Cart Taxes"
 TAX_RATE = 10.0
+# A second, distinct template (own account, own rate) so configuration tests
+# can watch a cart switch templates and prove stale rows are reloaded.
+ALT_TEST_TAX_ACCOUNT = "Ceto Test Alt Cart Tax"
+ALT_TEST_TAX_TEMPLATE_TITLE = "Ceto Test Alt Cart Taxes"
+ALT_TAX_RATE = 5.0
+
+TEST_SHIPPING_ACCOUNT = "Ceto Test Shipping Charges"
+TEST_SHIPPING_COST_CENTER = "Ceto Test Shipping Cost Center"
+SHIPPING_RULE_TYPE = "Selling"
+SHIPPING_FLAT_RATE_LABEL = "Ceto Test Flat Rate"
+SHIPPING_FLAT_RATE_AMOUNT = 50.0
+SHIPPING_COUNTRY_RATE_LABEL = "Ceto Test Country Rate"
+SHIPPING_COUNTRY_RATE_AMOUNT = 25.0
+SHIPPING_DISABLED_RATE_LABEL = "Ceto Test Disabled Rate"
 
 
 def _bootstrap_rate(item_code: str) -> float:
@@ -40,6 +58,9 @@ class CartTestData:
 	"""Expose the bootstrap commerce masters as cart test configuration."""
 
 	def __init__(self) -> None:
+		# Coupon Code names are globally unique, and the API suite commits its
+		# coupons so they survive request rollbacks. Keep test codes unique.
+		self.suffix = uuid.uuid4().hex[:8]
 		self.settings: BootstrapSettings = boot_strap_test_master_data.resolve_baseline_settings()
 		self.company = resolve_company(self.settings)
 		# Same identity rule as the bootstrap: the guest is located by
@@ -49,7 +70,45 @@ class CartTestData:
 		# Catalog items and their rates come verbatim from the bootstrap.
 		self.item = "DEV-TSHIRT-001"
 		self.other_item = "DEV-HOODIE-001"
-		self.taxes_and_charges = self._make_test_tax_template()
+		self.taxes_and_charges = self._make_tax_template(TEST_TAX_TEMPLATE_TITLE, TAX_RATE, TEST_TAX_ACCOUNT)
+		self.alt_taxes_and_charges = self._make_tax_template(
+			ALT_TEST_TAX_TEMPLATE_TITLE, ALT_TAX_RATE, ALT_TEST_TAX_ACCOUNT
+		)
+		# Phase 4 shipping fixtures: committed Selling rules the shipping tests
+		# select by label. All of them reuse the bootstrap company and its
+		# masters; none introduces a parallel set of business data.
+		self.shipping_country = self._ensure_country(self.settings.wizard_country)
+		self.shipping_account = self._shipping_account(self.company)
+		self.shipping_cost_center = self._shipping_cost_center(self.company)
+		self.flat_rate_rule = self.make_shipping_rule(
+			SHIPPING_FLAT_RATE_LABEL, shipping_amount=SHIPPING_FLAT_RATE_AMOUNT
+		)
+		self.country_rate_rule = self.make_shipping_rule(
+			SHIPPING_COUNTRY_RATE_LABEL,
+			shipping_amount=SHIPPING_COUNTRY_RATE_AMOUNT,
+			countries=(self.shipping_country,),
+		)
+		self.disabled_rate_rule = self.make_shipping_rule(SHIPPING_DISABLED_RATE_LABEL, disabled=1)
+
+	def disable_stale_promotion_rules(self) -> None:
+		"""Disable committed promotion fixtures left by earlier API tests."""
+		rules: set[str] = set()
+		for title_pattern in ("Ceto Coupon %", "Ceto APISAVE %"):
+			rules.update(
+				frappe.get_all(
+					"Pricing Rule",
+					filters={
+						"company": self.company,
+						"coupon_code_based": 1,
+						"title": ("like", title_pattern),
+					},
+					pluck="name",
+				)
+			)
+		for rule in rules:
+			frappe.db.set_value("Pricing Rule", rule, "disable", 1, update_modified=False)
+		if rules:
+			frappe.db.commit()  # nosemgrep
 
 	@property
 	def configuration(self) -> dict[str, Any]:
@@ -63,20 +122,21 @@ class CartTestData:
 			"default_sales_channel_id": "sc_test",
 		}
 
-	def _make_test_tax_template(self) -> str:
-		"""Layer a fixed-name 10% tax template over the bootstrap baseline.
+	def _make_tax_template(self, title: str, rate: float, account_name: str) -> str:
+		"""Layer a fixed-name tax template over the bootstrap baseline.
 
-		The bootstrap ships only zero-rated masters, and cart tests still need a
-		tax rate worth asserting on. The template is anchored on a dedicated
-		test account and reused whenever it already exists, so re-instantiating
-		``CartTestData`` converges instead of duplicating master data. Freshly
-		created records are committed at once because the router rolls back the
-		open transaction when it converts a failed request into an error
-		response, and the template must outlive that rollback.
+		The bootstrap ships only zero-rated masters, and cart tests still need
+		tax rates worth asserting on. Each template is anchored on a dedicated
+		test account (so rows of two templates are distinguishable by account)
+		and reused whenever it already exists, so re-instantiating
+		``CartTestData`` converges instead of duplicating master data.
+		Freshly created records are committed at once because the router rolls
+		back the open transaction when it converts a failed request into an
+		error response, and the template must outlive that rollback.
 		"""
 		company = self.company
 		account = frappe.db.get_value(
-			"Account", {"account_name": TEST_TAX_ACCOUNT, "company": company, "is_group": 0}
+			"Account", {"account_name": account_name, "company": company, "is_group": 0}
 		)
 		if not account:
 			abbr = frappe.db.get_value("Company", company, "abbr")
@@ -84,7 +144,7 @@ class CartTestData:
 				frappe.get_doc(
 					{
 						"doctype": "Account",
-						"account_name": TEST_TAX_ACCOUNT,
+						"account_name": account_name,
 						"parent_account": f"Duties and Taxes - {abbr}",
 						"company": company,
 						"account_type": "Tax",
@@ -96,7 +156,7 @@ class CartTestData:
 			)
 			frappe.db.commit()  # nosemgrep
 		template = frappe.db.get_value(
-			"Sales Taxes and Charges Template", {"title": TEST_TAX_TEMPLATE_TITLE, "company": company}
+			"Sales Taxes and Charges Template", {"title": title, "company": company}
 		)
 		if template:
 			return template
@@ -104,15 +164,15 @@ class CartTestData:
 			frappe.get_doc(
 				{
 					"doctype": "Sales Taxes and Charges Template",
-					"title": TEST_TAX_TEMPLATE_TITLE,
+					"title": title,
 					"company": company,
 					"is_default": 0,
 					"taxes": [
 						{
 							"charge_type": "On Net Total",
 							"account_head": account,
-							"rate": TAX_RATE,
-							"description": TEST_TAX_ACCOUNT,
+							"rate": rate,
+							"description": account_name,
 							"included_in_print_rate": 0,
 						}
 					],
@@ -123,3 +183,137 @@ class CartTestData:
 		)
 		frappe.db.commit()  # nosemgrep
 		return template
+
+	def make_shipping_rule(
+		self,
+		label: str,
+		*,
+		company: str | None = None,
+		account: str | None = None,
+		disabled: int = 0,
+		countries: Sequence[str] = (),
+		shipping_amount: float = SHIPPING_FLAT_RATE_AMOUNT,
+	) -> str:
+		"""Create or converge one committed test ``Shipping Rule``; return its name.
+
+		Public so a shipping test can bind a variant to a company other than the
+		bootstrap company — the wrong-company rejection case — by passing its own
+		label and company, or to a dedicated account — the replacement case that
+		must drop a charge row — by passing ``account`` instead of duplicating
+		bootstrap masters. The account and cost center always resolve inside the
+		same company, and ``label`` is also the document name
+		(``autoname = field:label``), so labels are the global identities
+		shipping options reference. Creation commits at once because the router
+		rolls back the open transaction when it converts a failed request into
+		an error response, and the rule must outlive that rollback.
+		"""
+		company = company or self.company
+		account = account or self._shipping_account(company)
+		name = frappe.db.get_value("Shipping Rule", {"label": label})
+		if not name:
+			rule = frappe.get_doc(
+				{
+					"doctype": "Shipping Rule",
+					"label": label,
+					"shipping_rule_type": SHIPPING_RULE_TYPE,
+					"company": company,
+					"account": account,
+					"cost_center": self._shipping_cost_center(company),
+					"calculate_based_on": "Fixed",
+					"shipping_amount": shipping_amount,
+					"disabled": disabled,
+					"countries": [{"country": country} for country in countries],
+				}
+			)
+			rule.insert(ignore_permissions=True)
+			frappe.db.commit()  # nosemgrep
+			return rule.name
+
+		rule = frappe.get_doc("Shipping Rule", name)
+		changed = apply_values(
+			rule,
+			{
+				"shipping_rule_type": SHIPPING_RULE_TYPE,
+				"company": company,
+				"account": account,
+				"cost_center": self._shipping_cost_center(company),
+				"calculate_based_on": "Fixed",
+				"shipping_amount": shipping_amount,
+				"disabled": disabled,
+			},
+		)
+		if [row.country for row in rule.countries or []] != list(countries):
+			rule.set("countries", [{"country": country} for country in countries])
+			changed = True
+		if changed:
+			rule.save(ignore_permissions=True)
+			frappe.db.commit()  # nosemgrep
+		return name
+
+	def _shipping_account(self, company: str) -> str:
+		"""Reuse or create the leaf income account shipping charges post to."""
+		account = frappe.db.get_value(
+			"Account", {"account_name": TEST_SHIPPING_ACCOUNT, "company": company, "is_group": 0}
+		)
+		if account:
+			return account
+		abbr = frappe.db.get_value("Company", company, "abbr")
+		account = (
+			frappe.get_doc(
+				{
+					"doctype": "Account",
+					"account_name": TEST_SHIPPING_ACCOUNT,
+					"parent_account": f"Direct Income - {abbr}",
+					"company": company,
+					"is_group": 0,
+				}
+			)
+			.insert(ignore_permissions=True)
+			.name
+		)
+		frappe.db.commit()  # nosemgrep
+		return account
+
+	def _shipping_cost_center(self, company: str) -> str:
+		"""Resolve the shipping cost center without duplicating company masters.
+
+		A bootstrapped company already carries the wizard's default cost center;
+		a company without one falls back to its single leaf cost center, and only
+		a company with several leaves and no default earns a dedicated committed
+		row (reused by name on reruns).
+		"""
+		default = frappe.db.get_value("Company", company, "cost_center")
+		if default:
+			return default
+		dedicated = frappe.db.get_value(
+			"Cost Center", {"cost_center_name": TEST_SHIPPING_COST_CENTER, "company": company, "is_group": 0}
+		)
+		if dedicated:
+			return dedicated
+		leaves = frappe.get_all("Cost Center", filters={"company": company, "is_group": 0}, pluck="name")
+		if len(leaves) == 1:
+			return leaves[0]
+		abbr = frappe.db.get_value("Company", company, "abbr")
+		cost_center = (
+			frappe.get_doc(
+				{
+					"doctype": "Cost Center",
+					"cost_center_name": TEST_SHIPPING_COST_CENTER,
+					"company": company,
+					"parent_cost_center": f"{company} - {abbr}",
+					"is_group": 0,
+				}
+			)
+			.insert(ignore_permissions=True)
+			.name
+		)
+		frappe.db.commit()  # nosemgrep
+		return cost_center
+
+	def _ensure_country(self, country: str) -> str:
+		"""Return ``country``, creating the standard master row only if missing."""
+		if frappe.db.exists("Country", country):
+			return country
+		frappe.get_doc({"doctype": "Country", "country_name": country}).insert(ignore_permissions=True)
+		frappe.db.commit()  # nosemgrep
+		return country

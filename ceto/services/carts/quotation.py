@@ -13,8 +13,14 @@ from ceto.services.carts.access import CartAccess
 from ceto.services.carts.addresses import CartAddresses
 from ceto.services.carts.configuration import CartConfiguration
 from ceto.services.carts.line_items import CartLineItems, dump_metadata, merged_metadata
+from ceto.services.carts.promotions import CartPromotions
+from ceto.services.carts.shipping import CartShippingMethods
+from ceto.services.carts.taxes import CartTaxes
 from ceto.types.http.store.carts import (
 	StoreAddCartLineItem,
+	StoreAddCartShippingMethods,
+	StoreCartAddPromotion,
+	StoreCartRemovePromotion,
 	StoreCreateCart,
 	StoreUpdateCart,
 	StoreUpdateCartLineItem,
@@ -30,7 +36,6 @@ class CartService:
 		self.addresses = CartAddresses()
 
 	def create(self, payload: StoreCreateCart) -> tuple["Document", "Document"]:
-		self._reject_deferred_create_fields(payload)
 		configuration = CartConfiguration.resolve(
 			region_id=payload.region_id,
 			sales_channel_id=payload.sales_channel_id,
@@ -65,6 +70,11 @@ class CartService:
 				# and totals.
 				CartLineItems.save(quotation)
 				self.addresses.enforce_cleared(quotation, payload)
+			if payload.promo_codes is not None:
+				# Promo codes ride the same create transaction: an invalid or
+				# multi-code request rolls back the whole cart.
+				CartPromotions.set_promo_codes(quotation, payload.promo_codes)
+				CartLineItems.save(quotation)
 		return reference, quotation
 
 	def retrieve(self, cart_id: str) -> tuple["Document", "Document"]:
@@ -84,7 +94,6 @@ class CartService:
 		before a Quotation is touched; checking inside ``lock`` avoids TOCTOU
 		races with concurrent scope/cart updates.
 		"""
-		self._reject_deferred_update_fields(payload)
 		with self.access.lock(cart_id) as (reference, quotation):
 			if guard is not None:
 				guard(reference)
@@ -156,6 +165,88 @@ class CartService:
 				mapping = CartLineItems.delete(reference, quotation, line_id)
 			return reference, quotation, mapping
 
+	def add_promotions(
+		self,
+		cart_id: str,
+		payload: StoreCartAddPromotion,
+		*,
+		guard: Callable[["Document"], None] | None = None,
+	) -> tuple["Document", "Document"]:
+		"""Apply promotion codes to a locked cart.
+
+		``guard`` is validated against the locked reference before any
+		mutation, so a wrong-scoped key never modifies the cart. The Quotation
+		saves through ERPNext controllers inside the same locked transaction,
+		so an unknown/invalid/multi-code request leaves the cart untouched.
+		"""
+		with self.access.lock(cart_id) as (reference, quotation):
+			if guard is not None:
+				guard(reference)
+			with privileged_scope():
+				CartPromotions.apply(quotation, payload.promo_codes)
+				return reference, quotation
+
+	def remove_promotions(
+		self,
+		cart_id: str,
+		payload: StoreCartRemovePromotion,
+		*,
+		guard: Callable[["Document"], None] | None = None,
+	) -> tuple["Document", "Document"]:
+		"""Remove an applied promotion code from a locked cart.
+
+		``guard`` is validated against the locked reference before any
+		mutation (see :meth:`add_promotions`).
+		"""
+		with self.access.lock(cart_id) as (reference, quotation):
+			if guard is not None:
+				guard(reference)
+			with privileged_scope():
+				CartPromotions.remove(quotation, payload.promo_codes)
+				return reference, quotation
+
+	def calculate_taxes(
+		self,
+		cart_id: str,
+		*,
+		guard: Callable[["Document"], None] | None = None,
+	) -> tuple["Document", "Document"]:
+		"""Recalculate the locked cart's taxes and totals through ERPNext.
+
+		``guard`` is validated against the locked reference before any
+		recalculation (see :meth:`add_promotions`). The numbers are ERPNext's
+		own (:meth:`CartTaxes.recalculate`) — the same ones every cart
+		response serializes — and a failing save raises inside the locked
+		transaction, so the caller's rollback leaves the cart untouched.
+		"""
+		with self.access.lock(cart_id) as (reference, quotation):
+			if guard is not None:
+				guard(reference)
+			with privileged_scope():
+				CartTaxes.recalculate(quotation)
+				return reference, quotation
+
+	def set_shipping_method(
+		self,
+		cart_id: str,
+		payload: StoreAddCartShippingMethods,
+		*,
+		guard: Callable[["Document"], None] | None = None,
+	) -> tuple["Document", "Document"]:
+		"""Resolve ``payload.option_id`` as the locked cart's shipping method.
+
+		``guard`` is validated against the locked reference before any
+		mutation (see :meth:`add_promotions`). The save through the ERPNext
+		controllers means an unknown, disabled, buying-side, foreign-company
+		or country-ineligible option raises before anything is committed.
+		"""
+		with self.access.lock(cart_id) as (reference, quotation):
+			if guard is not None:
+				guard(reference)
+			with privileged_scope():
+				CartShippingMethods.apply(quotation, payload.option_id)
+				return reference, quotation
+
 	def _apply_update(self, reference: "Document", quotation: "Document", payload: StoreUpdateCart) -> None:
 		fields = payload.model_fields_set
 		if "region_id" in fields or "sales_channel_id" in fields:
@@ -175,6 +266,11 @@ class CartService:
 			reference.locale = payload.locale
 		if "metadata" in fields:
 			reference.metadata = merged_metadata(reference.metadata, payload.metadata)
+		if "promo_codes" in fields:
+			# Medusa update semantics: the submitted promo codes replace the
+			# cart's codes. The Quotation save below runs the ERPNext
+			# pricing-rule controllers for the new coupon state.
+			CartPromotions.set_promo_codes(quotation, payload.promo_codes or [])
 
 	@staticmethod
 	def _new_quotation(configuration: CartConfiguration, email: str | None) -> "Document":
@@ -227,23 +323,15 @@ class CartService:
 		quotation.company = configuration.company
 		quotation.currency = configuration.currency
 		quotation.selling_price_list = configuration.selling_price_list
-		quotation.taxes_and_charges = configuration.taxes_and_charges
+		# ERPNext only loads template rows into an empty taxes table, so the
+		# link alone is not enough: CartTaxes refreshes the rows on change.
+		CartTaxes.refresh_template(quotation, configuration.taxes_and_charges)
 		quotation.territory = configuration.territory
 
 	@staticmethod
 	def _validate_currency(requested: str | None, configured: str) -> None:
 		if requested and requested.lower() != configured.lower():
 			raise InvalidDataError("Cart currency must match the configured price list currency")
-
-	@staticmethod
-	def _reject_deferred_create_fields(payload: StoreCreateCart) -> None:
-		if payload.promo_codes:
-			raise InvalidDataError("Cart promotions are not supported yet")
-
-	@staticmethod
-	def _reject_deferred_update_fields(payload: StoreUpdateCart) -> None:
-		if payload.promo_codes:
-			raise InvalidDataError("Cart promotions are not supported yet")
 
 	@staticmethod
 	def _new_cart_id() -> str:

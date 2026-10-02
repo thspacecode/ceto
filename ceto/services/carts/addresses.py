@@ -60,8 +60,8 @@ class CartAddresses:
 	) -> None:
 		"""Link the payload's billing/shipping addresses onto the Quotation.
 
-		Runs as Administrator (trusted controller work); the caller is
-		responsible for saving the Quotation afterwards.
+		Runs inside the caller's privileged scope (trusted controller work);
+		the caller is responsible for saving the Quotation afterwards.
 		"""
 		fields = payload.model_fields_set
 		for field, link_field, address_type in _ADDRESS_SLOTS:

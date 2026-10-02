@@ -24,7 +24,7 @@ from ceto.services.carts.access import CartAccess
 from ceto.services.carts.addresses import CartAddresses
 from ceto.services.carts.customers import CartCustomers
 from ceto.services.carts.line_items import CartLineItems
-from ceto.services.carts.quotation import as_administrator
+from ceto.services.carts.quotation import privileged_scope
 
 if TYPE_CHECKING:
 	from frappe.model.document import Document
@@ -66,7 +66,7 @@ class CartClaim:
 			if reference.owner_user == user and reference.owner_customer == customer:
 				# Idempotent: already claimed by this user's customer.
 				return reference, quotation
-			with as_administrator():
+			with privileged_scope():
 				self._apply(reference, quotation, user, customer)
 			return reference, quotation
 

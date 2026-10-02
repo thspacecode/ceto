@@ -22,17 +22,16 @@ class CartAccess:
 	@contextmanager
 	def lock(self, cart_id: str) -> Iterator[tuple["Document", "Document"]]:
 		reference = self._get_reference(cart_id)
-		frappe.db.sql(
-			"SELECT name FROM `tabCeto Cart Reference` WHERE name = %s FOR UPDATE",
-			(cart_id,),
-		)
-		frappe.db.sql(
-			"SELECT name FROM `tabQuotation` WHERE name = %s FOR UPDATE",
-			(reference.quotation,),
-		)
+		self._lock_row("Ceto Cart Reference", cart_id)
+		self._lock_row("Quotation", reference.quotation)
 		reference.reload()
 		self._check_owner(reference)
 		yield reference, self._get_open_quotation(reference.quotation)
+
+	@staticmethod
+	def _lock_row(doctype: str, name: str) -> None:
+		table = frappe.qb.DocType(doctype)
+		frappe.qb.from_(table).select(table.name).where(table.name == name).for_update().run()
 
 	@staticmethod
 	def owner_user() -> str | None:

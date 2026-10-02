@@ -1,6 +1,7 @@
 import json
 
 import frappe
+from frappe import _
 from frappe.model.document import Document
 from frappe.utils import cint
 
@@ -17,9 +18,9 @@ class CetoCartReference(Document):
 			"Quotation", self.quotation, ["order_type", "docstatus"]
 		) or (None, None)
 		if order_type != "Shopping Cart":
-			frappe.throw("Cart reference must point to a Shopping Cart Quotation")
+			frappe.throw(_("Cart reference must point to a Shopping Cart Quotation"))
 		if cint(docstatus) != 0:
-			frappe.throw("Cart reference must point to a draft Quotation")
+			frappe.throw(_("Cart reference must point to a draft Quotation"))
 
 	def _validate_metadata(self) -> None:
 		if not self.metadata:
@@ -27,6 +28,6 @@ class CetoCartReference(Document):
 		try:
 			value = json.loads(self.metadata)
 		except TypeError, ValueError:
-			frappe.throw("Cart metadata must be valid JSON")
+			frappe.throw(_("Cart metadata must be valid JSON"))
 		if not isinstance(value, dict):
-			frappe.throw("Cart metadata must be a JSON object")
+			frappe.throw(_("Cart metadata must be a JSON object"))

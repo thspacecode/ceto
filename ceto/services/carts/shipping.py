@@ -1,30 +1,17 @@
-"""Shipping domain service for Ceto carts (Phase 4 subset).
+"""Shipping domain service for Ceto carts.
 
-ERPNext implements a ``Shipping Rule`` charge as an ``Actual`` row in the
-Quotation ``taxes`` table: ``ShippingRule.add_shipping_rule_to_tax_table``
-appends or updates the row and ``SellingController.remove_shipping_charge``
-looks the very same row up again by charge type, account and cost center.
-This module reads that row off the cart's Quotation with the applied rule's
-own attributes — label (stamped into the row description), account, cost
-center — and exposes the ERPNext-calculated charge; no amount or tax is ever
-derived here. The apply side (:class:`CartShippingMethods`) resolves a public
-option id onto the Quotation's single ``shipping_rule`` link and lets the same
-ERPNext controllers write the charge row on the controller save.
+ERPNext books a ``Shipping Rule`` charge as an ``Actual`` row in the
+Quotation ``taxes`` table, keyed on charge type, account head and cost
+center. Reading (:class:`CartShipping`) locates that row for the applied
+rule; applying (:class:`CartShippingMethods`) validates the option, links
+the Quotation's single ``shipping_rule`` and lets the ERPNext controllers
+write the charge row on the save.
 
-``amount`` is the row's ``tax_amount``: the value the rule application wrote
-and the one ERPNext's recalculation keeps for ``Actual`` rows. It is also the
-value Ceto's empty-cart save baseline zeroes, so a cart that lost its last
-line reports the shipping charge as 0 instead of a stale rule amount.
-
-Limitations, both inherent to the ERPNext row:
-
-- ERPNext appends the shipping row last and its Selling taxes allocate no tax
-  onto it, so there is no calculated tax-on-shipping to read; the serialized
-  ``tax_total`` of the method is 0.
-- The row's pre- and post-discount charges only diverge under a document-level
-  Grand Total discount, which Ceto does not produce; ``tax_amount`` is
-  therefore used for both the ``shipping_*`` and ``original_shipping_*``
-  amounts.
+``amount`` is the row's ``tax_amount`` — the value the rule application
+wrote, the one ERPNext's recalculation keeps for ``Actual`` rows, and the
+one Ceto's empty-cart save baseline zeroes. ERPNext allocates no tax onto
+the row, so the serialized ``tax_total`` is 0 and ``tax_amount`` serves as
+both the ``shipping_*`` and ``original_shipping_*`` amounts.
 """
 
 from dataclasses import dataclass
@@ -64,11 +51,10 @@ class CartShipping:
 	def applied_charge(cls, quotation: "Document") -> "AppliedShippingCharge | None":
 		"""Return the applied rule's ``Actual`` charge row, or ``None``.
 
-		``None`` means "no shipping to report": the Quotation carries no rule,
-		the rule master is gone, or its calculated charge row is absent (for
-		example an itemless cart, where ERPNext never applies the rule). The
-		Quotation carries exactly one ``shipping_rule`` link, so a document can
-		hold at most one such charge row.
+		``None`` means there is no shipping to report: no rule linked, the
+		rule master gone, or the charge row absent (an itemless cart — ERPNext
+		never applies the rule there). The Quotation carries exactly one
+		``shipping_rule`` link, so there is at most one such row.
 		"""
 		rule = quotation.get("shipping_rule")
 		if not rule:
@@ -90,11 +76,9 @@ class CartShipping:
 	def _charge_row(quotation: "Document", applied: "Document") -> "Document | None":
 		"""Match the rule's ``Actual`` charge row the way ERPNext itself does.
 
-		``add_shipping_rule_to_tax_table`` keys the row on charge type, account
-		head and cost center, and ``remove_shipping_charge`` filters the same
-		three columns and keeps the last record found. The rule label stamped
-		into the row description is the stronger signal, so a label match wins
-		when present; otherwise the last match is kept, like ERPNext.
+		ERPNext keys the row on charge type, account head and cost center and
+		keeps the last match; the rule label stamped into the row description
+		is the stronger signal, so a label match wins when present.
 		"""
 		candidates = [
 			row
@@ -112,26 +96,22 @@ class CartShipping:
 class CartShippingMethods:
 	"""Resolve a public shipping option onto the cart's Quotation.
 
-	ERPNext applies the linked rule itself on every controller save
-	(``calculate_shipping_charges``), so applying a method only validates the
-	option, detaches a charge row the controller cannot reuse, links the rule
-	and persists through the shared cart save helper — the charge row, its
-	amount and the totals are always ERPNext's own output.
+	ERPNext applies the linked rule itself on every controller save, so
+	applying a method only validates the option, detaches a charge row the
+	controller cannot reuse, links the rule and persists through the shared
+	cart save helper.
 	"""
 
 	@classmethod
 	def apply(cls, quotation: "Document", option_id: str) -> None:
 		"""Make ``option_id`` the cart's shipping method and persist the cart.
 
-		Called inside the cart row lock; a failing option (unknown, disabled,
-		buying-side, foreign company) or a rule ERPNext rejects during the save
-		(notably the shipping-address country eligibility check in
-		``ShippingRule.validate_countries``) raises before anything is
-		committed, and the caller's transaction rolls the attempt back.
-
-		An itemless cart keeps the option link but produces no charge row,
-		because ERPNext skips ``calculate_taxes_and_totals`` — and with it the
-		rule application — for itemless documents; the charge materializes on
+		Runs inside the cart row lock; a failing option or a rule ERPNext
+		rejects during the save (notably the shipping-address country
+		eligibility check) raises before anything is committed and the
+		caller's transaction rolls the attempt back. An itemless cart keeps
+		the option link but produces no charge row, because ERPNext skips the
+		rule application for itemless documents; the charge materializes on
 		the next save that has lines.
 		"""
 		rule = cls._resolve_rule(option_id, quotation.get("company"))
@@ -146,10 +126,10 @@ class CartShippingMethods:
 	def _resolve_rule(option_id: str, company: str) -> "Document":
 		"""Return the enabled ``Selling`` rule ``option_id`` names.
 
-		The public option id **is** the ``Shipping Rule`` name (Phase 4 has no
-		shipping-options listing yet). Options that are unknown, disabled,
-		buying-side or owned by another company are ``invalid_data`` — the
-		option exists as master data but cannot be applied to this cart.
+		The public option id **is** the ``Shipping Rule`` name (there is no
+		shipping-options listing yet). Unknown, disabled, buying-side or
+		foreign-company options are ``invalid_data``: the master exists but
+		cannot be applied to this cart.
 		"""
 		try:
 			rule = frappe.get_doc("Shipping Rule", option_id)
@@ -167,14 +147,11 @@ class CartShippingMethods:
 	def _detach_unused_charge(quotation: "Document", rule: "Document") -> None:
 		"""Drop the previous rule's charge row when ERPNext cannot reuse it.
 
-		``add_shipping_rule_to_tax_table`` keys the charge row on charge type,
-		account head and cost center: switching between rules that share both
-		rewrites the existing row in place, while a rule with a different
-		account or cost center would append a second charge row and count
-		shipping twice on the cart. The row is matched — and the last match
-		removed — exactly the way ERPNext's own ``remove_shipping_charge``
-		matches it for the currently linked rule; recalculated totals are left
-		to the controller save.
+		ERPNext rewrites the existing row in place only when both rules share
+		account head and cost center; otherwise it would append a second
+		charge row and count shipping twice. The row is matched and removed
+		exactly the way ERPNext's own ``remove_shipping_charge`` matches it
+		for the currently linked rule.
 		"""
 		previous = quotation.get("shipping_rule")
 		if not previous or previous == rule.name:

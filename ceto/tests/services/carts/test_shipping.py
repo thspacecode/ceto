@@ -14,6 +14,7 @@ import frappe
 from frappe.utils import flt, get_datetime
 
 from ceto.routing.exceptions import InvalidDataError, NotAllowedError
+from ceto.services.carts.access import CartAccess
 from ceto.services.carts.line_items import CartLineItems
 from ceto.services.carts.quotation import CartService
 from ceto.services.carts.serialization import CartSerializer
@@ -415,20 +416,15 @@ class TestCartShippingMethods(CetoTestSuite):
 		reference, _quotation = self._cart_with_line()
 
 		with self.set_conf(ceto_cart=self.masters.configuration), self.set_user("Guest"):
-			with patch.object(frappe.db, "sql", wraps=frappe.db.sql) as database_sql:
+			with patch.object(CartAccess, "_lock_row", side_effect=CartAccess._lock_row) as lock_row:
 				self.service.set_shipping_method(
 					reference.cart_id,
 					StoreAddCartShippingMethods(option_id=self.masters.flat_rate_rule),
 				)
-				lock_queries = [
-					" ".join(call.args[0].split())
-					for call in database_sql.call_args_list
-					if call.args and isinstance(call.args[0], str) and "FOR UPDATE" in call.args[0]
-				]
 		self.assertEqual(
-			lock_queries[:2],
+			[locked.args for locked in lock_row.call_args_list][:2],
 			[
-				"SELECT name FROM `tabCeto Cart Reference` WHERE name = %s FOR UPDATE",
-				"SELECT name FROM `tabQuotation` WHERE name = %s FOR UPDATE",
+				("Ceto Cart Reference", reference.cart_id),
+				("Quotation", reference.quotation),
 			],
 		)

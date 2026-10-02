@@ -214,12 +214,10 @@ class CartService:
 		"""Recalculate the locked cart's taxes and totals through ERPNext.
 
 		``guard`` is validated against the locked reference before any
-		recalculation (see :meth:`add_promotions`). The recalculation is
-		ERPNext's own controller pass (:meth:`CartTaxes.recalculate`), so the
-		numbers are the same ones every cart response serializes; a failing
-		save (disabled template, controller validation) raises inside the
-		locked transaction and the caller's rollback leaves the cart
-		untouched.
+		recalculation (see :meth:`add_promotions`). The numbers are ERPNext's
+		own (:meth:`CartTaxes.recalculate`) — the same ones every cart
+		response serializes — and a failing save raises inside the locked
+		transaction, so the caller's rollback leaves the cart untouched.
 		"""
 		with self.access.lock(cart_id) as (reference, quotation):
 			if guard is not None:
@@ -238,11 +236,9 @@ class CartService:
 		"""Resolve ``payload.option_id`` as the locked cart's shipping method.
 
 		``guard`` is validated against the locked reference before any
-		mutation, so a wrong-scoped key never modifies the cart (see
-		:meth:`add_promotions`). The Quotation saves through the ERPNext
-		controllers inside the same locked transaction, so an unknown,
-		disabled, buying-side, foreign-company or country-ineligible option
-		raises before anything is committed and leaves the cart untouched.
+		mutation (see :meth:`add_promotions`). The save through the ERPNext
+		controllers means an unknown, disabled, buying-side, foreign-company
+		or country-ineligible option raises before anything is committed.
 		"""
 		with self.access.lock(cart_id) as (reference, quotation):
 			if guard is not None:
@@ -327,11 +323,8 @@ class CartService:
 		quotation.company = configuration.company
 		quotation.currency = configuration.currency
 		quotation.selling_price_list = configuration.selling_price_list
-		# ERPNext only loads template rows into an empty taxes table, so just
-		# switching the ``taxes_and_charges`` link would keep the previous
-		# template's rows on the cart; the reload on template change, the
-		# same-template no-op and the Shipping Rule preservation live in
-		# CartTaxes.
+		# ERPNext only loads template rows into an empty taxes table, so the
+		# link alone is not enough: CartTaxes refreshes the rows on change.
 		CartTaxes.refresh_template(quotation, configuration.taxes_and_charges)
 		quotation.territory = configuration.territory
 

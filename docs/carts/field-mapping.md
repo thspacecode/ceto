@@ -85,7 +85,10 @@ Phase 2 serialization notes:
 Cart addresses are created as **cart-scoped temporary Addresses** linked to
 the Quotation only, with no Customer link. On customer claim (transfer) or
 cart completion, a customer-linked copy is created and the Quotation is
-relinked to that copy.
+relinked to that copy; the claim copy is linked only to the claiming
+Customer (one shared copy when billing and shipping reference the same
+temporary) and the temporary is deleted, while addresses already owned by
+the claiming Customer stay attached unchanged.
 
 ## Promotion → Pricing Rule + Coupon Code
 
@@ -135,7 +138,9 @@ relinked to that copy.
    configured Guest Customer as `party_name`.
 3. **Authenticated customer identity** — Frappe `User` → `Contact` →
    `Customer`: the Medusa `customer_id` maps to a Customer whose Contact is
-   linked to the Frappe User created at signup.
+   linked to the Frappe User created at signup. A user linked to multiple
+   distinct Customers is ambiguous and rejected as unauthorized rather than
+   resolved arbitrarily.
 4. **Cart addresses** — addresses captured at checkout are cart-scoped
    temporary `Address` records linked to the Quotation only; on customer
    claim (transfer) or cart completion a customer-linked copy is created and

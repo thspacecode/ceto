@@ -1,4 +1,5 @@
 import json
+import uuid
 
 import frappe
 from werkzeug.test import EnvironBuilder
@@ -277,6 +278,235 @@ class TestCartLineItemAPI(CetoTestSuite):
 			repeat = self._dispatch("DELETE", f"/ceto/store/carts/{cart_id}/line-items/{line_id}")
 			self.assertEqual(repeat.status_code, 404)
 			self.assertEqual(repeat.get_json()["type"], "not_found")
+
+	def _dispatch(
+		self,
+		method: str,
+		path: str,
+		payload: dict | None = None,
+		*,
+		publishable_key: str | None = "pk_test",
+	):
+		headers = {"x-publishable-api-key": publishable_key} if publishable_key else None
+		builder = EnvironBuilder(
+			path=path,
+			method=method,
+			data=json.dumps(payload) if payload is not None else None,
+			content_type="application/json" if payload is not None else None,
+			headers=headers,
+			environ_base={"REMOTE_ADDR": "127.0.0.1"},
+		)
+		request = Request(builder.get_environ())
+		with self.set_request(request):
+			return ceto_router.dispatch(request)
+
+
+class TestCartCustomerClaimAPI(CetoTestSuite):
+	"""Phase 3 claim endpoint: ``POST /store/carts/{id}/customer``.
+
+	Error subtests rely on the router's rollback of the open transaction;
+	masters are the committed bootstrap baseline, and carts that must
+	survive a rollback are committed before the failing requests.
+	"""
+
+	def setUp(self) -> None:
+		frappe.set_user("Administrator")
+		self.masters = CartTestData()
+		self.configuration = {
+			**self.masters.configuration,
+			"publishable_keys": {"pk_test": {"region_id": "reg_test", "sales_channel_id": "sc_test"}},
+		}
+		self._previous_throttle = frappe.local.conf.get("throttle_user_limit")
+		frappe.local.conf["throttle_user_limit"] = 100000
+
+	def tearDown(self) -> None:
+		if self._previous_throttle is None:
+			frappe.local.conf.pop("throttle_user_limit", None)
+		else:
+			frappe.local.conf["throttle_user_limit"] = self._previous_throttle
+		super().tearDown()
+
+	def _claiming_user(self, label: str) -> tuple[str, str]:
+		# Unique per test: claimed carts commit, so parties created in earlier
+		# tests survive and must not collide.
+		email = f"ceto.api.claim.{label}.{uuid.uuid4().hex[:8]}@example.com"
+		frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": email,
+				"first_name": f"Api {label}",
+				"user_type": "Website User",
+				"send_welcome_email": 0,
+			}
+		).insert(ignore_permissions=True)
+		customer = frappe.get_doc(
+			{
+				"doctype": "Customer",
+				"customer_name": f"Api Claimed {label} {uuid.uuid4().hex[:8]}",
+				"customer_type": "Individual",
+				"customer_group": frappe.db.get_value("Customer Group", {"is_group": 0}, "name"),
+				"territory": "All Territories",
+			}
+		)
+		customer.flags.ignore_permissions = True
+		customer.insert()
+		contact = frappe.get_doc(
+			{
+				"doctype": "Contact",
+				"first_name": f"Api {label}",
+				"email_id": email,
+				"user": email,
+				"links": [{"link_doctype": "Customer", "link_name": customer.name}],
+			}
+		)
+		contact.flags.ignore_permissions = True
+		contact.insert()
+		return email, customer.name
+
+	def _create_cart_with_line(self, *, with_address: bool = False) -> str:
+		payload = (
+			{
+				"shipping_address": {
+					"first_name": "Aria",
+					"last_name": "Stone",
+					"phone": "+1 555 0100",
+					"address_1": "1 Harbor Way",
+					"city": "Portland",
+					"province": "Oregon",
+					"postal_code": "97201",
+					"country_code": "us",
+				}
+			}
+			if with_address
+			else {}
+		)
+		created = self._dispatch("POST", "/ceto/store/carts?fields=id", payload)
+		self.assertEqual(created.status_code, 200)
+		cart_id = created.get_json()["cart"]["id"]
+		added = self._dispatch(
+			"POST",
+			f"/ceto/store/carts/{cart_id}/line-items?fields=id",
+			{"variant_id": self.masters.item, "quantity": 1},
+		)
+		self.assertEqual(added.status_code, 200)
+		return cart_id
+
+	def test_claim_transfers_guest_cart_to_customer(self) -> None:
+		email, customer = self._claiming_user("buyer")
+		with self.set_conf(ceto_cart=self.configuration):
+			with self.set_user("Guest"):
+				cart_id = self._create_cart_with_line(with_address=True)
+
+			with self.set_user(email):
+				response = self._dispatch(
+					"POST",
+					f"/ceto/store/carts/{cart_id}/customer?fields=id,customer_id,email,shipping_address",
+					None,
+				)
+			self.assertEqual(response.status_code, 200)
+			body = response.get_json()
+			self.assertEqual(set(body), {"cart"})
+			self.assertEqual(body["cart"]["customer_id"], customer)
+			self.assertEqual(body["cart"]["email"], email)
+			# The guest temporary became a customer-owned copy (Recorded
+			# Decision 4): relinked, owned by the claiming customer, and no
+			# longer reachable from the shared Guest Customer.
+			shipping = body["cart"]["shipping_address"]
+			self.assertEqual(shipping["customer_id"], customer)
+			self.assertEqual(shipping["address_1"], "1 Harbor Way")
+
+			with self.set_user("Guest"):
+				# The guest session (possession of the id) no longer sees it.
+				masked = self._dispatch("GET", f"/ceto/store/carts/{cart_id}?fields=id")
+				self.assertEqual(masked.status_code, 404)
+
+	def test_repeat_claim_is_idempotent(self) -> None:
+		email, customer = self._claiming_user("buyer")
+		with self.set_conf(ceto_cart=self.configuration):
+			with self.set_user("Guest"):
+				cart_id = self._create_cart_with_line()
+			with self.set_user(email):
+				first = self._dispatch(
+					"POST", f"/ceto/store/carts/{cart_id}/customer?fields=id,customer_id", None
+				)
+				second = self._dispatch(
+					"POST", f"/ceto/store/carts/{cart_id}/customer?fields=id,customer_id", None
+				)
+			self.assertEqual(first.status_code, 200)
+			self.assertEqual(second.status_code, 200)
+			self.assertEqual(second.get_json()["cart"]["customer_id"], customer)
+
+	def test_unauthenticated_claim_is_unauthorized(self) -> None:
+		with self.set_conf(ceto_cart=self.configuration):
+			with self.set_user("Guest"):
+				cart_id = self._create_cart_with_line()
+				response = self._dispatch("POST", f"/ceto/store/carts/{cart_id}/customer?fields=id", None)
+			self.assertEqual(response.status_code, 401)
+			self.assertEqual(response.get_json()["type"], "unauthorized")
+
+	def test_competing_owner_is_masked_as_not_found(self) -> None:
+		owner_email, _ = self._claiming_user("owner")
+		other_email, _ = self._claiming_user("other")
+		with self.set_conf(ceto_cart=self.configuration):
+			with self.set_user("Guest"):
+				cart_id = self._create_cart_with_line()
+			with self.set_user(owner_email):
+				response = self._dispatch("POST", f"/ceto/store/carts/{cart_id}/customer", None)
+				self.assertEqual(response.status_code, 200)
+			with self.set_user(other_email):
+				response = self._dispatch("POST", f"/ceto/store/carts/{cart_id}/customer", None)
+				self.assertEqual(response.status_code, 404)
+				self.assertEqual(response.get_json()["type"], "not_found")
+
+	def test_wrong_scoped_key_is_not_allowed(self) -> None:
+		email, _ = self._claiming_user("buyer")
+		configuration = {
+			**self.configuration,
+			"publishable_keys": {
+				"pk_test": {"region_id": "reg_test", "sales_channel_id": "sc_test"},
+				"pk_other": {"region_id": "reg_other", "sales_channel_id": "sc_other"},
+			},
+		}
+		with self.set_conf(ceto_cart=configuration):
+			with self.set_user("Guest"):
+				cart_id = self._create_cart_with_line()
+			with self.set_user(email):
+				response = self._dispatch(
+					"POST", f"/ceto/store/carts/{cart_id}/customer", None, publishable_key="pk_other"
+				)
+			self.assertEqual(response.status_code, 403)
+			self.assertEqual(response.get_json()["type"], "not_allowed")
+
+	def test_no_partial_mutation_when_claim_fails_midway(self) -> None:
+		from unittest.mock import patch
+
+		email, _ = self._claiming_user("buyer")
+		with self.set_conf(ceto_cart=self.configuration):
+			with self.set_user("Guest"):
+				cart_id = self._create_cart_with_line()
+				frappe.db.commit()
+
+			with (
+				self.set_user(email),
+				patch(
+					"ceto.services.carts.claim.CartLineItems.save",
+					side_effect=RuntimeError("boom"),
+				),
+			):
+				response = self._dispatch("POST", f"/ceto/store/carts/{cart_id}/customer?fields=id", None)
+			self.assertEqual(response.status_code, 500)
+			self.assertEqual(response.get_json()["type"], "internal_error")
+
+			with self.set_user("Guest"):
+				# Rolled back: still an unclaimed guest cart with its line.
+				after = self._dispatch(
+					"GET", f"/ceto/store/carts/{cart_id}?fields=id,customer_id,email,items"
+				)
+			self.assertEqual(after.status_code, 200)
+			cart = after.get_json()["cart"]
+			self.assertIsNone(cart["customer_id"])
+			self.assertEqual(cart["email"], None)
+			self.assertEqual(len(cart["items"]), 1)
 
 	def _dispatch(
 		self,

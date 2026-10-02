@@ -100,7 +100,7 @@ class TestCartQuotation(CetoTestSuite):
 		with self.set_conf(ceto_cart=configuration), self.set_user("Guest"):
 			with self.assertRaisesRegex(InvalidDataError, "Unknown cart region"):
 				CartService().create(StoreCreateCart(region_id="reg_missing"))
-			with self.assertRaisesRegex(InvalidDataError, "addresses"):
+			with self.assertRaisesRegex(InvalidDataError, "country_code is required"):
 				CartService().create(
 					StoreCreateCart(
 						items=[StoreAddCartLineItem(variant_id=self.masters.item, quantity=1)],

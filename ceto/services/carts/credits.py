@@ -359,7 +359,9 @@ class CartCredits:
 				# Unreachable through the cart flow (the reconciliation
 				# releases holds whose wallet is gone); fail loudly rather
 				# than book money without a wallet.
-				frappe.throw(f"Wallet {hold.wallet} of credit line {hold.credit_line_id} is missing")
+				frappe.throw(
+					_("Wallet {0} of credit line {1} is missing").format(hold.wallet, hold.credit_line_id)
+				)
 			amount = flt(hold.amount)
 			debit_total = flt(wallet.debit_total) + amount
 			frappe.db.set_value(

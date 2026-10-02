@@ -1,6 +1,7 @@
 import json
 
 import frappe
+from frappe import _
 from frappe.model.document import Document
 
 
@@ -15,12 +16,12 @@ class CetoCartLineItemReference(Document):
 	def _validate_cart_reference(self) -> None:
 		reference_quotation = frappe.db.get_value("Ceto Cart Reference", self.cart_reference, "quotation")
 		if reference_quotation != self.quotation:
-			frappe.throw("Line item reference must point to the cart reference's Quotation")
+			frappe.throw(_("Line item reference must point to the cart reference's Quotation"))
 
 	def _validate_quotation_item(self) -> None:
 		exists = frappe.db.exists("Quotation Item", {"name": self.quotation_item, "parent": self.quotation})
 		if not exists:
-			frappe.throw("Line item reference must point to a row of the linked Quotation")
+			frappe.throw(_("Line item reference must point to a row of the linked Quotation"))
 
 	def _validate_metadata(self) -> None:
 		if not self.metadata:
@@ -28,6 +29,6 @@ class CetoCartLineItemReference(Document):
 		try:
 			value = json.loads(self.metadata)
 		except (TypeError, ValueError):
-			frappe.throw("Line item metadata must be valid JSON")
+			frappe.throw(_("Line item metadata must be valid JSON"))
 		if not isinstance(value, dict):
-			frappe.throw("Line item metadata must be a JSON object")
+			frappe.throw(_("Line item metadata must be a JSON object"))

@@ -66,7 +66,7 @@ class CartSerializer:
 		list, pricing rules, discounts). Conservative defaults: the public
 		variant id equals the enabled ERPNext Item code (Phase 2). Per-line
 		``tax_total`` is the ERPNext-calculated tax allocation for that row
-		(see :meth:`_line_tax_allocations`); the line ``total`` is the
+		(see :meth:`line_tax_allocations`); the line ``total`` is the
 		after-discount net amount plus that tax allocation.
 		"""
 		mappings = {
@@ -78,13 +78,13 @@ class CartSerializer:
 			)
 		}
 		items: list[StoreCartLineItem] = []
-		tax_allocations = CartSerializer._line_tax_allocations(quotation)
+		tax_allocations = CartSerializer.line_tax_allocations(quotation)
 		for row in quotation.items:
 			mapping = mappings.get(row.name)
 			if mapping is None:
 				continue
 			net_amount = flt(row.net_amount) or flt(row.amount)
-			tax_total = CartSerializer._row_tax_total(tax_allocations, row)
+			tax_total = CartSerializer.row_tax_total(tax_allocations, row)
 			items.append(
 				StoreCartLineItem(
 					id=mapping.line_id,
@@ -110,7 +110,7 @@ class CartSerializer:
 		return items
 
 	@staticmethod
-	def _line_tax_allocations(quotation: "Document") -> dict[str, float]:
+	def line_tax_allocations(quotation: "Document") -> dict[str, float]:
 		"""Map ERPNext tax allocations onto line keys.
 
 		The primary source is the ERPNext controller-produced
@@ -154,7 +154,7 @@ class CartSerializer:
 		return allocations
 
 	@staticmethod
-	def _row_tax_total(allocations: dict[str, float], row: "Document") -> float:
+	def row_tax_total(allocations: dict[str, float], row: "Document") -> float:
 		"""Return the ERPNext tax allocated to ``row`` (0 when unallocated)."""
 		if row.name in allocations:
 			return flt(allocations[row.name])

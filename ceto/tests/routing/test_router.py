@@ -144,19 +144,26 @@ class TestRouter(CetoTestSuite):
 		pinned = {(route.method, f"/ceto{route.path}") for route in CART_ROUTES}
 		self.assertEqual(registered, pinned)
 
-	def test_implemented_customer_routes_match_the_phase_1_subset(self):
+	def test_implemented_customer_routes_match_the_phase_2_subset(self):
 		"""The registered customer surface is exactly the implemented manifest slice.
 
-		Phase 1 registers the create and retrieve routes (manifest routes 1-2);
-		each later phase extends this assertion until it equals the full
+		Phase 2 registers the update route (manifest routes 1-3); each later
+		phase extends this assertion until it equals the full
 		``CUSTOMER_ROUTES`` surface, like the carts check above.
 		"""
 		registered = {
 			(route.method, route.path) for route in ceto_router.routes if "/store/customers" in route.path
 		}
-		phase_one = {(route.method, f"/ceto{route.path}") for route in CUSTOMER_ROUTES[:2]}
-		self.assertEqual(phase_one, {("POST", "/ceto/store/customers"), ("GET", "/ceto/store/customers/me")})
-		self.assertEqual(registered, phase_one)
+		implemented = {(route.method, f"/ceto{route.path}") for route in CUSTOMER_ROUTES[:3]}
+		self.assertEqual(
+			implemented,
+			{
+				("POST", "/ceto/store/customers"),
+				("GET", "/ceto/store/customers/me"),
+				("POST", "/ceto/store/customers/me"),
+			},
+		)
+		self.assertEqual(registered, implemented)
 
 	def test_route_override_uses_external_route_key(self):
 		router = Router(prefix="/ceto")

@@ -1,10 +1,10 @@
-"""Phase 1 Store Customer endpoints: create and retrieve.
+"""Store Customer endpoints: create, retrieve and update.
 
 Pins the HTTP boundary on the test site: the pinned ``StoreCustomerResponse``
 shape and ``fields`` selector, the publishable-key policy (boundary validation
 only), the registration-token contract (purpose-bound, provider-checked,
 consumed only after a fully successful create) and the auth separation (only
-``auth``-purpose tokens or a Frappe session retrieve ``/me``). Error subtests
+``auth``-purpose tokens or a Frappe session reach ``/me``). Error subtests
 rely on the router rolling the open transaction back, like the cart suites; an
 identity a retry must find is committed first.
 """
@@ -19,7 +19,8 @@ from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request
 
 import ceto.api.routes
-from ceto.api.store.customers import create_customer, retrieve_customer
+import ceto.api.store.customers
+from ceto.api.store.customers import create_customer, retrieve_customer, update_customer
 from ceto.routing import ceto_router
 from ceto.services.auth.tokens import (
 	authenticate_bearer_token,
@@ -92,14 +93,14 @@ class CustomerAPITestBase(CetoTestSuite):
 		with self.set_request(request):
 			return ceto_router.dispatch(request)
 
-	def _dispatch_with_hook(self, method: str, path: str, *, token: str):
+	def _dispatch_with_hook(self, method: str, path: str, payload: dict | None = None, *, token: str):
 		"""Dispatch like production: the auth hook runs before the router.
 
 		``auth_hooks`` authenticates ``auth``-purpose bearer requests by
 		setting the session user; non-auth-purpose tokens leave the request as
 		Guest, which the router refuses.
 		"""
-		request = self._request(method, path, None, token=token)
+		request = self._request(method, path, payload, token=token)
 		with self.set_request(request), self.set_user("Guest"):
 			authenticate_bearer_token()
 			return ceto_router.dispatch(request)
@@ -157,7 +158,7 @@ class CustomerAPITestBase(CetoTestSuite):
 
 class TestCustomerCreateAPI(CustomerAPITestBase):
 	def test_endpoints_are_not_whitelisted(self):
-		for endpoint in (create_customer, retrieve_customer):
+		for endpoint in (create_customer, retrieve_customer, update_customer):
 			self.assertNotIn(endpoint, frappe.whitelisted)
 			self.assertFalse(hasattr(endpoint, "is_whitelisted"))
 
@@ -498,3 +499,305 @@ class TestCustomerRetrieveAPI(CustomerAPITestBase):
 		email = self._identity(label)
 		_identity, reference = create_customer_profile(email, first_name="Aria", last_name="Stone")
 		return email, reference.name
+
+
+class TestCustomerUpdateAPI(CustomerAPITestBase):
+	"""Phase 2 update boundary: POST /store/customers/me.
+
+	Pins the same conventions as the retrieve route — publishable key, router
+	session/bearer auth, masked unresolvable identities — plus the update
+	contract: the sparse ``StoreUpdateCustomer`` payload moves only what the
+	session's own profile owns, the pinned response is re-serialized after the
+	update, and every failure (unknown payload field, invalid ``fields``
+	selector, wrong-purpose token) is ``401``/``400`` with the router rolling
+	the whole request back.
+	"""
+
+	def _profile(self, label: str):
+		# A committed profile so error subtests assert no mutation against
+		# persistent data (the router rolls the open transaction back).
+		email = self._identity(label)
+		identity, reference = create_customer_profile(
+			email,
+			first_name="Aria",
+			last_name="Stone",
+			company_name="Harbor Co.",
+			phone="+1 555 0100",
+			metadata={"loyalty_tier": "gold"},
+		)
+		frappe.db.commit()  # nosemgrep
+		return email, identity, reference
+
+	@staticmethod
+	def _stamps(identity, reference) -> dict:
+		"""The current modified stamps of every record the chain serializes."""
+		return {
+			"contact": frappe.db.get_value("Contact", identity.contact, "modified"),
+			"customer": frappe.db.get_value("Customer", identity.customer, "modified"),
+			"reference": frappe.db.get_value("Ceto Customer Reference", reference.name, "modified"),
+		}
+
+	@staticmethod
+	def _contact_columns(identity) -> dict:
+		"""The stored profile columns, normalized so cleared reads as ``None``."""
+		profile = frappe.db.get_value(
+			"Contact", identity.contact, ["first_name", "last_name", "company_name", "phone"], as_dict=True
+		)
+		return {field: value or None for field, value in profile.items()}
+
+	@staticmethod
+	def _stored_metadata(reference) -> dict | None:
+		stored = frappe.db.get_value("Ceto Customer Reference", reference.name, "metadata")
+		return json.loads(stored) if stored else None
+
+	def test_update_returns_the_pinned_customer(self):
+		email, identity, reference = self._profile("update")
+		created = frappe.db.get_value("Customer", identity.customer, "creation")
+		before = self._stamps(identity, reference)
+
+		with self.set_user(email):
+			response = self._dispatch("POST", "/ceto/store/customers/me", {"last_name": "Vale"})
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(set(response.get_json()), {"customer"})
+		customer = response.get_json()["customer"]
+		self.assertEqual(set(customer), set(StoreCustomer.model_fields))
+		self.assertEqual(customer["id"], reference.name)
+		self.assertRegex(customer["id"], r"^cus_[0-9a-f]{32}$")
+		self.assertEqual(customer["email"], email)
+		self.assertEqual(customer["first_name"], "Aria")
+		self.assertEqual(customer["last_name"], "Vale")
+		self.assertEqual(customer["company_name"], "Harbor Co.")
+		self.assertEqual(customer["phone"], "+1 555 0100")
+		self.assertEqual(customer["metadata"], {"loyalty_tier": "gold"})
+		self.assertEqual(customer["addresses"], [])
+		# The response serializes the updated chain: updated_at moved off the
+		# untouched creation stamp and the display name recomposed.
+		self.assertEqual(customer["created_at"], created.isoformat())
+		self.assertNotEqual(customer["updated_at"], customer["created_at"])
+		self.assertEqual(frappe.db.get_value("Customer", identity.customer, "customer_name"), "Aria Vale")
+		after = self._stamps(identity, reference)
+		self.assertNotEqual(after["contact"], before["contact"])
+		self.assertNotEqual(after["customer"], before["customer"])
+		self.assertEqual(after["reference"], before["reference"])
+
+	def test_update_by_bearer_token(self):
+		email, identity, reference = self._profile("bearer")
+		token = create_customer_token(email)
+
+		response = self._dispatch_with_hook(
+			"POST", "/ceto/store/customers/me", {"last_name": "Vale"}, token=token
+		)
+
+		self.assertEqual(response.status_code, 200)
+		customer = response.get_json()["customer"]
+		self.assertEqual(customer["id"], reference.name)
+		self.assertEqual(customer["email"], email)
+		self.assertEqual(customer["last_name"], "Vale")
+		self.assertEqual(frappe.db.get_value("Contact", identity.contact, "last_name"), "Vale")
+
+	def test_update_honours_the_fields_selector(self):
+		email, _identity, reference = self._profile("fields")
+
+		with self.set_user(email):
+			fields = self._dispatch("POST", "/ceto/store/customers/me?fields=id,email", {"last_name": "Vale"})
+			rejected = self._dispatch("POST", "/ceto/store/customers/me?limit=5", {"last_name": "Vale"})
+
+		self.assertEqual(fields.status_code, 200)
+		self.assertEqual(fields.get_json()["customer"], {"id": reference.name, "email": email})
+		self.assertEqual(rejected.status_code, 400)
+		self.assertEqual(rejected.get_json()["type"], "invalid_data")
+
+	def test_an_invalid_fields_selector_rolls_the_applied_update_back(self):
+		email, identity, reference = self._profile("badfields")
+		before = self._stamps(identity, reference)
+		real_update = ceto.api.store.customers.apply_customer_update
+		applied = []
+
+		def record(identity, reference, payload):
+			applied.append(payload)
+			return real_update(identity, reference, payload)
+
+		with self.set_user(email):
+			with patch.object(ceto.api.store.customers, "apply_customer_update", side_effect=record):
+				response = self._dispatch(
+					"POST", "/ceto/store/customers/me?fields=not_a_field", {"last_name": "Vale"}
+				)
+
+		self.assertEqual(response.status_code, 400)
+		self.assertEqual(response.get_json()["type"], "invalid_data")
+		# The selector projects the response *after* the service ran, so the
+		# update really happened before the request failed.
+		self.assertEqual([payload.last_name for payload in applied], ["Vale"])
+		profile = self._contact_columns(identity)
+		self.assertEqual(profile["first_name"], "Aria")
+		self.assertEqual(profile["last_name"], "Stone")
+		self.assertEqual(frappe.db.get_value("Customer", identity.customer, "customer_name"), "Aria Stone")
+		self.assertEqual(self._stored_metadata(reference), {"loyalty_tier": "gold"})
+		self.assertEqual(self._stamps(identity, reference), before)
+
+	def test_an_empty_payload_writes_nothing(self):
+		email, identity, reference = self._profile("noop")
+		before = self._stamps(identity, reference)
+
+		with self.set_user(email):
+			response = self._dispatch("POST", "/ceto/store/customers/me", {})
+
+		self.assertEqual(response.status_code, 200)
+		customer = response.get_json()["customer"]
+		self.assertEqual(customer["first_name"], "Aria")
+		self.assertEqual(customer["last_name"], "Stone")
+		self.assertEqual(customer["company_name"], "Harbor Co.")
+		self.assertEqual(customer["phone"], "+1 555 0100")
+		self.assertEqual(customer["metadata"], {"loyalty_tier": "gold"})
+		self.assertEqual(self._stamps(identity, reference), before)
+
+	def test_null_and_empty_values_clear_the_profile(self):
+		email, identity, reference = self._profile("clear")
+		before = self._stamps(identity, reference)
+
+		with self.set_user(email):
+			response = self._dispatch("POST", "/ceto/store/customers/me", {"first_name": None, "phone": ""})
+
+		self.assertEqual(response.status_code, 200)
+		customer = response.get_json()["customer"]
+		self.assertIsNone(customer["first_name"])
+		self.assertIsNone(customer["phone"])
+		self.assertEqual(customer["last_name"], "Stone")
+		self.assertEqual(customer["company_name"], "Harbor Co.")
+		profile = self._contact_columns(identity)
+		self.assertIsNone(profile["first_name"])
+		self.assertIsNone(profile["phone"])
+		self.assertEqual(profile["last_name"], "Stone")
+		self.assertEqual(
+			frappe.db.count("Contact Phone", {"parent": identity.contact, "is_primary_phone": 1}), 0
+		)
+		self.assertEqual(frappe.db.get_value("Customer", identity.customer, "customer_name"), "Stone")
+		after = self._stamps(identity, reference)
+		self.assertNotEqual(after["customer"], before["customer"])
+		self.assertEqual(after["reference"], before["reference"])
+
+	def test_metadata_merges_per_key(self):
+		email, _identity, reference = self._profile("metadata")
+
+		with self.set_user(email):
+			response = self._dispatch(
+				"POST",
+				"/ceto/store/customers/me",
+				{"metadata": {"newsletter": True, "loyalty_tier": None}},
+			)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.get_json()["customer"]["metadata"], {"newsletter": True})
+		self.assertEqual(self._stored_metadata(reference), {"newsletter": True})
+
+	def test_email_and_unknown_payload_fields_are_rejected_without_mutation(self):
+		email, identity, reference = self._profile("unknown")
+		before = self._stamps(identity, reference)
+		for label, payload in (
+			("email", {"email": "other@example.com"}),
+			("email beside an update", {"email": "other@example.com", "last_name": "Vale"}),
+			("unknown field", {"nickname": "Ryn"}),
+		):
+			with self.subTest(field=label):
+				with self.set_user(email):
+					response = self._dispatch("POST", "/ceto/store/customers/me", payload)
+				self.assertEqual(response.status_code, 400)
+				self.assertEqual(response.get_json()["type"], "invalid_data")
+				profile = self._contact_columns(identity)
+				self.assertEqual(profile["first_name"], "Aria")
+				self.assertEqual(profile["last_name"], "Stone")
+				self.assertEqual(profile["company_name"], "Harbor Co.")
+				self.assertEqual(self._stored_metadata(reference), {"loyalty_tier": "gold"})
+				self.assertEqual(self._stamps(identity, reference), before)
+
+	def test_update_requires_a_configured_publishable_key(self):
+		email, identity, _reference = self._profile("nokey")
+		for publishable_key in (None, "pk_unknown"):
+			with self.subTest(publishable_key=publishable_key):
+				with self.set_user(email):
+					response = self._dispatch(
+						"POST",
+						"/ceto/store/customers/me",
+						{"last_name": "Vale"},
+						publishable_key=publishable_key,
+					)
+				self.assertEqual(response.status_code, 401)
+				self.assertEqual(response.get_json()["type"], "unauthorized")
+				self.assertEqual(frappe.db.get_value("Contact", identity.contact, "last_name"), "Stone")
+
+	def test_update_requires_authentication(self):
+		self._profile("guest")
+
+		with self.set_user("Guest"):
+			response = self._dispatch("POST", "/ceto/store/customers/me", {"last_name": "Vale"})
+
+		self.assertEqual(response.status_code, 401)
+		self.assertEqual(response.get_json()["type"], "unauthorized")
+
+	def test_non_auth_purpose_tokens_never_authenticate_updates(self):
+		email, identity, reference = self._profile("separation")
+		before = self._stamps(identity, reference)
+		for label, token in (
+			("opaque", "opaque-value"),
+			("registration", create_customer_registration_token(email, "emailpass")),
+			("password reset", create_customer_password_reset_token(email, "emailpass")),
+		):
+			with self.subTest(purpose=label):
+				response = self._dispatch_with_hook(
+					"POST", "/ceto/store/customers/me", {"last_name": "Vale"}, token=token
+				)
+				self.assertEqual(response.status_code, 401)
+				self.assertEqual(response.get_json()["type"], "unauthorized")
+				self.assertEqual(frappe.db.get_value("Contact", identity.contact, "last_name"), "Stone")
+				self.assertEqual(self._stamps(identity, reference), before)
+
+	def test_unresolvable_identities_are_masked_and_write_nothing(self):
+		registered = self._identity("mask-registered")
+		chain, chain_customer, chain_contact = self._chain("mask-chain")
+		ambiguous, _ambiguous_customer, _ambiguous_contact = self._chain("mask-ambiguous")
+		link_customer(ambiguous, make_customer("mask-second"))
+		disabled, _disabled_customer, _disabled_contact = self._chain("mask-disabled")
+		frappe.db.set_value("User", disabled, "enabled", 0)
+		# Every 401 response rolls the open transaction back; commit the four
+		# states so each subtest refuses against persistent data.
+		frappe.db.commit()  # nosemgrep
+		chain_before = (
+			frappe.db.get_value("Contact", chain_contact, "first_name"),
+			frappe.db.get_value("Customer", chain_customer, "modified"),
+		)
+		for session_user in (registered, chain, ambiguous, disabled, "nobody@example.com"):
+			with self.subTest(session_user=session_user):
+				with self.set_user(session_user):
+					response = self._dispatch("POST", "/ceto/store/customers/me", {"last_name": "Vale"})
+				self.assertEqual(response.status_code, 401)
+				self.assertEqual(response.get_json()["type"], "unauthorized")
+		# The resolvable-but-referenceless chain is refused before any write.
+		self.assertEqual(
+			(
+				frappe.db.get_value("Contact", chain_contact, "first_name"),
+				frappe.db.get_value("Customer", chain_customer, "modified"),
+			),
+			chain_before,
+		)
+
+	def test_updates_stay_scoped_to_the_authenticated_customer(self):
+		email, identity, reference = self._profile("scoped")
+		_peer_email, peer_identity, peer_reference = self._profile("scoped-peer")
+		peer_before = self._stamps(peer_identity, peer_reference)
+
+		with self.set_user(email):
+			response = self._dispatch("POST", "/ceto/store/customers/me", {"last_name": "Vale"})
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.get_json()["customer"]["id"], reference.name)
+		self.assertEqual(
+			frappe.db.get_value("Contact", identity.contact, "last_name"),
+			"Vale",
+		)
+		self.assertEqual(frappe.db.get_value("Contact", peer_identity.contact, "last_name"), "Stone")
+		self.assertEqual(
+			frappe.db.get_value("Customer", peer_identity.customer, "customer_name"), "Aria Stone"
+		)
+		self.assertEqual(self._stored_metadata(peer_reference), {"loyalty_tier": "gold"})
+		self.assertEqual(self._stamps(peer_identity, peer_reference), peer_before)

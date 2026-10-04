@@ -1,4 +1,4 @@
-"""Thin Medusa Store Customer endpoints (Phase 1: create and retrieve)."""
+"""Thin Medusa Store Customer endpoints (Phase 2: create, retrieve, update)."""
 
 from typing import Any
 
@@ -14,7 +14,12 @@ from ceto.services.auth.tokens import (
 from ceto.services.customers.creation import create_customer_profile
 from ceto.services.customers.identity import resolve_customer_reference
 from ceto.services.customers.serialization import CustomerSerializer
-from ceto.types.http.store.customers import StoreCreateCustomer, StoreGetCustomerParams
+from ceto.services.customers.update import update_customer as apply_customer_update
+from ceto.types.http.store.customers import (
+	StoreCreateCustomer,
+	StoreGetCustomerParams,
+	StoreUpdateCustomer,
+)
 
 
 @ceto_router.post("/store/customers", allow_guest=True)
@@ -70,3 +75,31 @@ def retrieve_customer(**query: Any) -> dict[str, Any]:
 	identity, reference = resolve_customer_reference(frappe.session.user)
 	customer = CustomerSerializer.serialize(identity, reference).model_dump(mode="json")
 	return {"customer": CustomerSerializer.select_fields(customer, params.fields)}
+
+
+@ceto_router.post("/store/customers/me")
+def update_customer(fields: str | None = None, **payload: Any) -> dict[str, Any]:
+	"""Medusa ``update``: apply the body to the authenticated customer's profile.
+
+	Not guest-dispatchable: the router refuses every request without a
+	customer session before this handler runs (like ``retrieve``). A normal
+	``auth``-purpose bearer token authenticates through the shared auth hook —
+	``registration`` and password-reset tokens never authenticate — and a
+	session user whose identity chain or ``Ceto Customer Reference`` cannot
+	resolve is masked as the same ``401 unauthorized`` before any privileged
+	write.
+
+	``email`` is not part of the pinned ``StoreUpdateCustomer`` payload (the
+	login identity changes through the auth verification flow), so an
+	``email`` key — like every unknown field — is refused with
+	``400 invalid_data`` before anything is resolved or written. The pinned
+	``SelectParams`` ``fields`` selector projects the freshly serialized
+	customer *after* the update ran: an invalid selector fails the request and
+	the router rolls the whole update back.
+	"""
+	CustomerPublishableKey.from_request()
+	validated = StoreUpdateCustomer.model_validate(payload)
+	identity, reference = resolve_customer_reference(frappe.session.user)
+	apply_customer_update(identity, reference, validated)
+	customer = CustomerSerializer.serialize(identity, reference).model_dump(mode="json")
+	return {"customer": CustomerSerializer.select_fields(customer, fields)}

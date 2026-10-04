@@ -8,7 +8,8 @@
  "field_order": [
   "order_id",
   "sales_order",
-  "cart_id"
+  "cart_id",
+  "owner_customer"
  ],
  "fields": [
   {
@@ -35,11 +36,18 @@
    "reqd": 1,
    "search_index": 1,
    "unique": 1
+  },
+  {
+   "fieldname": "owner_customer",
+   "fieldtype": "Link",
+   "label": "Owner Customer",
+   "options": "Customer",
+   "search_index": 1
   }
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-10-02 00:00:00.000000",
+ "modified": "2026-10-04 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Ceto",
  "name": "Ceto Order Reference",

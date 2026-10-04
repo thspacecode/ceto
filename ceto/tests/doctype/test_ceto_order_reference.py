@@ -111,6 +111,27 @@ class TestCetoOrderReference(CetoTestSuite):
 		with self.assertRaises(frappe.exceptions.UniqueValidationError):
 			self._make_order_reference()
 
+	def test_snapshots_the_effective_owner(self) -> None:
+		self.sales_order = self._complete_cart()
+		reference = self._make_order_reference(owner_customer=self.masters.customer)
+
+		self.assertEqual(
+			frappe.db.get_value("Ceto Order Reference", reference.name, "owner_customer"),
+			self.masters.customer,
+		)
+
+	def test_guest_orders_carry_no_owner_snapshot(self) -> None:
+		self.sales_order = self._complete_cart()
+		reference = self._make_order_reference()
+
+		self.assertIsNone(reference.owner_customer)
+
+	def test_rejects_an_unknown_owner_customer(self) -> None:
+		self.sales_order = self._complete_cart()
+
+		with self.assertRaises(frappe.exceptions.LinkValidationError):
+			self._make_order_reference(owner_customer=f"Ceto Missing Customer {uuid.uuid4().hex[:8]}")
+
 	def test_rejects_unknown_sales_order(self) -> None:
 		self.sales_order = self._complete_cart()
 		with self.assertRaises(frappe.exceptions.ValidationError):

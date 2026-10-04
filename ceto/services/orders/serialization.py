@@ -4,11 +4,17 @@ The completion flow books a ``Ceto Order Reference`` (the public ``order_…``
 id), maps the submitted cart Quotation into a submitted ERPNext Sales Order
 and consumes the cart's credit holds. This module reads that state back:
 
-- Identity and cart context (region, sales channel, customer, metadata) come
-  from the completed cart's ``Ceto Cart Reference``. The cart's ``locale``
+- Identity and cart context (region, sales channel, metadata) come from the
+  completed cart's ``Ceto Cart Reference``. The cart's ``locale``
   is deliberately **not** carried over: the pinned ``StoreOrder`` of
   ``@medusajs/types@2.21.1`` has no locale column — it is a cart-only
   column — so the order never reports one.
+- Ownership (the Medusa ``customer_id``) comes from the order reference's
+  effective owner (``OrderOwnership``): the ``owner_customer`` snapshot the
+  completion booked, with the completed cart as the legacy fallback. The
+  completion snapshots the cart's owner at birth, so the serialized order
+  is unchanged by the switch — for records born with the snapshot and for
+  Phase 6 legacy rows alike.
 - Money, lines, addresses and the applied shipping charge come from the
   Sales Order the ERPNext mapper produced — nothing is re-derived here.
 - The consumed credit holds (order-credit reads via
@@ -41,6 +47,7 @@ from ceto.services.carts.addresses import serialize_address
 from ceto.services.carts.credits import CartCredits
 from ceto.services.carts.serialization import CartSerializer
 from ceto.services.carts.shipping import AppliedShippingCharge, CartShipping
+from ceto.services.orders.ownership import OrderOwnership
 from ceto.types.http.store.orders import (
 	StoreOrder,
 	StoreOrderAddress,
@@ -98,7 +105,7 @@ class OrderSerializer:
 		return StoreOrder(
 			id=order_reference.order_id,
 			region_id=reference.region_id or None,
-			customer_id=reference.owner_customer or None,
+			customer_id=OrderOwnership.effective_owner(order_reference),
 			sales_channel_id=reference.sales_channel_id or None,
 			email=sales_order.contact_email or None,
 			currency_code=sales_order.currency.lower(),

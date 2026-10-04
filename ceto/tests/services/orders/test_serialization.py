@@ -103,6 +103,8 @@ class TestOrderSerialization(CetoTestSuite):
 		self.assertEqual(order["status"], "pending")
 		self.assertEqual(order["payment_status"], "not_paid")
 		self.assertEqual(order["fulfillment_status"], "not_fulfilled")
+		# A guest order has no owner: the unguessable id is its capability.
+		self.assertIsNone(order["customer_id"])
 		# The cart's locale is a cart-only column: the pinned StoreOrder has
 		# no locale, so the order never reports one.
 		self.assertNotIn("locale", order)

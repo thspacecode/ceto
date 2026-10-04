@@ -14,6 +14,16 @@ class CetoOrderReference(Document):
 	Quotation has left the draft state every cart route requires — so the
 	replay lookup by ``cart_id`` is the only way back to the order.
 
+	``owner_customer`` snapshots the effective owner (the Medusa
+	``customer_id``) at completion time: the completing transaction books it
+	from the cart's ownership, so the order's owner is fixed at birth and
+	stays independent of the immutable cart history afterwards. Guest orders
+	carry no owner. References completed before the column existed resolve
+	their effective owner from the completed cart instead (one-time
+	selection: :mod:`ceto.services.orders.ownership` and the backfill
+	patch); the Sales Order's own customer links are never ownership
+	evidence.
+
 	Validate pins the record to a *real* completion: the referenced Sales
 	Order must be submitted and must descend from the cart's Quotation
 	(every mapped row points back at it), and the cart must actually have

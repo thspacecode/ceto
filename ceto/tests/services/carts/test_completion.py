@@ -18,6 +18,7 @@ import frappe
 from frappe.utils import add_to_date, flt, getdate, today
 
 from ceto.routing.exceptions import InvalidDataError, RouteNotFoundError
+from ceto.services.carts.claim import CartClaim
 from ceto.services.carts.completion import (
 	EMPTY_CART,
 	INSUFFICIENT_STOCK,
@@ -162,6 +163,8 @@ class TestCartCompletionService(CetoTestSuite):
 		stored = self._order_reference(reference.cart_id)
 		self.assertEqual(stored.name, response.order.id)
 		self.assertEqual(stored.cart_id, reference.cart_id)
+		# A guest order is ownerless: the unguessable id is its capability.
+		self.assertIsNone(stored.owner_customer)
 		sales_order = frappe.get_doc("Sales Order", stored.sales_order)
 		self.assertEqual(sales_order.docstatus, 1)
 		self.assertEqual(sales_order.order_type, "Shopping Cart")
@@ -172,6 +175,20 @@ class TestCartCompletionService(CetoTestSuite):
 		self.assertTrue(sales_order.items)
 		for row in sales_order.items:
 			self.assertEqual(row.prevdoc_docname, quotation.name)
+
+	def test_completion_snapshots_the_claiming_customer_as_the_order_owner(self) -> None:
+		# The owner snapshot rides the settle: it is booked with the order
+		# reference inside the same locked transaction (orders Recorded
+		# Decision 2), so the placed order already reports the owner.
+		email, customer = make_customer_with_user("snapshot")
+		reference, _quotation = self._cart()
+		with self.set_conf(ceto_cart=self.masters.configuration), self.set_user(email):
+			CartClaim().claim(reference.cart_id)
+			response = self.completion.complete(reference.cart_id, StoreCompleteCart())
+
+		stored = self._order_reference(reference.cart_id)
+		self.assertEqual(stored.owner_customer, customer)
+		self.assertEqual(response.order.customer_id, customer)
 
 	def test_order_carries_the_cart_context_and_the_stored_pricing(self) -> None:
 		reference, quotation = self._cart()

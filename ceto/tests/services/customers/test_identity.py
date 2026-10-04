@@ -2,8 +2,9 @@
 
 Pins the resolver contract on the test site: enabled Website User gate, the
 explicit User → Contact.user → Customer Dynamic Link path, exactly one
-resulting Customer, and unauthorized refusals for zero, partial, ambiguous
-and privileged identities.
+resulting Customer, unauthorized refusals for zero, partial, ambiguous and
+privileged identities, and the read-time check that the resolved Ceto
+Customer Reference names the chain's own Customer.
 """
 
 import uuid
@@ -11,7 +12,11 @@ import uuid
 import frappe
 
 from ceto.routing.exceptions import UnauthorizedError
-from ceto.services.customers.identity import resolve_customer_identity
+from ceto.services.customers.creation import create_customer_profile
+from ceto.services.customers.identity import (
+	resolve_customer_identity,
+	resolve_customer_reference,
+)
 from ceto.tests.data.customer_test_data import THROTTLE_USER_LIMIT, make_chain, make_customer, new_identity
 from ceto.tests.utils import CetoTestSuite
 
@@ -82,6 +87,25 @@ class TestCustomerIdentity(CetoTestSuite):
 			resolve_customer_identity(email)
 
 		self.assertEqual(str(raised.exception), MULTIPLE_CUSTOMERS_MESSAGE)
+
+	def test_masks_a_reference_drifted_off_the_identity_chain(self) -> None:
+		# Defense in depth at read time: the reference resolved by user must
+		# also name the chain's Customer. The write-time validate pins the
+		# pair, so only a drift outside the ORM (direct db write here) can
+		# detach them — and the mismatch is masked like any other refusal.
+		with self.set_conf(throttle_user_limit=THROTTLE_USER_LIMIT):
+			email = new_identity("drifted-reference")
+			_identity, reference = create_customer_profile(email)
+			with self.subTest("matching reference resolves"):
+				self.assertEqual(resolve_customer_reference(email)[1].name, reference.name)
+
+			other = make_customer("drifted-reference")
+			frappe.db.set_value("Ceto Customer Reference", reference.name, "customer", other)
+
+			with self.assertRaises(UnauthorizedError) as raised:
+				resolve_customer_reference(email)
+
+		self.assertEqual(str(raised.exception), NO_CUSTOMER_MESSAGE)
 
 	def test_requires_an_enabled_website_user(self) -> None:
 		with self.set_conf(throttle_user_limit=THROTTLE_USER_LIMIT):

@@ -66,11 +66,13 @@ Medusa Store route (publishable-key policy: boundary validation only, see the
 recorded decisions in `field-mapping.md`).
 
 - **Route 1** (`POST /store/customers`) authenticates with the single-purpose
-  `registration` bearer token issued by `POST /auth/customer/{auth_provider}`
-  (register). Ceto's register route creates neither User nor Customer, so the
-  create call is the first step that mints the customer identity. The token is
-  purpose-bound (`purpose: registration`): an `auth`-purpose token never
-  authenticates it, and the replay policy is a recorded decision (below).
+  `registration` bearer token issued by
+  `POST /auth/customer/{auth_provider}/register`. That register route creates
+  only the login Website User — never the ERP Customer profile — so the
+  create call is the step that completes the registration by minting the
+  profile. The token is purpose-bound (`purpose: registration`): an
+  `auth`-purpose token never authenticates it, and the replay policy is a
+  recorded decision (below).
 - **Routes 2–8** authenticate the customer (Frappe session cookie or
   `auth`-purpose bearer token). A guest request fails with `401 unauthorized`,
   as does a session user with no Customer linked through its `Contact` (the

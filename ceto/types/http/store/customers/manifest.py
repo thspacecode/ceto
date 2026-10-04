@@ -17,8 +17,9 @@ unlike the carts manifest — no route needs a raw HTTP client.
 
 Authentication follows the SDK route docs: every Store route requires the
 publishable key; ``POST /store/customers`` requires the single-purpose
-``registration`` bearer token issued by the register auth route (Ceto creates
-neither User nor Customer there — see ``ceto/services/auth/tokens.py``);
+``registration`` bearer token issued by the register auth route (registration
+mints only the login Website User there, not the ERP Customer profile — see
+``ceto/services/auth/registration.py`` and ``ceto/services/auth/tokens.py``);
 every ``/me`` route requires an authenticated customer (session or bearer).
 """
 
@@ -71,8 +72,8 @@ class CustomerRoute:
 
 CUSTOMER_ROUTES: tuple[CustomerRoute, ...] = (
 	# Registration completes through the customers API: the register auth
-	# route only issues the single-purpose registration token, so the create
-	# call is the first route that mints the customer identity.
+	# route mints only the login Website User and its single-purpose
+	# registration token, so the create call mints the ERP Customer profile.
 	CustomerRoute(
 		method="POST",
 		path="/store/customers",

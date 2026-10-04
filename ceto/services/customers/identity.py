@@ -98,10 +98,18 @@ def resolve_customer_reference(user: str) -> tuple[CustomerIdentity, "Document"]
 	(recorded decision 1): a chain that resolves without one — a pre-existing
 	ERPNext account linked outside Ceto — has no contract-safe public id, so
 	it is masked exactly like the other unresolvable identities instead of
-	leaking that the account exists.
+	leaking that the account exists. Defense in depth at read time: the
+	reference found by user must also name the chain's own Customer; a row
+	that drifted away from the chain is refused exactly the same way.
 	"""
 	identity = resolve_customer_identity(user)
 	reference_name = frappe.db.get_value("Ceto Customer Reference", {"user": identity.user})
 	if not reference_name:
 		raise UnauthorizedError("No customer account is linked to this user")
-	return identity, frappe.get_doc("Ceto Customer Reference", reference_name)
+	reference = frappe.get_doc("Ceto Customer Reference", reference_name)
+	if reference.customer != identity.customer:
+		# The write-time validate pins a reference to the chain's Customer;
+		# only drift outside the ORM can detach them, and this identity must
+		# not bless it — masked like every other unresolvable identity.
+		raise UnauthorizedError("No customer account is linked to this user")
+	return identity, reference

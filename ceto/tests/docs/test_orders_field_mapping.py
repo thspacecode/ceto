@@ -5,7 +5,9 @@ classifications, recorded decisions and the upstream-facts/Ceto-decisions
 distinction exist so later phases can rely on the document, plus phrase-level
 guards for the decisions that supersede or harden against the preliminary
 PRD (ownership independent of cart history, digest-only tokens, the 7-day
-Ceto lifetime, requester semantics, capability-based retrieval).
+Ceto lifetime, requester semantics, capability-based retrieval) and the list
+``status`` filter hardening, whose pinned ``OrderStatus`` union is compared
+against the code's own Literal so document and implementation cannot drift.
 """
 
 import re
@@ -21,10 +23,19 @@ MANIFEST = (
 	Path(__file__).resolve().parents[3] / "ceto" / "types" / "http" / "store" / "orders" / "manifest.py"
 )
 
+ENTITIES = (
+	Path(__file__).resolve().parents[3] / "ceto" / "types" / "http" / "store" / "orders" / "entities.py"
+)
+
 DAY_COUNT_RE = re.compile(r"\b(\d+)[ -]days?\b")
 LIFETIME_TITLE_RE = re.compile(r"\*\*Lifetime — (\d+) days")
 LIFETIME_SENTENCE_RE = re.compile(r"expires \*\*(\d+) days after its request was created\*\*")
 MANIFEST_LIFETIME_RE = re.compile(r"^ORDER_TRANSFER_LIFETIME_DAYS\s*=\s*(\d+)\s*$", re.MULTILINE)
+
+#: The doc's pinned ``OrderStatus`` union list versus the code Literal the
+#: ``StoreOrderFilters.status`` validation actually restricts to.
+DOC_ORDER_STATUS_UNION_RE = re.compile(r"`OrderStatus` = `([^`]+)`")
+CODE_ORDER_STATUS_RE = re.compile(r"^OrderStatus = Literal\[(.*?)\]\s*$", re.MULTILINE)
 
 REQUIRED_SECTIONS = (
 	"Pinned routes (Phase 0)",
@@ -250,6 +261,42 @@ class TestOrdersFieldMappingDoc(unittest.TestCase):
 		self.assertEqual(LIFETIME_TITLE_RE.findall(self.text), ["7"])
 		self.assertEqual(LIFETIME_SENTENCE_RE.findall(self.text), ["7"])
 		self.assertEqual(MANIFEST_LIFETIME_RE.findall(MANIFEST.read_text()), ["7"])
+
+	def test_status_filter_union_hardening_is_recorded(self):
+		"""The deliberate hardening and the upstream behavior it supersedes are
+		both stated: the runtime validator accepts any string and yields an
+		empty page, Ceto rejects out-of-union statuses as invalid data."""
+		self.assertIn("looser than that pinned type", self.flat)
+		self.assertIn("accepts any string", self.flat)
+		self.assertIn("yields an empty page", self.flat)
+		self.assertIn("validated against the pinned union", self.flat)
+		self.assertIn("deliberate behavioral hardening", self.flat)
+		self.assertIn("400 invalid_data", self.flat)
+
+	def test_list_query_surface_decision_pins_the_status_union_hardening(self):
+		decision = next(
+			" ".join((title + " " + body).split()).lower()
+			for title, body in recorded_decisions(self.text)
+			if "list query surface" in title.lower()
+		)
+		self.assertIn("orderstatus", decision)
+		self.assertIn("hardening", decision)
+		self.assertIn("accepts any string", decision)
+		self.assertIn("empty page", decision)
+		self.assertIn("400 invalid_data", decision)
+
+	def test_doc_status_union_matches_the_code_union(self):
+		"""Mechanical drift pin: the union the hardening note restricts to must
+		stay identical to the ``OrderStatus`` Literal the filters validate with
+		(source-parsed, per the module comment above about imports)."""
+		doc_unions = DOC_ORDER_STATUS_UNION_RE.findall(self.text)
+		self.assertEqual(len(doc_unions), 1)
+		doc_members = [member.strip() for member in doc_unions[0].split("|")]
+		code_match = CODE_ORDER_STATUS_RE.search(ENTITIES.read_text())
+		self.assertIsNotNone(code_match)
+		code_members = re.findall(r'"([^"]+)"', code_match.group(1))
+		self.assertTrue(code_members)
+		self.assertEqual(doc_members, code_members)
 
 	def test_transfer_requester_semantics_supersede_the_prd(self):
 		"""The payload has no recipient: the requester seeks ownership for themselves."""

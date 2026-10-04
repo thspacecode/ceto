@@ -239,6 +239,11 @@ difference.
 - `StoreOrderFilters` pins exactly two domain filters, `id` and `status`,
   each a single value or a list (`status` over the pinned `OrderStatus`
   union); the server validator adds `$and`/`$or` combinators on top.
+- The runtime server validator is looser than that pinned type: it checks
+  only that each `status` value is a string, never that it is an
+  `OrderStatus` member — an unknown status such as `?status=shelved` is
+  accepted upstream and simply matches nothing, yielding an empty
+  `{orders: [], count: 0, …}` page.
 - Pagination rides `FindParams`: `fields` (`SelectParams`), `limit`,
   `offset`, `order` (sort expression), `with_deleted`; the server validator
   defaults to `offset: 0, limit: 50`.
@@ -267,6 +272,17 @@ difference.
   client `order` sort expressions and `with_deleted` (Ceto has no soft
   delete) are **rejected as `400 invalid_data`** instead of silently ignored
   — a client must never receive a page it cannot reproduce.
+- **`status` values are validated against the pinned union**: unlike the
+  runtime validator above, Ceto enforces the `OrderStatus` union the
+  TypeScript type pins — an unknown status (`?status=shelved`, or one bad
+  member inside a list) is rejected as `400 invalid_data` instead of being
+  accepted and filtered into a silently empty page. This is a deliberate
+  behavioral hardening beyond the server's runtime validation: Ceto honors
+  the pinned `@medusajs/types` contract rather than the looser server
+  implementation, and the rationale matches the rejected combinators — a
+  malformed query must fail loudly, not masquerade as an empty order
+  history. Union members other than the reported `pending` still match
+  nothing, exactly as upstream (see Status mapping).
 - `fields` behaves as on the cart routes (same `fields` selector
   implementation).
 
@@ -447,7 +463,12 @@ the orders surface:
    the upstream pagination defaults (`limit` 50, `offset` 0) and the pinned
    `{orders, count, offset, limit}` envelope; `$and`/`$or`, client `order`
    expressions and `with_deleted` are rejected as `400 invalid_data` rather
-   than ignored.
+   than ignored. `status` values are validated against the pinned
+   `OrderStatus` union — a deliberate behavioral hardening beyond the
+   runtime server validator, which accepts any string and would yield an
+   empty page for an unknown status, where Ceto rejects it as
+   `400 invalid_data` instead (union members other than the reported
+   `pending` still match nothing, per Decision 6).
 9. **Transfer requester semantics (PRD superseded)** — the pinned
    `StoreRequestOrderTransfer` payload carries no recipient identifier, so a
    transfer is initiated by the authenticated customer seeking ownership of a

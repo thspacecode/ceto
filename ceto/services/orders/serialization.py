@@ -58,6 +58,9 @@ from ceto.types.http.store.orders import (
 if TYPE_CHECKING:
 	from frappe.model.document import Document
 
+	from ceto.services.carts.credits import AppliedCredit
+	from ceto.services.orders.context import OrderPageContext
+
 
 class OrderSerializer:
 	"""Serialize the placed order of a completed cart from its records."""
@@ -67,23 +70,30 @@ class OrderSerializer:
 		order_reference: "Document",
 		sales_order: "Document",
 		reference: "Document",
+		*,
+		context: "OrderPageContext | None" = None,
 	) -> dict[str, Any]:
 		"""Return the pinned ``StoreOrder`` JSON for the completed cart.
 
 		``order_reference`` is the ``Ceto Order Reference`` the completion
 		booked, ``sales_order`` the ERPNext identity it stands for and
 		``reference`` the completed cart's ``Ceto Cart Reference`` (the cart
-		context the Sales Order never carried).
+		context the Sales Order never carried). ``context`` is an optional
+		:class:`OrderPageContext` that serves the child reads (line
+		mappings, addresses, consumed credits, shipping rule) from bulk
+		loads; without one every lookup happens per order — the output is
+		identical either way.
 		"""
-		return self._order(order_reference, sales_order, reference).model_dump(mode="json")
+		return self._order(order_reference, sales_order, reference, context).model_dump(mode="json")
 
 	@staticmethod
 	def _order(
 		order_reference: "Document",
 		sales_order: "Document",
 		reference: "Document",
+		context: "OrderPageContext | None" = None,
 	) -> StoreOrder:
-		shipping_charge = CartShipping.applied_charge(sales_order)
+		shipping_charge = OrderSerializer._shipping_charge(sales_order, context)
 		shipping_total = flt(shipping_charge.amount) if shipping_charge else 0.0
 		deduction_rows = CartCredits.deduction_rows(sales_order)
 		deduction_total = flt(sum(flt(row.tax_amount) for row in deduction_rows))
@@ -94,7 +104,7 @@ class OrderSerializer:
 		item_subtotal = flt(sales_order.net_total)
 		original_item_subtotal = flt(sales_order.total)
 		discount_total = flt(sales_order.discount_amount)
-		credits = CartCredits.consumed_credits(reference.quotation)
+		credits = OrderSerializer._consumed_credits(reference, context)
 		gift_card_total = flt(sum(credit.amount for credit in credits if credit.reference == "gift-card"))
 		# Every consumed hold — gift card or store credit — is one credit
 		# line of the order (it includes ``gift_card_total``).
@@ -110,8 +120,8 @@ class OrderSerializer:
 			email=sales_order.contact_email or None,
 			currency_code=sales_order.currency.lower(),
 			metadata=json.loads(reference.metadata) if reference.metadata else None,
-			billing_address=OrderSerializer._order_address(sales_order.customer_address),
-			shipping_address=OrderSerializer._order_address(sales_order.shipping_address_name),
+			billing_address=OrderSerializer._order_address(sales_order.customer_address, context),
+			shipping_address=OrderSerializer._order_address(sales_order.shipping_address_name, context),
 			created_at=get_datetime(order_reference.creation),
 			updated_at=get_datetime(order_reference.modified),
 			items=OrderSerializer._items(
@@ -120,6 +130,7 @@ class OrderSerializer:
 				sales_order,
 				shipping_charge,
 				exclude_tax_rows,
+				context,
 			),
 			shipping_methods=OrderSerializer._shipping_methods(order_reference, shipping_charge),
 			original_item_total=original_item_subtotal + tax_total,
@@ -147,9 +158,29 @@ class OrderSerializer:
 		)
 
 	@staticmethod
-	def _order_address(address_name: str | None) -> StoreOrderAddress | None:
+	def _shipping_charge(
+		sales_order: "Document", context: "OrderPageContext | None"
+	) -> "AppliedShippingCharge | None":
+		"""Resolve the applied Shipping Rule charge, page-context aware."""
+		if context is not None:
+			return context.shipping_charge(sales_order)
+		return CartShipping.applied_charge(sales_order)
+
+	@staticmethod
+	def _consumed_credits(
+		reference: "Document", context: "OrderPageContext | None"
+	) -> "list[AppliedCredit]":
+		"""Resolve the consumed credit holds, page-context aware."""
+		if context is not None:
+			return context.consumed_credits(reference.quotation)
+		return CartCredits.consumed_credits(reference.quotation)
+
+	@staticmethod
+	def _order_address(
+		address_name: str | None, context: "OrderPageContext | None"
+	) -> StoreOrderAddress | None:
 		"""Serialize a linked Address as the order's pinned address type."""
-		address = serialize_address(address_name)
+		address = context.address(address_name) if context is not None else serialize_address(address_name)
 		if address is None:
 			return None
 		return StoreOrderAddress.model_validate(address.model_dump())
@@ -161,6 +192,7 @@ class OrderSerializer:
 		sales_order: "Document",
 		shipping_charge: AppliedShippingCharge | None = None,
 		exclude_tax_rows: set[str] | None = None,
+		context: "OrderPageContext | None" = None,
 	) -> list[StoreOrderLineItem]:
 		"""Serialize mapped Sales Order rows in row order, keeping line ids.
 
@@ -174,14 +206,16 @@ class OrderSerializer:
 		Line timestamps stay the cart line's: the order line is the same
 		commerce line placed.
 		"""
-		mappings = {
-			mapping.quotation_item: mapping
-			for mapping in frappe.get_all(
+		rows = (
+			context.line_references(reference.name)
+			if context is not None
+			else frappe.get_all(
 				"Ceto Cart Line Item Reference",
 				filters={"cart_reference": reference.name},
 				fields=["name", "line_id", "quotation_item", "metadata", "creation", "modified"],
 			)
-		}
+		)
+		mappings = {mapping.quotation_item: mapping for mapping in rows}
 		items: list[StoreOrderLineItem] = []
 		tax_allocations = CartSerializer.line_tax_allocations(sales_order, exclude_tax_rows)
 		for row in sales_order.items:

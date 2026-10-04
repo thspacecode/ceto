@@ -48,18 +48,29 @@ class CartShipping:
 	"""Locate the Shipping Rule charge ERPNext calculated on a Quotation."""
 
 	@classmethod
-	def applied_charge(cls, quotation: "Document") -> "AppliedShippingCharge | None":
+	def applied_charge(
+		cls,
+		quotation: "Document",
+		*,
+		rules: "dict[str, Document | dict | None] | None" = None,
+	) -> "AppliedShippingCharge | None":
 		"""Return the applied rule's ``Actual`` charge row, or ``None``.
 
 		``None`` means there is no shipping to report: no rule linked, the
 		rule master gone, or the charge row absent (an itemless cart — ERPNext
 		never applies the rule there). The Quotation carries exactly one
 		``shipping_rule`` link, so there is at most one such row.
+		``rules`` is a preloaded rule-name → rule-fields map for bulk readers;
+		a miss there behaves like a rule deleted from the master.
 		"""
 		rule = quotation.get("shipping_rule")
 		if not rule:
 			return None
-		applied = frappe.db.get_value("Shipping Rule", rule, RULE_FIELDS, as_dict=True)
+		applied = (
+			rules.get(rule)
+			if rules is not None
+			else frappe.db.get_value("Shipping Rule", rule, RULE_FIELDS, as_dict=True)
+		)
 		if not applied:
 			return None
 		row = cls._charge_row(quotation, applied)

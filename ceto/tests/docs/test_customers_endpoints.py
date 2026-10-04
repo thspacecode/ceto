@@ -2,8 +2,8 @@
 
 The customer route manifest is drifted against its documented route inventory
 (this doc) and the README route table; the implemented surface is additionally
-drifted against the router in ``ceto.tests.routing.test_router``. Phase 1
-implements routes 1-2, so the doc, the README and the implemented-routes
+drifted against the router in ``ceto.tests.routing.test_router``. Phase 2
+implements routes 1-3, so the doc, the README and the implemented-routes
 section must all agree on exactly that subset — any change to the manifest,
 the doc or the README customers section must land in all three or these tests
 fail.
@@ -19,7 +19,11 @@ APP_ROOT = Path(__file__).resolve().parents[3]
 DOC = APP_ROOT / "docs" / "customers" / "endpoints.md"
 README = APP_ROOT / "README.md"
 
-IMPLEMENTED_ROUTES = (("POST", "/store/customers"), ("GET", "/store/customers/me"))
+IMPLEMENTED_ROUTES = (
+	("POST", "/store/customers"),
+	("GET", "/store/customers/me"),
+	("POST", "/store/customers/me"),
+)
 
 METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
 
@@ -107,9 +111,9 @@ class TestCustomersEndpointsDoc(unittest.TestCase):
 		self.assertIn("@medusajs/types@2.21.1", self.text)
 		self.assertIn("https://docs.medusajs.com/api/store/customers", self.text)
 
-	def test_doc_records_the_phase_1_implementation_status(self):
-		self.assertIn("Phase 1 registers the first two routes", self.text)
-		self.assertIn("routes 3-8 stay contract-only", self.text)
+	def test_doc_records_the_phase_2_implementation_status(self):
+		self.assertIn("Phase 2 registers the first three routes", self.text)
+		self.assertIn("routes 4-8 stay contract-only", self.text)
 		self.assertEqual(parse_implemented_routes(self.text), list(IMPLEMENTED_ROUTES))
 
 	def test_readme_customers_table_matches_the_manifest(self):

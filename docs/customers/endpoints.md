@@ -1,10 +1,11 @@
 # Store Customer Endpoints — Source of Truth
 
 Phase 0 pinned the machine-readable contract manifest that implementation
-phases build against. **Phase 1 registers the first two routes** — `POST
-/store/customers` and `GET /store/customers/me` (see
-[Implemented routes](#implemented-routes)); routes 3-8 stay contract-only and
-the README keeps them at ⚪️. The coverage guard is the manifest drift test
+phases build against. **Phase 2 registers the first three routes** — `POST
+/store/customers`, `GET /store/customers/me` and `POST /store/customers/me`
+(see [Implemented routes](#implemented-routes)); routes 4-8 stay
+contract-only and the README keeps them at ⚪️. The coverage guard is the
+manifest drift test
 (`ceto.tests.types.http.store.test_customers_manifest`), the docs↔manifest
 inventory check (`ceto.tests.docs.test_customers_endpoints`) and the router
 surface check in `ceto.tests.routing.test_router`, which compares the
@@ -108,7 +109,7 @@ deletion semantics — are recorded with their sources in
 
 ## Implemented routes
 
-Phase 1 implements routes 1–2 only; routes 3-8 stay contract-only.
+Phase 2 implements routes 1–3; routes 4-8 stay contract-only.
 
 ### `POST /store/customers` — `ceto.api.store.customers.create_customer`
 
@@ -146,6 +147,50 @@ Phase 1 implements routes 1–2 only; routes 3-8 stay contract-only.
 - Same pinned `StoreCustomerResponse` shape and `fields` selector as the
   create route; the `addresses` relation always serializes (empty until the
   address-book phase).
+
+### `POST /store/customers/me` — `ceto.api.store.customers.update_customer`
+
+- Same authenticated gate as the retrieve route: the publishable key is
+  validated first and the router refuses guests before the handler runs; a
+  Frappe session or an `auth`-purpose bearer token authenticates through the
+  shared auth hook, while registration and password-reset tokens never do.
+- The identity chain and its `Ceto Customer Reference` resolve through the
+  shared resolver **before** any privileged write: no Contact chain, no
+  Customer or no reference is masked as the same `401 unauthorized` and
+  writes nothing. The update only ever reaches the authenticated customer's
+  own chain — a resolved peer profile is never touched.
+- The body validates against the pinned `StoreUpdateCustomer` before the
+  resolver runs. `email` is not part of the update contract (recorded
+  decision 3 — the login identity changes through the auth verification
+  flow), so an `email` key is refused like every unknown field with
+  `400 invalid_data`, alone or beside an otherwise valid update, and no
+  mutation happens.
+- The update is partial (`payload.model_fields_set`): an omitted field
+  leaves its stored value untouched; a present `null` — or a stripped empty
+  string, which the pinned payload model already normalized to `""` —
+  clears it. `first_name` / `last_name` / `company_name` are Contact
+  profile columns; an empty payload writes nothing at all.
+- `phone` moves the Contact's primary `phone_nos` child row (recorded
+  decision 2): the derived `Contact.phone` column is never written directly
+  — the Contact controller recomputes it from the primary flag on every
+  save. A clear releases the primary slot (any other row, e.g. a
+  CRM-managed number, survives); a new value promotes the row that already
+  carries the number or appends it as the only primary.
+- `metadata` merges with the shared reference semantics (recorded
+  decision 4): values merge per key, a `null` value removes a key and an
+  explicit `metadata: null` clears all keys; a no-op metadata change writes
+  nothing.
+- Every effective profile or metadata mutation also saves the `Customer`,
+  so `customer_name` recomposes from the effective names with the identity
+  email as fallback (recorded decision 2) and the contract's `updated_at`
+  advances. The saves stay unlocked inside the request transaction, so a
+  lost race surfaces as the standard optimistic-concurrency error.
+- The pinned `SelectParams` `fields` selector projects the freshly
+  serialized customer *after* the update ran: an invalid selector fails
+  with `400 invalid_data` and the router rolls the whole request back —
+  applied writes included.
+- Same pinned `StoreCustomerResponse` shape and serializer as routes 1–2;
+  the `addresses` relation always serializes.
 
 Every refusal above renders the Medusa error envelope
 (`{"type": "unauthorized" | "invalid_data", "message": …}`), with missing,

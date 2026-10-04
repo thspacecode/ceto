@@ -1,0 +1,283 @@
+"""Mechanical checks on docs/orders/field-mapping.md.
+
+These tests are deliberately shallow: they pin that the required sections,
+classifications, recorded decisions and the upstream-facts/Ceto-decisions
+distinction exist so later phases can rely on the document, plus phrase-level
+guards for the decisions that supersede or harden against the preliminary
+PRD (ownership independent of cart history, digest-only tokens, the 7-day
+Ceto lifetime, requester semantics, capability-based retrieval).
+"""
+
+import re
+import unittest
+from pathlib import Path
+
+DOC = Path(__file__).resolve().parents[3] / "docs" / "orders" / "field-mapping.md"
+
+# Read from source, not imported: importing the manifest initializes the
+# orders package, whose carts-before-orders import order constraint is
+# documented in the manifest test — a file read carries no such coupling.
+MANIFEST = (
+	Path(__file__).resolve().parents[3] / "ceto" / "types" / "http" / "store" / "orders" / "manifest.py"
+)
+
+DAY_COUNT_RE = re.compile(r"\b(\d+)[ -]days?\b")
+LIFETIME_TITLE_RE = re.compile(r"\*\*Lifetime — (\d+) days")
+LIFETIME_SENTENCE_RE = re.compile(r"expires \*\*(\d+) days after its request was created\*\*")
+MANIFEST_LIFETIME_RE = re.compile(r"^ORDER_TRANSFER_LIFETIME_DAYS\s*=\s*(\d+)\s*$", re.MULTILINE)
+
+REQUIRED_SECTIONS = (
+	"Pinned routes (Phase 0)",
+	"Order → ERPNext data sources",
+	"Status mapping",
+	"Authorization and ownership",
+	"Publishable-key scope",
+	"List filters and stable ordering",
+	"Transfer lifecycle",
+	"Deliberate omissions",
+	"Recorded Decisions",
+	"Phase 0 boundary",
+)
+
+ALLOWED_CLASSIFICATIONS = {"direct", "derived", "gap", "direct/derived"}
+
+REQUIRED_DECISION_KEYWORDS = (
+	("public id", "order reference"),
+	("owner_customer", "atomically"),
+	("cart reference", "backfill"),
+	("guest", "capability"),
+	("publishable-key scope", "404"),
+	("pending", "not_paid"),
+	("creation desc", "order_id asc"),
+	("$and", "invalid_data"),
+	("ceto_order_transfer_requested", "hook"),
+	("no recipient identifier", "requesting customer"),
+	("digest", "plaintext"),
+	("7-day", "not_allowed"),
+	("expiry", "not_allowed"),
+	("update_order_email", "never"),
+	("no custom fields",),
+)
+
+REQUIRED_CONCEPTS = (
+	("order_id", "Ceto Order Reference"),
+	("customer_id", "owner_customer"),
+	("owner_customer", "Ceto Order Reference"),
+	("currency_code", "Sales Order.currency"),
+	("items[]", "Sales Order Item"),
+	("shipping_methods[]", "Shipping Rule"),
+	("credit_line_total", "Ceto Cart Credit Reservation"),
+	("status", "pending"),
+	("token", "ceto_order_transfer_requested"),
+	("digest", "SHA-256"),
+)
+
+PINNED_ROUTES = (
+	"/store/orders/{id}",
+	"/store/orders",
+	"/store/orders/{id}/transfer/request",
+	"/store/orders/{id}/transfer/accept",
+	"/store/orders/{id}/transfer/cancel",
+	"/store/orders/{id}/transfer/decline",
+)
+
+VERIFICATION_SOURCES = (
+	"@medusajs/js-sdk@2.21.1",
+	"@medusajs/types@2.21.1",
+	"@medusajs/medusa@2.21.1",
+	"dist/store/index.js",
+	"dist/http/order/store/payloads.d.ts",
+	"dist/api/store/orders/middlewares.js",
+)
+
+TABLE_ROW_RE = re.compile(r"^\|[^|]+\|[^|]+\|[^|]+\|$")
+
+DECISION_RE = re.compile(r"^\d+\. \*\*(.+?)\*\*(.*?)(?=^\d+\. |\Z)", re.MULTILINE | re.DOTALL)
+
+#: The Phase 0 implementation must not regress to these preliminary-PRD claims.
+FORBIDDEN_PHRASES = (
+	# Ownership must live on the order reference, not the immutable cart.
+	"never copies it onto the order reference",
+	# Ceto never persists the plaintext transfer token.
+	"stores the single-use UUID token",
+	"no server-side expiry (upstream parity",
+)
+
+
+def mapping_rows(text: str) -> list[str]:
+	return [
+		line
+		for line in text.splitlines()
+		if TABLE_ROW_RE.match(line) and "classification" not in line.lower() and "---" not in line
+	]
+
+
+def recorded_decisions(text: str) -> list[tuple[str, str]]:
+	return re.findall(DECISION_RE, text)
+
+
+class TestOrdersFieldMappingDoc(unittest.TestCase):
+	@classmethod
+	def setUpClass(cls):
+		cls.text = DOC.read_text()
+		cls.flat = " ".join(cls.text.split())
+
+	def test_doc_exists_and_is_not_empty(self):
+		self.assertTrue(DOC.is_file())
+		self.assertGreater(len(self.text), 1000)
+
+	def test_required_sections_present(self):
+		for section in REQUIRED_SECTIONS:
+			with self.subTest(section=section):
+				self.assertIn(f"## {section}", self.text)
+
+	def test_every_mapping_row_uses_known_classification(self):
+		rows = mapping_rows(self.text)
+		self.assertGreaterEqual(len(rows), 12)
+		for row in rows:
+			classification = row.rsplit("|", 2)[-2].strip().lower()
+			with self.subTest(row=row):
+				self.assertIn(classification, ALLOWED_CLASSIFICATIONS)
+
+	def test_all_three_classifications_are_used(self):
+		used = {row.rsplit("|", 2)[-2].strip().lower() for row in mapping_rows(self.text)}
+		self.assertLessEqual({"direct", "derived", "gap"}, used)
+
+	def test_customer_id_maps_to_the_effective_owner(self):
+		"""``customer_id`` reads the order reference owner, with the legacy cart fallback."""
+		row = next(row for row in mapping_rows(self.text) if row.startswith("| `customer_id`"))
+		self.assertIn("Ceto Order Reference.owner_customer", row)
+		self.assertIn("Ceto Cart Reference.owner_customer", row)
+		self.assertIn("atomically", row)
+		self.assertIn("backfill", row)
+
+	def test_pinned_routes_are_all_documented(self):
+		for path in PINNED_ROUTES:
+			with self.subTest(path=path):
+				self.assertIn(f"`{path}`", self.text)
+
+	def test_verification_sources_are_cited(self):
+		for source in VERIFICATION_SOURCES:
+			with self.subTest(source=source):
+				self.assertIn(source, self.text)
+
+	def test_upstream_facts_and_ceto_decisions_are_distinguished(self):
+		self.assertGreaterEqual(self.text.count("**Upstream contract fact"), 4)
+		self.assertGreaterEqual(self.text.count("**Ceto decision"), 4)
+
+	def test_key_concepts_are_mapped(self):
+		for concept, target in REQUIRED_CONCEPTS:
+			with self.subTest(concept=concept):
+				self.assertIn(concept, self.text)
+				self.assertIn(target, self.text)
+
+	def test_thirteen_decisions_are_recorded(self):
+		decision_lines = re.findall(r"^\d+\. \*\*", self.text, re.MULTILINE)
+		self.assertEqual(len(decision_lines), 13)
+
+	def test_decisions_cover_required_topics(self):
+		decisions = recorded_decisions(self.text)
+		self.assertEqual(len(decisions), 13)
+		for keywords in REQUIRED_DECISION_KEYWORDS:
+			matched = any(all(k.lower() in (t + " " + b).lower() for k in keywords) for t, b in decisions)
+			with self.subTest(keywords=keywords):
+				self.assertTrue(matched)
+
+	def test_ownership_is_independent_of_cart_history(self):
+		"""The order-reference snapshot owns; the immutable cart is fallback only."""
+		decisions = {
+			title.lower(): " ".join((title + " " + body).split()).lower()
+			for title, body in recorded_decisions(self.text)
+			if "effective ownership" in title.lower() or "legacy ownership fallback" in title.lower()
+		}
+		self.assertEqual(len(decisions), 2)
+		ownership = next(text for title, text in decisions.items() if "effective ownership" in title)
+		self.assertIn("owner_customer", ownership)
+		self.assertIn("snapshot", ownership)
+		self.assertIn("atomically", ownership)
+		self.assertIn("never", ownership)
+		fallback = next(text for title, text in decisions.items() if "legacy ownership fallback" in title)
+		self.assertIn("owner_customer", fallback)
+		self.assertIn("snapshot", fallback)
+		self.assertIn("backfill", fallback)
+		self.assertIn("never the live source", fallback)
+
+	def test_transfer_token_is_never_persisted_as_plaintext(self):
+		"""Only a digest is stored; the plaintext is handed to the hook once."""
+		self.assertIn("SHA-256 digest", self.flat)
+		self.assertIn("discarded", self.flat)
+		self.assertIn("deliberately hardens", self.flat)
+		self.assertIn("upstream stores the plaintext token", self.flat)
+		storage = next(
+			" ".join((t + " " + b).split()).lower()
+			for t, b in recorded_decisions(self.text)
+			if "digest-only storage" in t.lower()
+		)
+		self.assertIn("ceto_order_transfer_requested", storage)
+		self.assertIn("digest", storage)
+		self.assertIn("plaintext", storage)
+		self.assertIn("discards", storage)
+
+	def test_transfer_lifetime_is_a_ceto_decision_not_upstream_parity(self):
+		matches = [
+			(t + " " + b).lower()
+			for t, b in recorded_decisions(self.text)
+			if "7-day" in (t + " " + b).lower()
+		]
+		self.assertEqual(len(matches), 1)
+		lifetime = " ".join(matches[0].split())
+		self.assertIn("not_allowed", lifetime)
+		self.assertIn("ceto decision", lifetime)
+		self.assertIn("from request creation", lifetime)
+		self.assertNotIn("upstream parity", lifetime)
+		self.assertNotIn("no server-side expiry", lifetime)
+
+	def test_expiry_decision_body_pins_exactly_seven_days(self):
+		"""The lifetime decision body states exactly 7 days — no other count."""
+		decisions = [
+			" ".join((title + " " + body).split()).lower()
+			for title, body in recorded_decisions(self.text)
+			if "lifetime" in title.lower()
+		]
+		self.assertEqual(len(decisions), 1)
+		self.assertEqual(set(DAY_COUNT_RE.findall(decisions[0])), {"7"})
+		self.assertIn("7-day lifetime", decisions[0])
+		self.assertIn("from request creation", decisions[0])
+
+	def test_lifetime_prose_and_manifest_constant_agree_on_seven_days(self):
+		"""The lifetime bullet, its expiry sentence and the manifest constant
+		all pin 7 days — any one drifting to another number fails."""
+		self.assertEqual(LIFETIME_TITLE_RE.findall(self.text), ["7"])
+		self.assertEqual(LIFETIME_SENTENCE_RE.findall(self.text), ["7"])
+		self.assertEqual(MANIFEST_LIFETIME_RE.findall(MANIFEST.read_text()), ["7"])
+
+	def test_transfer_requester_semantics_supersede_the_prd(self):
+		"""The payload has no recipient: the requester seeks ownership for themselves."""
+		self.assertIn("no recipient identifier", self.flat)
+		self.assertIn("requesting customer", self.flat)
+		self.assertIn("supersedes the PRD assumption", self.flat)
+		self.assertIn("stored on the transfer", self.flat)
+
+	def test_retrieval_stays_capability_based(self):
+		"""Exact upstream compatibility resolves the PRD's open auth question."""
+		self.assertIn("capability-based", self.flat)
+		self.assertIn("guest-accessible", self.flat)
+		self.assertIn("resolves the PRD's open authentication question", self.flat)
+		self.assertIn("goal language referred to authenticated customers", self.flat)
+
+	def test_no_preliminary_prd_claims_remain(self):
+		for phrase in FORBIDDEN_PHRASES:
+			with self.subTest(phrase=phrase):
+				self.assertNotIn(phrase, self.flat)
+
+	def test_phase_0_boundary_is_stated(self):
+		boundary = " ".join(self.text.split())
+		self.assertIn("No order route is registered or implemented yet", boundary)
+		self.assertIn("ceto/types/http/store/orders/manifest.py", self.text)
+
+	def test_no_custom_field_commitment(self):
+		self.assertIn("No Custom Fields", self.text)
+
+
+if __name__ == "__main__":
+	unittest.main()

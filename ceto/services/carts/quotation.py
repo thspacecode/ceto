@@ -1,6 +1,5 @@
 import secrets
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import Callable
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -14,10 +13,11 @@ from ceto.services.carts.addresses import CartAddresses
 from ceto.services.carts.configuration import CartConfiguration
 from ceto.services.carts.credits import CartCredits
 from ceto.services.carts.customers import CartCustomers
-from ceto.services.carts.line_items import CartLineItems, dump_metadata, merged_metadata
+from ceto.services.carts.line_items import CartLineItems
 from ceto.services.carts.promotions import CartPromotions
 from ceto.services.carts.shipping import CartShippingMethods
 from ceto.services.carts.taxes import CartTaxes
+from ceto.services.common import dump_metadata, merged_metadata, privileged_scope
 from ceto.types.http.store.carts import (
 	StoreAddCartLineItem,
 	StoreAddCartShippingMethods,
@@ -451,26 +451,3 @@ class CartService:
 	@staticmethod
 	def _new_cart_id() -> str:
 		return f"cart_{secrets.token_hex(16)}"
-
-
-@contextmanager
-def privileged_scope() -> Iterator[None]:
-	"""Run trusted ERPNext controller work as a temporary Administrator.
-
-	The flag alone cannot do this: ERPNext's ``account_perm_check`` resolves
-	through ``frappe.has_permission``, which grants only the Administrator
-	session user and ignores ``frappe.flags.ignore_permissions``. Both the
-	user and the flag are captured and exactly restored in ``finally``, so
-	scopes nest safely and leave no elevation behind. Authorization and
-	ownership checks must run outside this scope; only trusted persistence
-	work belongs inside it.
-	"""
-	previous_user = frappe.session.user
-	previous_flag = frappe.flags.ignore_permissions
-	frappe.set_user("Administrator")  # nosemgrep: frappe-setuser
-	frappe.flags.ignore_permissions = True
-	try:
-		yield
-	finally:
-		frappe.flags.ignore_permissions = previous_flag
-		frappe.set_user(previous_user)  # nosemgrep: frappe-setuser

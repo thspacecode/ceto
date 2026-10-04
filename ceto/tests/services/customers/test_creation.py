@@ -12,7 +12,7 @@ import uuid
 import frappe
 
 from ceto.routing.exceptions import UnauthorizedError
-from ceto.services.customers.creation import create_customer_profile
+from ceto.services.customers.creation import compose_customer_name, create_customer_profile
 from ceto.tests.data.customer_test_data import THROTTLE_USER_LIMIT, make_customer, new_identity
 from ceto.tests.utils import CetoTestSuite
 
@@ -84,6 +84,14 @@ class TestCustomerProfileCreation(CetoTestSuite):
 		identity, _reference = create_customer_profile(email)
 
 		self.assertEqual(frappe.db.get_value("Customer", identity.customer, "customer_name"), email)
+
+	def test_composes_the_customer_name_from_the_profile_names(self) -> None:
+		self.assertEqual(compose_customer_name("Aria", "Stone", "aria@example.com"), "Aria Stone")
+		self.assertEqual(compose_customer_name("Aria", None, "aria@example.com"), "Aria")
+		self.assertEqual(compose_customer_name(None, "Stone", "aria@example.com"), "Stone")
+		# Only a fully anonymous profile falls back to the identity email.
+		self.assertEqual(compose_customer_name(None, None, "aria@example.com"), "aria@example.com")
+		self.assertEqual(compose_customer_name("", None, "aria@example.com"), "aria@example.com")
 
 	def test_refuses_a_duplicate_create(self) -> None:
 		email = self._new_identity("duplicate")

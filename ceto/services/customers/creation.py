@@ -15,17 +15,27 @@ succeeded — a post-success callback at the HTTP boundary, not a step of the
 atomic profile creation.
 """
 
-import json
 from typing import TYPE_CHECKING, Any
 
 import frappe
 
 from ceto.ceto.doctype.ceto_customer_reference.ceto_customer_reference import mint_customer_id
 from ceto.routing.exceptions import UnauthorizedError
+from ceto.services.common import dump_metadata
 from ceto.services.customers.identity import CustomerIdentity, find_identity_chain
 
 if TYPE_CHECKING:
 	from frappe.model.document import Document
+
+
+def compose_customer_name(first_name: str | None, last_name: str | None, user: str) -> str:
+	"""Compose the Customer display name; the identity email is the fallback.
+
+	``customer_name`` is composed from the profile names with the email as
+	fallback (recorded decision 2 of ``docs/customers/field-mapping.md``);
+	ERPNext Customer names never appear in the customer contract.
+	"""
+	return " ".join(part for part in (first_name, last_name) if part) or user
 
 
 def create_customer_profile(
@@ -64,7 +74,7 @@ def create_customer_profile(
 	def insert_customer() -> "Document":
 		customer = frappe.new_doc("Customer")
 		customer.customer_type = "Individual"
-		customer.customer_name = " ".join(part for part in (first_name, last_name) if part) or user
+		customer.customer_name = compose_customer_name(first_name, last_name, user)
 		customer.customer_group = default_customer_group()
 		customer.territory = "All Territories"
 		customer.flags.ignore_permissions = True
@@ -121,7 +131,7 @@ def create_customer_profile(
 		reference.customer_id = mint_customer_id()
 		reference.customer = customer_name
 		reference.user = user
-		reference.metadata = json.dumps(metadata, separators=(",", ":"), sort_keys=True) if metadata else None
+		reference.metadata = dump_metadata(metadata)
 		try:
 			reference.insert(ignore_permissions=True)
 		except frappe.UniqueValidationError:

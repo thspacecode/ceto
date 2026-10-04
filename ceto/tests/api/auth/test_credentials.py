@@ -194,9 +194,11 @@ class TestCredentials(CetoTestSuite):
 		user.email = email
 		user.first_name = "Ceto Cred Test"
 		user.user_type = "Website User"
+		user.enabled = 1
 		user.send_welcome_email = 0
 		user.flags.ignore_permissions = True
-		user.insert()
+		with self.bypass_user_creation_throttle():
+			user.insert()
 
 	@staticmethod
 	def _request(path: str, method: str, **kwargs) -> Request:

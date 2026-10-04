@@ -11,21 +11,26 @@ import uuid
 
 import frappe
 
+from ceto.tests.testsuite import bypass_user_creation_throttle
+
 THROTTLE_USER_LIMIT = 100000
 
 
 def new_identity(label: str, *, user_type: str = "Website User") -> str:
 	"""Mint a login User like the registration flow; return its email."""
 	email = f"ceto.customers.{label}.{uuid.uuid4().hex[:8]}@example.com"
-	frappe.get_doc(
+	user = frappe.get_doc(
 		{
 			"doctype": "User",
 			"email": email,
 			"first_name": f"Customers {label}",
 			"user_type": user_type,
+			"enabled": 1,
 			"send_welcome_email": 0,
 		}
-	).insert(ignore_permissions=True)
+	)
+	with bypass_user_creation_throttle():
+		user.insert(ignore_permissions=True)
 	return email
 
 

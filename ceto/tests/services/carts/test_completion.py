@@ -466,13 +466,24 @@ class TestCartCompletionService(CetoTestSuite):
 			filters={"cart_reference": reference.name},
 			fields=["name", "quotation_item"],
 		)[0]
-		foreign_item = frappe.db.get_value(
-			"Quotation Item",
-			{"parent": ("!=", quotation.name), "parenttype": "Quotation"},
-			["name", "parent"],
-			as_dict=True,
-		)
-		self.assertIsNotNone(foreign_item)
+		# The foreign row comes from this module's own Quotation, built on
+		# the bootstrap masters — reading another test's leftover Quotation
+		# Item leaves the case empty (and None) on a clean site.
+		foreign_quotation = frappe.get_doc(
+			{
+				"doctype": "Quotation",
+				"quotation_to": "Customer",
+				"party_name": self.masters.customer,
+				"order_type": "Shopping Cart",
+				"company": self.masters.company,
+				"currency": frappe.db.get_value("Company", self.masters.company, "default_currency"),
+				"conversion_rate": 1,
+				"selling_price_list": self.masters.price_list,
+				"transaction_date": today(),
+				"items": [{"item_code": self.masters.other_item, "qty": 1}],
+			}
+		).insert(ignore_permissions=True)
+		foreign_item = foreign_quotation.items[0]
 		frappe.db.set_value(
 			"Ceto Cart Line Item Reference", mapping.name, "quotation_item", foreign_item.name
 		)

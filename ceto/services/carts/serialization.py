@@ -4,10 +4,10 @@ from typing import TYPE_CHECKING, Any
 import frappe
 from frappe.utils import flt, get_datetime
 
-from ceto.routing.exceptions import InvalidDataError
 from ceto.services.carts.addresses import serialize_address
 from ceto.services.carts.credits import AppliedCredit, CartCredits
 from ceto.services.carts.shipping import AppliedShippingCharge, CartShipping
+from ceto.services.serialization import select_fields
 from ceto.types.http.store.carts import (
 	StoreCart,
 	StoreCartCreditLine,
@@ -30,7 +30,7 @@ class CartSerializer:
 		fields: str | None = None,
 	) -> dict[str, Any]:
 		cart = self._cart(reference, quotation).model_dump(mode="json")
-		return self.select_fields(cart, fields)
+		return select_fields(cart, fields, entity="cart")
 
 	@staticmethod
 	def _cart(reference: "Document", quotation: "Document") -> StoreCart:
@@ -313,36 +313,3 @@ class CartSerializer:
 		if row.name in allocations:
 			return flt(allocations[row.name])
 		return flt(allocations.get(row.item_code))
-
-	@staticmethod
-	def select_fields(cart: dict[str, Any], fields: str | None, *, entity: str = "cart") -> dict[str, Any]:
-		"""Apply the shared ``fields`` selector to one serialized entity.
-
-		The completion response is a union of two entities (the placed order
-		or the refused cart), so the selector takes an ``entity`` label that
-		only names the field in the error messages.
-		"""
-		if not fields:
-			return cart
-
-		tokens = [token.strip() for token in fields.split(",") if token.strip()]
-		plain_fields = {
-			CartSerializer._field_name(token, entity) for token in tokens if token[0] not in "+-*"
-		}
-		selected = plain_fields or set(cart)
-		for token in tokens:
-			field = CartSerializer._field_name(token, entity)
-			if field not in cart:
-				raise InvalidDataError(f"Unknown {entity} field: {field}")
-			if token.startswith("-"):
-				selected.discard(field)
-			else:
-				selected.add(field)
-		return {key: value for key, value in cart.items() if key in selected}
-
-	@staticmethod
-	def _field_name(token: str, entity: str = "cart") -> str:
-		field = token.lstrip("+-*").split(".", 1)[0]
-		if not field:
-			raise InvalidDataError(f"{entity.capitalize()} fields must not be empty")
-		return field

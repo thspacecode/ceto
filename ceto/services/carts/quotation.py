@@ -169,7 +169,7 @@ def _as_administrator():
 	"""Run trusted ERPNext controller work with account read access."""
 	user = frappe.session.user
 	try:
-		frappe.set_user("Administrator")
+		frappe.set_user("Administrator")  # nosemgrep: frappe-setuser
 		yield
 	finally:
-		frappe.set_user(user)
+		frappe.set_user(user)  # nosemgrep: frappe-setuser

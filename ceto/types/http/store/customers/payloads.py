@@ -86,9 +86,11 @@ class _CustomerAddressPayload(BaseModel):
 	@field_validator("country_code")
 	@classmethod
 	def _validate_country_code(cls, value: str | None) -> str | None:
-		if value is not None and len(value) != 2:
+		if value is None:
+			return None
+		if len(value) != 2 or not (value.isascii() and value.isalpha()):
 			raise ValueError("country_code must be a two-letter ISO 3166-1 alpha-2 code")
-		return value.lower() if value else value
+		return value.lower()
 
 
 class StoreCreateCustomerAddress(_CustomerAddressPayload):

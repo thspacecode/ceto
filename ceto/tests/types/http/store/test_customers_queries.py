@@ -44,6 +44,15 @@ class TestStoreCustomerAddressFilters(unittest.TestCase):
 		self.assertEqual(params.country_code, "th")
 		self.assertEqual(params.city, "Bangkok")
 
+	def test_country_code_filter_rejects_non_letter_two_letter_values(self):
+		# ISO 3166-1 alpha-2 means ASCII letters, so digits, punctuation and
+		# non-ASCII letters fail even at the two-character length. The escapes
+		# are a Greek (U+03A4 U+0397) and a fullwidth (U+FF35 U+FF33) pair.
+		for bad in ("12", "U;", "\u03a4\u0397", "\uff35\uff33"):
+			with self.subTest(country_code=bad):
+				with self.assertRaises(ValidationError):
+					StoreCustomerAddressFilters(country_code=bad)
+
 	def test_accepts_the_pagination_window(self):
 		params = StoreCustomerAddressFilters(limit=10, offset=5, order="-created_at")
 		self.assertEqual((params.limit, params.offset, params.order), (10, 5, "-created_at"))

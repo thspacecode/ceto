@@ -107,10 +107,22 @@ class TestCustomerAddressPayloads(unittest.TestCase):
 
 	def test_country_code_is_normalized_and_validated(self):
 		self.assertEqual(StoreCreateCustomerAddress(country_code="US").country_code, "us")
+		self.assertEqual(StoreCreateCustomerAddress(country_code="th").country_code, "th")
 		with self.assertRaises(ValidationError):
 			StoreCreateCustomerAddress(country_code="THA")
 		with self.assertRaises(ValidationError):
 			StoreUpdateCustomerAddress(country_code="")
+
+	def test_country_code_rejects_non_letter_two_letter_values(self):
+		# ISO 3166-1 alpha-2 means ASCII letters, so digits, punctuation and
+		# non-ASCII letters fail even at the two-character length. The escapes
+		# are a Greek (U+03A4 U+0397) and a fullwidth (U+FF35 U+FF33) pair.
+		for bad in ("12", "U;", "\u03a4\u0397", "\uff35\uff33"):
+			with self.subTest(country_code=bad):
+				with self.assertRaises(ValidationError):
+					StoreCreateCustomerAddress(country_code=bad)
+				with self.assertRaises(ValidationError):
+					StoreUpdateCustomerAddress(country_code=bad)
 
 	def test_rejects_extra_fields(self):
 		with self.assertRaises(ValidationError):

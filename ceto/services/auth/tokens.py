@@ -179,6 +179,52 @@ def _reset_token_used_key(jti: str) -> str:
 	return f"ceto_password_reset_used::{jti}"
 
 
+def get_bearer_registration_user(provider: str) -> str:
+	"""Resolve the customer identified by the request's registration bearer token.
+
+	The token must have been issued by ``provider`` and must not have been
+	consumed by a completed customer registration, making registration tokens
+	single-use. Checking alone consumes nothing: the caller decides when the
+	consumption may happen.
+	"""
+	token = _get_bearer_token()
+	if not token:
+		raise frappe.AuthenticationError
+	try:
+		claims = decode_customer_token(token, purpose=REGISTRATION_PURPOSE)
+	except jwt.InvalidTokenError:
+		raise frappe.AuthenticationError from None
+	if claims.get("provider") != provider:
+		raise frappe.AuthenticationError
+	if frappe.cache().get_value(_registration_token_used_key(claims["jti"])):
+		raise frappe.AuthenticationError
+	return _validate_website_customer(claims["sub"])
+
+
+def consume_bearer_registration_token() -> None:
+	"""Consume the request's registration token so it can never be replayed.
+
+	Callers must invoke this only after the customer-profile transaction that
+	binds the token subject to its new customer has succeeded: the used-marker
+	lives in cache, outside the database transaction, so a rolled-back
+	transaction can never release it. The cache entry only needs to outlive
+	the token itself.
+	"""
+	token = _get_bearer_token()
+	if not token:
+		return
+	try:
+		claims = decode_customer_token(token, purpose=REGISTRATION_PURPOSE)
+	except jwt.InvalidTokenError:
+		return
+	remaining_seconds = max(int(claims["exp"] - datetime.now(UTC).timestamp()), 1)
+	frappe.cache().set_value(_registration_token_used_key(claims["jti"]), 1, expires_in_sec=remaining_seconds)
+
+
+def _registration_token_used_key(jti: str) -> str:
+	return f"ceto_registration_used::{jti}"
+
+
 def _get_bearer_token() -> str | None:
 	authorization = frappe.get_request_header("Authorization", "")
 	parts = authorization.split(" ", 1)

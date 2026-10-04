@@ -3,9 +3,13 @@
 Source of truth: <https://docs.medusajs.com/api/store/orders>.
 Compatibility layer: ``@medusajs/js-sdk@2.21.1``.
 
-Phase 0 pins the contract only — no order handlers are implemented here. The
-manifest is pure Python (no Frappe imports) so it can drive request validation
-codegen and be tested standalone.
+Phase 0 pinned the contract only — the manifest itself stays contract-only
+and carries no handlers: Phase 2 implements the retrieve route elsewhere, in
+``ceto/api/store/orders.py``, while the list and transfer routes remain
+contract-only until their phase registers them
+(``ceto.tests.types.http.store.test_orders_manifest`` enforces the
+boundary). The manifest is pure Python (no Frappe imports) so it can drive
+request validation codegen and be tested standalone.
 
 Request/response type names follow the official ``HttpTypes`` published in
 ``@medusajs/types@2.21.1`` (the lockstep release used to verify the SDK

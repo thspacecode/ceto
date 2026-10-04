@@ -1,13 +1,16 @@
 # Store Orders — Medusa → ERPNext Field Mapping (Phase 0)
 
-Phase 0 pins the six Store Orders route contracts
-(`ceto/types/http/store/orders/manifest.py`) and records how a placed order
-will be served from ERPNext. **No order route is registered or implemented
-yet** — orders exist only as the completion product of the cart flow (Phase 6
-`CartCompletion` + `OrderSerializer`, see `docs/carts/field-mapping.md`).
-Phase 0 changes no API behavior and no schema: the `owner_customer` snapshot
-on `Ceto Order Reference` and the `Ceto Order Transfer` record described
-below are Phase 1 models this document pins, not artifacts it creates.
+Phase 0 pinned the six Store Orders route contracts
+(`ceto/types/http/store/orders/manifest.py`) and recorded how a placed order
+is served from ERPNext. **Exactly one order route is now registered and
+implemented** — the retrieval route `GET /store/orders/{id}` (Phase 2),
+serving the completion product of the cart flow (Phase 6 `CartCompletion` +
+`OrderSerializer`, see `docs/carts/field-mapping.md`); the list route and the
+four transfer routes remain contract-only. Of the Phase 1 models this
+document pins, the `owner_customer` snapshot on `Ceto Order Reference`
+**exists** (the completing transaction books it atomically and a one-time
+backfill patch filled legacy references); the `Ceto Order Transfer` record
+described below is still pinned only, not created.
 
 Everything in this document is labeled either an **upstream contract fact** —
 verified against the pinned `@medusajs/js-sdk@2.21.1` and
@@ -110,13 +113,14 @@ the immutable cart history for the order's whole life.
 | `created_at`, `updated_at` | `Ceto Order Reference.creation` / `modified` | direct |
 
 The money/address rows are the pinned Phase 6 serializer contract
-(`ceto/services/orders/serialization.py`). The `customer_id` row describes the
-**Phase 1 model**: today's serializer still reads the completed cart's
-`Ceto Cart Reference.owner_customer`; once the snapshot column lands it reads
-the order reference's effective owner (the snapshot, with the legacy cart
-fallback above) instead — the contract is pinned here so that switch is a
-serializer detail, never a contract change. Phase 0 creates neither the
-column nor any endpoint.
+(`ceto/services/orders/serialization.py`). The `customer_id` row is the
+**Phase 1 model**, live since Phase 1: the serializer reads the order
+reference's effective owner — the `owner_customer` snapshot first, the
+completed cart's `Ceto Cart Reference.owner_customer` as the legacy fallback
+above — the switch pinned here being a serializer detail, never a contract
+change. Phase 0 created neither the column nor any endpoint; the column
+landed in Phase 1, and the one registered endpoint (the retrieval route) in
+Phase 2.
 
 ## Status mapping
 
@@ -171,8 +175,8 @@ value, so filtering by any other `OrderStatus` member yields an empty page.
 **Ceto decisions:**
 
 - **Effective ownership** is the `owner_customer` snapshot on the order's
-  `Ceto Order Reference` (the Phase 1 model; Phase 0 records it and creates
-  nothing): the completing transaction — the same locked completion that
+  `Ceto Order Reference` (the Phase 1 model, implemented in Phase 1): the
+  completing transaction — the same locked completion that
   submits the Sales Order and debits the cart's credit holds — populates the
   snapshot atomically, so an order's owner is fixed at birth and afterwards
   independent of the immutable cart history. Ceto never re-derives ownership
@@ -356,8 +360,8 @@ difference.
   current email so the current holder — the person who placed the order —
   consents by accepting or declining; acceptance applies ownership to the
   requesting customer stored on the transfer, never to a payload-supplied or
-  email-guessed recipient. Phase 0 registers no endpoint, so no behavior
-  changes yet.
+  email-guessed recipient. No transfer endpoint is registered yet, so no
+  transfer behavior changes yet.
 - **Eligible orders** are guest/unowned ones (effective owner null — the
   order reference's `owner_customer` snapshot, or its legacy cart fallback
   before backfill): the transfer moves such an order to the requesting
@@ -504,16 +508,25 @@ the orders surface:
 
 ## Phase 0 boundary
 
-- The manifest (`ceto/types/http/store/orders/manifest.py`) and the pinned
-  `StoreOrder` entities are the only code; `ceto.api.routes` wires no order
-  module, and `ceto.tests.types.http.store.test_orders_manifest` fails if
-  that changes. The Phase 1 artifacts this document pins — the
-  `owner_customer` snapshot on `Ceto Order Reference`, the `Ceto Order
-  Transfer` record with its token digest, and the serializer's
-  effective-owner read — are deliberately **not** created here: no schema, no
-  endpoint, no behavior change.
-- The README's Orders table stays ⚪️ To implement; the README-drift test
-  keeps the advertised table and the manifest identical.
-- The implementation phase adds the handlers and turns this document's
+What Phase 0 drew, and where that boundary stands now:
+
+- Phase 0 shipped only the manifest (`ceto/types/http/store/orders/manifest.py`)
+  and the pinned `StoreOrder` entities — no schema, no endpoint, no behavior
+  change. The Phase 1 artifacts this document pins landed in their own
+  slices: the `owner_customer` snapshot on `Ceto Order Reference`, the
+  serializer's effective-owner read and the one-time backfill exist since
+  Phase 1; the `Ceto Order Transfer` record with its token digest is still
+  pinned only, not created.
+- Exactly one order route is registered: the retrieval route
+  `GET /store/orders/{id}`, guest-dispatchable per its pinned
+  `publishable-key` auth. The list route and the four transfer routes stay
+  contract-only, and `ceto.tests.types.http.store.test_orders_manifest`
+  (`test_phase_2_registers_only_the_retrieve_route`, with the runtime
+  registry check in `ceto.tests.routing.test_router`) fails if that changes.
+- The README's Orders table marks the retrieval route Implemented and every
+  other orders route To implement; the README-drift test keeps the
+  advertised table and the manifest identical and pins the implemented
+  status to the registered surface.
+- The implementation phases add the handlers and turn this document's
   Ceto decisions into the route/service behavior, mirroring the carts
   pattern (manifest → endpoints/services → registry equality test).

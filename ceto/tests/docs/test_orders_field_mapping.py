@@ -8,6 +8,9 @@ PRD (ownership independent of cart history, digest-only tokens, the 7-day
 Ceto lifetime, requester semantics, capability-based retrieval) and the list
 ``status`` filter hardening, whose pinned ``OrderStatus`` union is compared
 against the code's own Literal so document and implementation cannot drift.
+The implemented-route boundary the document states is compared against the
+surface ``ceto/api/store/orders.py`` actually registers, so the prose cannot
+outgrow the code.
 """
 
 import re
@@ -27,10 +30,16 @@ ENTITIES = (
 	Path(__file__).resolve().parents[3] / "ceto" / "types" / "http" / "store" / "orders" / "entities.py"
 )
 
+ORDERS_API = Path(__file__).resolve().parents[3] / "ceto" / "api" / "store" / "orders.py"
+
 DAY_COUNT_RE = re.compile(r"\b(\d+)[ -]days?\b")
 LIFETIME_TITLE_RE = re.compile(r"\*\*Lifetime — (\d+) days")
 LIFETIME_SENTENCE_RE = re.compile(r"expires \*\*(\d+) days after its request was created\*\*")
 MANIFEST_LIFETIME_RE = re.compile(r"^ORDER_TRANSFER_LIFETIME_DAYS\s*=\s*(\d+)\s*$", re.MULTILINE)
+
+#: The routes ``ceto/api/store/orders.py`` actually registers (decorator
+#: method and path), parsed from source like the manifest read above.
+REGISTERED_ROUTE_RE = re.compile(r'@ceto_router\.(\w+)\("([^"]+)"')
 
 #: The doc's pinned ``OrderStatus`` union list versus the code Literal the
 #: ``StoreOrderFilters.status`` validation actually restricts to.
@@ -317,10 +326,30 @@ class TestOrdersFieldMappingDoc(unittest.TestCase):
 			with self.subTest(phrase=phrase):
 				self.assertNotIn(phrase, self.flat)
 
-	def test_phase_0_boundary_is_stated(self):
-		boundary = " ".join(self.text.split())
-		self.assertIn("No order route is registered or implemented yet", boundary)
+	def test_phase_boundary_tracks_the_implemented_surface(self):
+		"""The doc states the live boundary: exactly one route registered and
+		implemented, list/transfers contract-only, the Phase 1 owner snapshot
+		existing and the transfer record still pinned only."""
+		boundary = self.flat.lower()
+		self.assertIn("exactly one order route is now registered and implemented", boundary)
+		self.assertIn("the list route and the four transfer routes remain contract-only", boundary)
+		self.assertIn("the `owner_customer` snapshot on `ceto order reference` **exists**", boundary)
+		self.assertIn("still pinned only, not created", boundary)
+		self.assertIn("the list route and the four transfer routes stay contract-only", boundary)
 		self.assertIn("ceto/types/http/store/orders/manifest.py", self.text)
+
+	def test_doc_boundary_names_exactly_the_registered_routes(self):
+		"""The implemented-route boundary the doc states is the surface
+		``ceto/api/store/orders.py`` actually registers (source-parsed, no
+		import coupling; the registered-surface equality with the manifest
+		lives in ``ceto.tests.types.http.store.test_orders_manifest``)."""
+		registered = {
+			(method.upper(), path) for method, path in REGISTERED_ROUTE_RE.findall(ORDERS_API.read_text())
+		}
+		self.assertEqual(registered, {("GET", "/store/orders/{id}")})
+		for method, path in sorted(registered):
+			with self.subTest(route=f"{method} {path}"):
+				self.assertIn(f"`{method} {path}`", self.text)
 
 	def test_no_custom_field_commitment(self):
 		self.assertIn("No Custom Fields", self.text)

@@ -2,9 +2,10 @@
 
 Phase 0 pinned the contract only; Phase 2 wires its first route. The tests
 fail loudly on manifest drift against the verified upstream contracts, on
-drift against the routes the README advertises, and on any premature route
-registration beyond the implemented retrieve route. They are pure Python
-(no Frappe imports), like the manifest itself.
+drift against the routes the README advertises, on README status drift
+against the registered surface, and on any route registration beyond the
+implemented retrieve route. They are pure Python (no Frappe imports), like
+the manifest itself.
 """
 
 import re
@@ -72,19 +73,27 @@ EXPECTED_CONTRACTS = {
 }
 
 
-def readme_orders_routes() -> set[tuple[str, str]]:
-	"""Parse the Method/Route pairs of the README's Orders table."""
+def readme_orders_rows() -> list[tuple[str, str, str]]:
+	"""Parse the Method/Route/Status rows of the README's Orders table."""
 	section = (REPO_ROOT / "README.md").read_text().split("### Orders", 1)[1]
 	section = section.split("\n### ", 1)[0]
-	routes = set()
+	rows = []
 	for line in section.splitlines():
 		if not line.startswith("|"):
 			continue
 		columns = [cell.strip().strip("`") for cell in line.strip().strip("|").split("|")]
 		if columns[0] == "Method" or set(columns[0]) <= {"-"}:
 			continue
-		routes.add((columns[0], columns[1]))
-	return routes
+		rows.append((columns[0], columns[1], columns[2]))
+	return rows
+
+
+def registered_orders_routes() -> set[tuple[str, str]]:
+	"""Parse the surface ``ceto/api/store/orders.py`` actually registers."""
+	orders_api = (PACKAGE_ROOT / "api" / "store" / "orders.py").read_text()
+	return {
+		(method.upper(), path) for method, path in re.findall(r'@ceto_router\.(\w+)\("([^"]+)"', orders_api)
+	}
 
 
 class TestOrderRouteManifest(unittest.TestCase):
@@ -189,9 +198,21 @@ class TestOrderRouteManifest(unittest.TestCase):
 
 	def test_readme_orders_table_matches_the_manifest(self):
 		"""The advertised surface is the pinned surface — README drift fails."""
-		advertised = readme_orders_routes()
+		advertised = {(method, path) for method, path, _ in readme_orders_rows()}
 		self.assertEqual(len(advertised), 6)
 		self.assertEqual(advertised, {(route.method, route.path) for route in ORDER_ROUTES})
+
+	def test_readme_marks_exactly_the_registered_surface_implemented(self):
+		"""The advertised status is the implemented surface, mechanically: the
+		✅ rows are exactly the routes ``orders.py`` registers — the Phase 2
+		retrieval slice — and every other pinned row stays ⚪️ To implement."""
+		statuses = {(method, path): status for method, path, status in readme_orders_rows()}
+		implemented = {route for route, status in statuses.items() if "✅" in status}
+		self.assertEqual(implemented, registered_orders_routes())
+		self.assertEqual(implemented, {("GET", "/store/orders/{id}")})
+		unimplemented = {route for route, status in statuses.items() if "⚪" in status}
+		self.assertEqual(unimplemented, set(statuses) - implemented)
+		self.assertEqual(len(unimplemented), 5)
 
 	def test_phase_2_registers_only_the_retrieve_route(self):
 		"""Phase 2 boundary: ``orders.py`` wires exactly the retrieve route.
@@ -205,8 +226,7 @@ class TestOrderRouteManifest(unittest.TestCase):
 		``ceto.tests.routing.test_router``.
 		"""
 		orders_api = (PACKAGE_ROOT / "api" / "store" / "orders.py").read_text()
-		registered = re.findall(r"@ceto_router\.(\w+)\(\"([^\"]+)\"", orders_api)
-		self.assertEqual(registered, [("get", "/store/orders/{id}")])
+		self.assertEqual(registered_orders_routes(), {("GET", "/store/orders/{id}")})
 		self.assertIn('@ceto_router.get("/store/orders/{id}", allow_guest=True)', orders_api)
 		self.assertIn("import ceto.api.store.orders", (PACKAGE_ROOT / "api" / "routes.py").read_text())
 

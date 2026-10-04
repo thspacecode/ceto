@@ -21,8 +21,21 @@ def capture_reset_token(**payload):
 
 
 class TestCredentials(CetoTestSuite):
-	def setUp(self):
+	def setUp(self) -> None:
 		_delivered_reset_tokens.clear()
+		# The mismatched-email test inserts a Website User; Frappe throttles
+		# user creation per minute on the shared test site, so the full
+		# suite's cumulative creations trip the default limit here. Lift it
+		# like the other user-creating modules do; tearDown restores it.
+		self._previous_throttle = frappe.local.conf.get("throttle_user_limit")
+		frappe.local.conf["throttle_user_limit"] = 100000
+
+	def tearDown(self) -> None:
+		if self._previous_throttle is None:
+			frappe.local.conf.pop("throttle_user_limit", None)
+		else:
+			frappe.local.conf["throttle_user_limit"] = self._previous_throttle
+		super().tearDown()
 
 	def test_endpoints_are_not_whitelisted(self):
 		for endpoint in (

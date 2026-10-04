@@ -1,0 +1,119 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:wallet_id",
+ "creation": "2026-10-01 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "wallet_id",
+  "wallet_type",
+  "provider",
+  "company",
+  "customer",
+  "currency",
+  "code_hash",
+  "code_hint",
+  "expires_at",
+  "credit_total",
+  "debit_total",
+  "balance"
+ ],
+ "fields": [
+  {
+   "fieldname": "wallet_id",
+   "fieldtype": "Data",
+   "label": "Wallet ID",
+   "reqd": 1,
+   "search_index": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "wallet_type",
+   "fieldtype": "Select",
+   "label": "Wallet Type",
+   "options": "Gift Card\nStore Credit",
+   "reqd": 1
+  },
+  {
+   "fieldname": "provider",
+   "fieldtype": "Data",
+   "label": "Provider",
+   "reqd": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer",
+   "search_index": 1
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "reqd": 1
+  },
+  {
+   "description": "SHA-256 hex digest of the gift-card or claim code; the plaintext code is never stored",
+   "fieldname": "code_hash",
+   "fieldtype": "Data",
+   "label": "Code Hash",
+   "search_index": 1
+  },
+  {
+   "description": "Masked display hint, for example GC-****-1234",
+   "fieldname": "code_hint",
+   "fieldtype": "Data",
+   "label": "Code Hint"
+  },
+  {
+   "fieldname": "expires_at",
+   "fieldtype": "Datetime",
+   "label": "Expires At"
+  },
+  {
+   "default": "0",
+   "fieldname": "credit_total",
+   "fieldtype": "Currency",
+   "label": "Credit Total",
+   "options": "currency"
+  },
+  {
+   "default": "0",
+   "fieldname": "debit_total",
+   "fieldtype": "Currency",
+   "label": "Debit Total",
+   "options": "currency"
+  },
+  {
+   "default": "0",
+   "description": "Credit total minus debit total; open cart reservations reduce what is still available",
+   "fieldname": "balance",
+   "fieldtype": "Currency",
+   "label": "Balance",
+   "options": "currency"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Ceto",
+ "name": "Ceto Credit Wallet",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

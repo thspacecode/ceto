@@ -9,10 +9,11 @@ customer-linked Addresses.
 """
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import frappe
 
+from ceto.routing.exceptions import InvalidDataError
 from ceto.services.customers.identity import CustomerIdentity
 from ceto.types.http.store.customers import StoreCustomer
 
@@ -50,3 +51,35 @@ class CustomerSerializer:
 			created_at=created,
 			updated_at=modified,
 		)
+
+	@staticmethod
+	def select_fields(customer: dict[str, Any], fields: str | None) -> dict[str, Any]:
+		"""Apply the pinned ``SelectParams`` selector to one serialized customer.
+
+		The baseline is the fully serialized customer with its always-present
+		``addresses`` relation (Ceto policy: the address book loads with the
+		customer); plain and ``+``/``-``/``*`` tokens project on top of it,
+		and an unknown field is rejected like every Ceto contract.
+		"""
+		if not fields:
+			return customer
+
+		tokens = [token.strip() for token in fields.split(",") if token.strip()]
+		plain_fields = {CustomerSerializer._field_name(token) for token in tokens if token[0] not in "+-*"}
+		selected = plain_fields or set(customer)
+		for token in tokens:
+			field = CustomerSerializer._field_name(token)
+			if field not in customer:
+				raise InvalidDataError(f"Unknown customer field: {field}")
+			if token.startswith("-"):
+				selected.discard(field)
+			else:
+				selected.add(field)
+		return {key: value for key, value in customer.items() if key in selected}
+
+	@staticmethod
+	def _field_name(token: str) -> str:
+		field = token.lstrip("+-*").split(".", 1)[0]
+		if not field:
+			raise InvalidDataError("Customer fields must not be empty")
+		return field

@@ -12,6 +12,7 @@ from ceto.services.auth.tokens import decode_customer_token
 from ceto.tests.data.bootstrap_test_master_data import TEST_CUSTOMER, TEST_CUSTOMER_PASSWORD
 from ceto.tests.utils import CetoTestSuite
 from ceto.types.http.store.carts.manifest import CART_ROUTES
+from ceto.types.http.store.customers.manifest import CUSTOMER_ROUTES
 
 
 def overridden_products() -> dict[str, str]:
@@ -34,6 +35,8 @@ class TestRouter(CetoTestSuite):
 				"/ceto/auth/customer/{auth_provider}/callback",
 				{"auth_provider": "google"},
 			),
+			("/ceto/store/customers", "POST", "/ceto/store/customers", {}),
+			("/ceto/store/customers/me", "GET", "/ceto/store/customers/me", {}),
 		):
 			with self.subTest(path=path):
 				route, matched_arguments = ceto_router.match(self._request(path, method))
@@ -140,6 +143,20 @@ class TestRouter(CetoTestSuite):
 		}
 		pinned = {(route.method, f"/ceto{route.path}") for route in CART_ROUTES}
 		self.assertEqual(registered, pinned)
+
+	def test_implemented_customer_routes_match_the_phase_1_subset(self):
+		"""The registered customer surface is exactly the implemented manifest slice.
+
+		Phase 1 registers the create and retrieve routes (manifest routes 1-2);
+		each later phase extends this assertion until it equals the full
+		``CUSTOMER_ROUTES`` surface, like the carts check above.
+		"""
+		registered = {
+			(route.method, route.path) for route in ceto_router.routes if "/store/customers" in route.path
+		}
+		phase_one = {(route.method, f"/ceto{route.path}") for route in CUSTOMER_ROUTES[:2]}
+		self.assertEqual(phase_one, {("POST", "/ceto/store/customers"), ("GET", "/ceto/store/customers/me")})
+		self.assertEqual(registered, phase_one)
 
 	def test_route_override_uses_external_route_key(self):
 		router = Router(prefix="/ceto")

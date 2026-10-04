@@ -201,6 +201,33 @@ def get_bearer_registration_user(provider: str) -> str:
 	return _validate_website_customer(claims["sub"])
 
 
+def get_bearer_registration_subject() -> str:
+	"""Resolve the subject of the request's registration bearer token.
+
+	The store customers create route has no provider path segment, so the
+	token's own provider claim names the issuer and must still be an enabled
+	customer auth provider. Every refusal — missing or malformed bearer,
+	wrong purpose, expired signature, unavailable provider, replayed token,
+	disabled or privileged subject — raises the same
+	:class:`frappe.AuthenticationError` the router renders as
+	``401 unauthorized``. Nothing is consumed: the caller burns the token
+	with :func:`consume_bearer_registration_token` only after the profile
+	transaction succeeded.
+	"""
+	token = _get_bearer_token()
+	if not token:
+		raise frappe.AuthenticationError
+	try:
+		claims = decode_customer_token(token, purpose=REGISTRATION_PURPOSE)
+	except jwt.InvalidTokenError:
+		raise frappe.AuthenticationError from None
+	if not _available_auth_provider(claims.get("provider")):
+		raise frappe.AuthenticationError
+	if frappe.cache().get_value(_registration_token_used_key(claims["jti"])):
+		raise frappe.AuthenticationError
+	return _validate_website_customer(claims["sub"])
+
+
 def consume_bearer_registration_token() -> None:
 	"""Consume the request's registration token so it can never be replayed.
 
@@ -223,6 +250,19 @@ def consume_bearer_registration_token() -> None:
 
 def _registration_token_used_key(jti: str) -> str:
 	return f"ceto_registration_used::{jti}"
+
+
+def _available_auth_provider(provider: object) -> bool:
+	"""Check the token's provider claim against the enabled customer auth providers.
+
+	The registry import stays function-local: the provider modules import this
+	one for token creation, so a module-level import would be circular.
+	"""
+	if not isinstance(provider, str) or not provider:
+		return False
+	from ceto.services.auth.providers import get_customer_auth_providers
+
+	return any(entry["id"] == provider for entry in get_customer_auth_providers())
 
 
 def _get_bearer_token() -> str | None:

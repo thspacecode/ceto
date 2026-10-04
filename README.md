@@ -93,10 +93,10 @@ Medusa API implementation status, grouped by scope. Routes follow the [Medusa St
 | Method | Route | Status |
 | --- | --- | --- |
 | GET | `/store/customers/me/addresses/{address_id}` | ⚪️ |
-| GET | `/store/customers/me` | ⚪️ |
+| GET | `/store/customers/me` | ✅️ |
 | GET | `/store/customers/me/addresses` | ⚪️ |
 | POST | `/store/customers/me/addresses` | ⚪️ |
-| POST | `/store/customers` | ⚪️ |
+| POST | `/store/customers` | ✅️ |
 | POST | `/store/customers/me` | ⚪️ |
 | POST | `/store/customers/me/addresses/{address_id}` | ⚪️ |
 | DELETE | `/store/customers/me/addresses/{address_id}` | ⚪️ |

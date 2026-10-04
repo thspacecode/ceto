@@ -1,9 +1,12 @@
 """Mechanical drift checks for docs/customers/endpoints.md.
 
-Phase 0 registers no endpoint behavior, so the customer route manifest is
-drifted against its documented route inventory (this doc) and the README
-route table instead of the router. Any change to the manifest, the doc or the
-README customers section must land in all three or these tests fail.
+The customer route manifest is drifted against its documented route inventory
+(this doc) and the README route table; the implemented surface is additionally
+drifted against the router in ``ceto.tests.routing.test_router``. Phase 1
+implements routes 1-2, so the doc, the README and the implemented-routes
+section must all agree on exactly that subset — any change to the manifest,
+the doc or the README customers section must land in all three or these tests
+fail.
 """
 
 import re
@@ -15,6 +18,8 @@ from ceto.types.http.store.customers.manifest import CUSTOMER_ROUTES
 APP_ROOT = Path(__file__).resolve().parents[3]
 DOC = APP_ROOT / "docs" / "customers" / "endpoints.md"
 README = APP_ROOT / "README.md"
+
+IMPLEMENTED_ROUTES = (("POST", "/store/customers"), ("GET", "/store/customers/me"))
 
 METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
 
@@ -52,6 +57,12 @@ def parse_readme_customers(text: str) -> list[tuple[str, str, str]]:
 		cells = [cell.strip().strip("`") for cell in line.strip().strip("|").split("|")]
 		rows.append((cells[0], cells[1], cells[2]))
 	return rows
+
+
+def parse_implemented_routes(text: str) -> list[tuple[str, str]]:
+	"""Parse the implemented-routes section headings into (method, path) tuples."""
+	section = text.split("## Implemented routes", 1)[1]
+	return re.findall(r"^### `([A-Z]+) (\S+)`", section, flags=re.MULTILINE)
 
 
 class TestCustomersEndpointsDoc(unittest.TestCase):
@@ -96,9 +107,10 @@ class TestCustomersEndpointsDoc(unittest.TestCase):
 		self.assertIn("@medusajs/types@2.21.1", self.text)
 		self.assertIn("https://docs.medusajs.com/api/store/customers", self.text)
 
-	def test_doc_records_the_phase_0_contract_only_status(self):
-		self.assertIn("No customer route is registered yet", self.text)
-		self.assertIn("None. Phase 0 is contract-only.", self.text)
+	def test_doc_records_the_phase_1_implementation_status(self):
+		self.assertIn("Phase 1 registers the first two routes", self.text)
+		self.assertIn("routes 3-8 stay contract-only", self.text)
+		self.assertEqual(parse_implemented_routes(self.text), list(IMPLEMENTED_ROUTES))
 
 	def test_readme_customers_table_matches_the_manifest(self):
 		readme = README.read_text()
@@ -107,13 +119,13 @@ class TestCustomersEndpointsDoc(unittest.TestCase):
 		documented = {(method, path) for method, path, _ in rows}
 		self.assertEqual(documented, {(r.method, r.path) for r in CUSTOMER_ROUTES})
 
-	def test_readme_keeps_every_customer_route_unimplemented(self):
-		# Phase 0 is contract-only: no README route may be marked implemented.
+	def test_readme_marks_exactly_the_implemented_routes(self):
 		rows = parse_readme_customers(README.read_text())
+		implemented = {(method, path) for method, path, status in rows if "✅" in status}
+		self.assertEqual(implemented, set(IMPLEMENTED_ROUTES))
 		for method, path, status in rows:
 			with self.subTest(route=f"{method} {path}"):
-				self.assertNotIn("✅", status)
-				self.assertIn("⚪", status)
+				self.assertTrue("✅" in status or "⚪" in status)
 
 
 if __name__ == "__main__":

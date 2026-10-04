@@ -9,10 +9,14 @@ resolution backs the cart ownership flows and the customers contract.
 """
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import frappe
 
 from ceto.routing.exceptions import UnauthorizedError
+
+if TYPE_CHECKING:
+	from frappe.model.document import Document
 
 
 @dataclass(frozen=True)
@@ -85,3 +89,19 @@ def resolve_customer_identity(user: str) -> CustomerIdentity:
 		order_by="creation asc",
 	)
 	return CustomerIdentity(user=user, contact=contact, customer=customer)
+
+
+def resolve_customer_reference(user: str) -> tuple[CustomerIdentity, "Document"]:
+	"""Resolve an authenticated user to its identity chain and public reference.
+
+	The ``Ceto Customer Reference`` is part of the contract identity
+	(recorded decision 1): a chain that resolves without one — a pre-existing
+	ERPNext account linked outside Ceto — has no contract-safe public id, so
+	it is masked exactly like the other unresolvable identities instead of
+	leaking that the account exists.
+	"""
+	identity = resolve_customer_identity(user)
+	reference_name = frappe.db.get_value("Ceto Customer Reference", {"user": identity.user})
+	if not reference_name:
+		raise UnauthorizedError("No customer account is linked to this user")
+	return identity, frappe.get_doc("Ceto Customer Reference", reference_name)

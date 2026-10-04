@@ -1,13 +1,15 @@
 # Store Customer Endpoints — Source of Truth
 
-Phase 0 pins a machine-readable contract manifest that later phases implement
-against. **No customer route is registered yet**: this phase deliberately adds
-no handler, no service and no DocType, and the README keeps every customer
-route at ⚪️ until an implementation phase lands. The coverage guard for this
-phase is the manifest drift test (`ceto.tests.types.http.store.test_customers_manifest`)
-plus the docs↔manifest inventory check (`ceto.tests.docs.test_customers_endpoints`);
-once the routes are registered, `ceto.tests.routing.test_router` must compare
-the registered surface with `CUSTOMER_ROUTES`, exactly as it does for carts.
+Phase 0 pinned the machine-readable contract manifest that implementation
+phases build against. **Phase 1 registers the first two routes** — `POST
+/store/customers` and `GET /store/customers/me` (see
+[Implemented routes](#implemented-routes)); routes 3-8 stay contract-only and
+the README keeps them at ⚪️. The coverage guard is the manifest drift test
+(`ceto.tests.types.http.store.test_customers_manifest`), the docs↔manifest
+inventory check (`ceto.tests.docs.test_customers_endpoints`) and the router
+surface check in `ceto.tests.routing.test_router`, which compares the
+registered customer routes with the implemented manifest subset, exactly as it
+does for the completed carts surface.
 
 ## Manifest
 
@@ -104,4 +106,46 @@ deletion semantics — are recorded with their sources in
 
 ## Implemented routes
 
-None. Phase 0 is contract-only.
+Phase 1 implements routes 1–2 only; routes 3-8 stay contract-only.
+
+### `POST /store/customers` — `ceto.api.store.customers.create_customer`
+
+- Guest-dispatchable Store route that authenticates with the single-purpose
+  `registration` bearer token issued by
+  `POST /auth/customer/{auth_provider}/register`; an `auth`-purpose token never
+  works. The token's own `provider` claim must name an enabled customer auth
+  provider.
+- The identity is the token subject (recorded decision 3): an omitted body
+  email falls back to it and a disagreeing one is refused with
+  `400 invalid_data`, mirroring the credential update's token/email match.
+- The profile is created inside the request transaction
+  (`ceto.services.customers.creation.create_customer_profile`); a disabled,
+  pre-owned or ambiguous identity is refused with `401 unauthorized` before
+  any privileged write.
+- The token is consumed only after the profile transaction **and** the
+  response serialization succeeded (recorded decision 8): the used-marker
+  lives in cache and survives the router's rollback, so a failed create never
+  burns the token — the identical request can be retried. A replay of a
+  consumed token is always `401 unauthorized` and never binds a second
+  profile.
+- The pinned `SelectParams` `fields` selector projects the serialized
+  customer; unknown selectors are rejected (`400 invalid_data`).
+
+### `GET /store/customers/me` — `ceto.api.store.customers.retrieve_customer`
+
+- Requires the publishable key plus an authenticated customer: a Frappe
+  session or an `auth`-purpose bearer token (resolved by the shared auth
+  hook). The router refuses guests before the handler runs; registration and
+  password-reset tokens never authenticate.
+- The session user resolves through the shared identity resolver
+  (`ceto.services.customers.identity.resolve_customer_reference`): no Contact
+  chain, no Customer, or no Ceto Customer Reference is masked as the same
+  `401 unauthorized` — a response never confirms which identities exist.
+- Same pinned `StoreCustomerResponse` shape and `fields` selector as the
+  create route; the `addresses` relation always serializes (empty until the
+  address-book phase).
+
+Every refusal above renders the Medusa error envelope
+(`{"type": "unauthorized" | "invalid_data", "message": …}`), with missing,
+malformed, expired, wrong-provider and replayed registration tokens collapsed
+to the stable `401 unauthorized`.

@@ -80,8 +80,10 @@ already copies captured temporaries into exactly this shape.
 1. **Public customer ids** — the public customer id is `cus_` + 128 bits of
    cryptographic random (`secrets.token_hex(16)`), the same shape as the
    `cart_…` / `order_…` / `li_…` / `cl_…` ids. It names a Ceto
-   external-identity record linked to the ERPNext `Customer` (gap: no
-   reference DocType exists yet; Phase 0 records the mapping only). ERPNext
+   external-identity record linked to the ERPNext `Customer` (gap, backed by
+   the Ceto-owned `Ceto Customer Reference` DocType delivered in Phase 1:
+   one-to-one by unique schema on the public id, the `Customer` and the
+   owning `User`, with the metadata columns the contract needs). ERPNext
    Customer names never appear in the customer contract.
 2. **Contact/Customer model and naming** — one Medusa customer is one Frappe
    `User` (Website User named by the registered email) → `Contact` (via

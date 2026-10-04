@@ -1,15 +1,14 @@
-"""Resolve the authenticated Frappe user to the owning ERPNext Customer.
+"""Resolve the authenticated cart customer through the shared identity resolver.
 
-Follows the recorded Phase 0 decision (``docs/carts/field-mapping.md``):
-Frappe ``User`` → ``Contact`` (``Contact.user``) → ``Customer`` via a
-Dynamic Link. No other inference (e.g. email matching) is performed so a
-Customer is only ever attached to a cart through an explicit, existing link
-created at signup.
+Cart ownership flows use the same explicit chain the customers contract
+resolves (recorded decision 2 of ``docs/customers/field-mapping.md``): the
+enabled Website ``User`` → its ``Contact`` (``Contact.user``) → the one
+linked ``Customer``. The resolution rules live in
+:cmod:`ceto.services.customers.identity` so carts and customers can never
+diverge.
 """
 
-import frappe
-
-from ceto.routing.exceptions import UnauthorizedError
+from ceto.services.customers.identity import resolve_customer_identity
 
 
 class CartCustomers:
@@ -26,22 +25,4 @@ class CartCustomers:
 		resolved deterministically to a single cart owner — and are rejected
 		the same way instead of picking one silently.
 		"""
-		contacts = frappe.get_all("Contact", filters={"user": user}, pluck="name")
-		customers = set()
-		if contacts:
-			customers = set(
-				frappe.get_all(
-					"Dynamic Link",
-					filters={
-						"parenttype": "Contact",
-						"parent": ["in", contacts],
-						"link_doctype": "Customer",
-					},
-					pluck="link_name",
-				)
-			)
-		if len(customers) == 1:
-			return customers.pop()
-		if len(customers) > 1:
-			raise UnauthorizedError("User is linked to multiple customers")
-		raise UnauthorizedError("No customer account is linked to this user")
+		return resolve_customer_identity(user).customer

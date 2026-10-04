@@ -1,11 +1,13 @@
 """Contract tests for the pinned Store Order routes manifest.
 
-Phase 0 pins the contract only: the tests fail loudly on manifest drift
-against the verified upstream contracts, on drift against the routes the
-README advertises, and on any premature route registration. They are pure
-Python (no Frappe imports), like the manifest itself.
+Phase 0 pinned the contract only; Phase 2 wires its first route. The tests
+fail loudly on manifest drift against the verified upstream contracts, on
+drift against the routes the README advertises, and on any premature route
+registration beyond the implemented retrieve route. They are pure Python
+(no Frappe imports), like the manifest itself.
 """
 
+import re
 import unittest
 from pathlib import Path
 
@@ -191,10 +193,22 @@ class TestOrderRouteManifest(unittest.TestCase):
 		self.assertEqual(len(advertised), 6)
 		self.assertEqual(advertised, {(route.method, route.path) for route in ORDER_ROUTES})
 
-	def test_no_order_route_is_registered_yet(self):
-		"""Phase 0 boundary: no order endpoint module exists or is wired."""
-		self.assertFalse((PACKAGE_ROOT / "api" / "store" / "orders.py").is_file())
-		self.assertNotIn("orders", (PACKAGE_ROOT / "api" / "routes.py").read_text().lower())
+	def test_phase_2_registers_only_the_retrieve_route(self):
+		"""Phase 2 boundary: ``orders.py`` wires exactly the retrieve route.
+
+		Read from source, not imported (the file-read convention of
+		``tests/docs/test_orders_field_mapping.py``): the registered surface
+		is exactly the one pinned retrieve route — guest-dispatchable, per
+		the pinned ``publishable-key`` auth — and ``routes.py`` wires the
+		module. The list and transfer routes stay contract-only until their
+		phase registers them; the runtime registry equality lives in
+		``ceto.tests.routing.test_router``.
+		"""
+		orders_api = (PACKAGE_ROOT / "api" / "store" / "orders.py").read_text()
+		registered = re.findall(r"@ceto_router\.(\w+)\(\"([^\"]+)\"", orders_api)
+		self.assertEqual(registered, [("get", "/store/orders/{id}")])
+		self.assertIn('@ceto_router.get("/store/orders/{id}", allow_guest=True)', orders_api)
+		self.assertIn("import ceto.api.store.orders", (PACKAGE_ROOT / "api" / "routes.py").read_text())
 
 
 if __name__ == "__main__":

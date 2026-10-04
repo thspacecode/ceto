@@ -12,6 +12,7 @@ from ceto.services.auth.tokens import decode_customer_token
 from ceto.tests.data.bootstrap_test_master_data import TEST_CUSTOMER, TEST_CUSTOMER_PASSWORD
 from ceto.tests.utils import CetoTestSuite
 from ceto.types.http.store.carts.manifest import CART_ROUTES
+from ceto.types.http.store.orders.manifest import ORDER_ROUTES
 
 
 def overridden_products() -> dict[str, str]:
@@ -33,6 +34,12 @@ class TestRouter(CetoTestSuite):
 				"POST",
 				"/ceto/auth/customer/{auth_provider}/callback",
 				{"auth_provider": "google"},
+			),
+			(
+				"/ceto/store/orders/order_0123456789abcdef0123456789abcdef",
+				"GET",
+				"/ceto/store/orders/{id}",
+				{"id": "order_0123456789abcdef0123456789abcdef"},
 			),
 		):
 			with self.subTest(path=path):
@@ -140,6 +147,24 @@ class TestRouter(CetoTestSuite):
 		}
 		pinned = {(route.method, f"/ceto{route.path}") for route in CART_ROUTES}
 		self.assertEqual(registered, pinned)
+
+	def test_implemented_order_routes_match_the_phase_2_slice(self):
+		"""The registered order surface is exactly the implemented manifest slice.
+
+		Phase 2 registers only the pinned retrieve route (manifest route 1);
+		each later phase extends this assertion until it equals the full
+		``ORDER_ROUTES`` surface, like the carts check above. The list and
+		transfer routes must stay contract-only until their phase registers
+		them.
+		"""
+		registered = {
+			(route.method, route.path) for route in ceto_router.routes if "/store/orders" in route.path
+		}
+		retrieve = {
+			(route.method, f"/ceto{route.path}") for route in ORDER_ROUTES if route.sdk_method == "retrieve"
+		}
+		self.assertEqual(retrieve, {("GET", "/ceto/store/orders/{id}")})
+		self.assertEqual(registered, retrieve)
 
 	def test_route_override_uses_external_route_key(self):
 		router = Router(prefix="/ceto")

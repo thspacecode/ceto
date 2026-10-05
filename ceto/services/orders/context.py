@@ -159,10 +159,7 @@ class OrderPageContext:
 	@staticmethod
 	def _address_names(sales_orders: "list[Document]") -> "set[str]":
 		return {
-			name
-			for row in sales_orders
-			for name in (row.customer_address, row.shipping_address_name)
-			if name
+			name for row in sales_orders for name in (row.customer_address, row.shipping_address_name) if name
 		}
 
 	@staticmethod
@@ -177,9 +174,7 @@ class OrderPageContext:
 			return {}
 		return {
 			row.name: row.code
-			for row in frappe.get_all(
-				"Country", filters={"name": ("in", countries)}, fields=["name", "code"]
-			)
+			for row in frappe.get_all("Country", filters={"name": ("in", countries)}, fields=["name", "code"])
 		}
 
 

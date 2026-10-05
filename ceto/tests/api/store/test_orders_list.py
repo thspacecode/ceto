@@ -100,7 +100,7 @@ class TestOrderListAPI(CetoTestSuite):
 			self.assertEqual(response.status_code, 401)
 			self.assertEqual(response.get_json()["type"], "unauthorized")
 
-			with self.set_create_user() as email:
+			with self.set_create_user():
 				response = self._dispatch("GET", "/ceto/store/orders")
 			self.assertEqual(response.status_code, 401)
 			self.assertEqual(response.get_json()["type"], "unauthorized")
@@ -146,16 +146,12 @@ class TestOrderListAPI(CetoTestSuite):
 					both = self._dispatch("GET", f"/ceto/store/orders?{query}")
 					self.assertEqual(both.status_code, 200)
 					self.assertEqual(both.get_json()["count"], 2)
-					self.assertEqual(
-						{order["id"] for order in both.get_json()["orders"]}, {first, second}
-					)
+					self.assertEqual({order["id"] for order in both.get_json()["orders"]}, {first, second})
 
 			# An explicitly empty id remains a filter and matches no order;
 			# it must never widen into the unfiltered customer ledger.
 			empty_id = self._dispatch("GET", "/ceto/store/orders?id=")
-			self.assertEqual(
-				empty_id.get_json(), {"orders": [], "count": 0, "offset": 0, "limit": 50}
-			)
+			self.assertEqual(empty_id.get_json(), {"orders": [], "count": 0, "offset": 0, "limit": 50})
 
 			# Every placed order reports ``pending`` (Recorded Decision 6).
 			pending = self._dispatch("GET", "/ceto/store/orders?status=pending")
@@ -243,6 +239,71 @@ class TestOrderListAPI(CetoTestSuite):
 			served = own.get_json()["orders"][0]
 			self.assertEqual(served["id"], order_id)
 			self.assertRegex(served["id"], ORDER_ID)
+
+	def test_equal_creation_is_tiebroken_by_the_public_order_id(self) -> None:
+		# ``creation DESC, order_id ASC`` (Recorded Decision 7): with the
+		# references' creation pinned equal, the page order is decided by
+		# the public id alone — deterministic across pages.
+		email, _customer = make_customer_with_user("tiebreak")
+		placed = [self._placed_order(email=email, claim=True) for _ in range(3)]
+		shared = frappe.db.get_value("Ceto Order Reference", {"order_id": placed[0]}, "creation")
+		for order_id in placed:
+			frappe.db.set_value(
+				"Ceto Order Reference", {"order_id": order_id}, "creation", shared, update_modified=False
+			)
+		frappe.db.commit()  # nosemgrep - the pinned tie must survive request rollbacks
+
+		with self.set_conf(ceto_cart=self.configuration), self.set_user(email):
+			response = self._dispatch("GET", "/ceto/store/orders")
+
+		self.assertEqual(response.status_code, 200)
+		body = response.get_json()
+		self.assertEqual(body["count"], 3)
+		# The tie is real: every order reports the same creation instant.
+		self.assertEqual(len({order["created_at"] for order in body["orders"]}), 1)
+		self.assertEqual([order["id"] for order in body["orders"]], sorted(placed))
+
+	def test_a_foreign_id_filter_intersects_ownership_to_an_empty_page(self) -> None:
+		# The pinned ``id`` filter narrows, never widens (Recorded Decision
+		# 2): a foreign order id intersected with the asking customer's
+		# ownership matches nothing — an empty 200 page, never the other
+		# customer's order.
+		email, _customer = make_customer_with_user("foreign-id")
+		stranger_email, _stranger = make_customer_with_user("foreign-owner")
+		own = self._placed_order(email=email, claim=True)
+		foreign = self._placed_order(email=stranger_email, claim=True)
+
+		with self.set_conf(ceto_cart=self.configuration), self.set_user(email):
+			response = self._dispatch("GET", f"/ceto/store/orders?id={foreign}")
+			self.assertEqual(response.status_code, 200)
+			self.assertEqual(response.get_json(), {"orders": [], "count": 0, "offset": 0, "limit": 50})
+
+			# The same session still lists the asking customer's own order.
+			mine = self._dispatch("GET", f"/ceto/store/orders?id={own}")
+			self.assertEqual(mine.status_code, 200)
+			self.assertEqual([order["id"] for order in mine.get_json()["orders"]], [own])
+
+	def test_a_legacy_reference_without_a_snapshot_lists_to_the_cart_owner(self) -> None:
+		# Recorded Decision 2: the reference's ``owner_customer`` snapshot,
+		# with the completed cart's owner as the legacy fallback — a row
+		# completed before the snapshot existed (the backfill patch's
+		# starting point) still lists to the customer who claimed its cart,
+		# and reports that customer as ``customer_id``.
+		email, customer = make_customer_with_user("legacy")
+		order_id = self._placed_order(email=email, claim=True)
+		frappe.db.set_value(
+			"Ceto Order Reference", {"order_id": order_id}, "owner_customer", None, update_modified=False
+		)
+		frappe.db.commit()  # nosemgrep - the legacy row must survive request rollbacks
+
+		with self.set_conf(ceto_cart=self.configuration), self.set_user(email):
+			response = self._dispatch("GET", "/ceto/store/orders")
+
+		self.assertEqual(response.status_code, 200)
+		body = response.get_json()
+		self.assertEqual(body["count"], 1)
+		self.assertEqual([order["id"] for order in body["orders"]], [order_id])
+		self.assertEqual(body["orders"][0]["customer_id"], customer)
 
 	def _placed_order(self, *, email: str = "guest@example.com", claim: bool = False) -> str:
 		"""Create, fill, optionally claim, and complete a cart over the HTTP surface.

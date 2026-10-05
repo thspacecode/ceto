@@ -167,9 +167,7 @@ class OrderSerializer:
 		return CartShipping.applied_charge(sales_order)
 
 	@staticmethod
-	def _consumed_credits(
-		reference: "Document", context: "OrderPageContext | None"
-	) -> "list[AppliedCredit]":
+	def _consumed_credits(reference: "Document", context: "OrderPageContext | None") -> "list[AppliedCredit]":
 		"""Resolve the consumed credit holds, page-context aware."""
 		if context is not None:
 			return context.consumed_credits(reference.quotation)

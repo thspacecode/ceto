@@ -319,11 +319,15 @@ class CartCredits:
 		holds: "list[dict] | None" = None,
 		wallets: "dict[str, Document | dict] | None" = None,
 	) -> list[AppliedCredit]:
-		rows: list[dict] = holds if holds is not None else frappe.get_all(
-			"Ceto Cart Credit Reservation",
-			filters={"quotation": quotation_name, "status": status},
-			fields=["credit_line_id", "wallet", "amount", "creation", "modified"],
-			order_by="creation asc, name asc",
+		rows: list[dict] = (
+			holds
+			if holds is not None
+			else frappe.get_all(
+				"Ceto Cart Credit Reservation",
+				filters={"quotation": quotation_name, "status": status},
+				fields=["credit_line_id", "wallet", "amount", "creation", "modified"],
+				order_by="creation asc, name asc",
+			)
 		)
 		wallets = dict(wallets) if wallets is not None else {}
 		credits = []

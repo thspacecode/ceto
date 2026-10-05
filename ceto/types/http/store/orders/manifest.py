@@ -4,9 +4,10 @@ Source of truth: <https://docs.medusajs.com/api/store/orders>.
 Compatibility layer: ``@medusajs/js-sdk@2.21.1``.
 
 Phase 0 pinned the contract only — the manifest itself stays contract-only
-and carries no handlers: Phase 2 implements the retrieve route and Phase 3
-the list route, both in ``ceto/api/store/orders.py``, while the four
-transfer routes remain contract-only until their phase registers them
+and carries no handlers: Phase 2 implements the retrieve route, Phase 3 the
+list route and Phase 4 the transfer request/cancel routes, all in
+``ceto/api/store/orders.py``, while the token-authorized accept/decline
+routes remain contract-only until their phase registers them
 (``ceto.tests.types.http.store.test_orders_manifest`` enforces the
 boundary). The manifest is pure Python (no Frappe imports) so it can drive
 request validation codegen and be tested standalone.

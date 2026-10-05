@@ -1,0 +1,99 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:transfer_id",
+ "creation": "2026-10-05 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "transfer_id",
+  "status",
+  "order_reference",
+  "requested_by",
+  "description",
+  "token_hash",
+  "expires_at",
+  "original_email",
+  "new_email"
+ ],
+ "fields": [
+  {
+   "fieldname": "transfer_id",
+   "fieldtype": "Data",
+   "label": "Transfer ID",
+   "reqd": 1,
+   "search_index": 1,
+   "unique": 1
+  },
+  {
+   "default": "Pending",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Pending\nAccepted\nDeclined",
+   "reqd": 1
+  },
+  {
+   "fieldname": "order_reference",
+   "fieldtype": "Link",
+   "label": "Order Reference",
+   "options": "Ceto Order Reference",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "requested_by",
+   "fieldtype": "Link",
+   "label": "Requested By",
+   "options": "Customer",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "description": "The pinned optional request description; retained verbatim so the accepted request stays auditable",
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "description": "SHA-256 hex digest of the single-use transfer token; the plaintext token is never stored",
+   "fieldname": "token_hash",
+   "fieldtype": "Data",
+   "label": "Token Hash",
+   "reqd": 1,
+   "search_index": 1,
+   "unique": 1
+  },
+  {
+   "description": "When the pending token window closes: the pinned 7-day lifetime from request creation, stored rather than derived (Recorded Decision 11)",
+   "fieldname": "expires_at",
+   "fieldtype": "Datetime",
+   "label": "Expires At",
+   "reqd": 1
+  },
+  {
+   "description": "The order's email when the transfer was requested; the token is delivered here once",
+   "fieldname": "original_email",
+   "fieldtype": "Data",
+   "label": "Original Email"
+  },
+  {
+   "description": "Set when update_order_email was requested; acceptance records it on the order reference",
+   "fieldname": "new_email",
+   "fieldtype": "Data",
+   "label": "New Email"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-05 01:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Ceto",
+ "name": "Ceto Order Transfer",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

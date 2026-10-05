@@ -2,15 +2,16 @@
 
 The customer route manifest is drifted against its documented route inventory
 (this doc) and the README route table; the implemented surface is additionally
-drifted against the router in ``ceto.tests.routing.test_router``. Phase 2
-implements routes 1-3, so the doc, the README and the implemented-routes
-section must all agree on exactly that subset — any change to the manifest,
-the doc or the README customers section must land in all three or these tests
-fail.
+drifted against the router in ``ceto.tests.routing.test_router``. Phase 3
+completes the pinned surface, so the doc, the README and the
+implemented-routes section must all agree on the full eight-route surface —
+any change to the manifest, the doc or the README customers section must land
+in all three or these tests fail.
 """
 
 import re
 import unittest
+from importlib import import_module
 from pathlib import Path
 
 from ceto.types.http.store.customers.manifest import CUSTOMER_ROUTES
@@ -23,6 +24,11 @@ IMPLEMENTED_ROUTES = (
 	("POST", "/store/customers"),
 	("GET", "/store/customers/me"),
 	("POST", "/store/customers/me"),
+	("GET", "/store/customers/me/addresses"),
+	("POST", "/store/customers/me/addresses"),
+	("GET", "/store/customers/me/addresses/{address_id}"),
+	("POST", "/store/customers/me/addresses/{address_id}"),
+	("DELETE", "/store/customers/me/addresses/{address_id}"),
 )
 
 METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE"}
@@ -111,10 +117,20 @@ class TestCustomersEndpointsDoc(unittest.TestCase):
 		self.assertIn("@medusajs/types@2.21.1", self.text)
 		self.assertIn("https://docs.medusajs.com/api/store/customers", self.text)
 
-	def test_doc_records_the_phase_2_implementation_status(self):
-		self.assertIn("Phase 2 registers the first three routes", self.text)
-		self.assertIn("routes 4-8 stay contract-only", self.text)
+	def test_doc_records_the_phase_3_implementation_status(self):
+		self.assertIn("Phase 3 registers the complete surface", self.text)
 		self.assertEqual(parse_implemented_routes(self.text), list(IMPLEMENTED_ROUTES))
+
+	def test_doc_documents_every_implemented_route_handler(self):
+		section = self.text.split("## Implemented routes", 1)[1]
+		headings = re.findall(r"^### `([A-Z]+) (\S+)` — `([\w.]+)`", section, flags=re.MULTILINE)
+		self.assertEqual([(method, path) for method, path, _ in headings], list(IMPLEMENTED_ROUTES))
+		for method, path, handler in headings:
+			with self.subTest(route=f"{method} {path}"):
+				module_name, function_name = handler.rsplit(".", 1)
+				self.assertEqual(module_name, "ceto.api.store.customers")
+				module = import_module(module_name)
+				self.assertTrue(callable(getattr(module, function_name)))
 
 	def test_readme_customers_table_matches_the_manifest(self):
 		readme = README.read_text()

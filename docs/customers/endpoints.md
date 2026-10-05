@@ -1,10 +1,11 @@
 # Store Customer Endpoints — Source of Truth
 
 Phase 0 pinned the machine-readable contract manifest that implementation
-phases build against. **Phase 2 registers the first three routes** — `POST
-/store/customers`, `GET /store/customers/me` and `POST /store/customers/me`
-(see [Implemented routes](#implemented-routes)); routes 4-8 stay
-contract-only and the README keeps them at ⚪️. The coverage guard is the
+phases build against. **Phase 3 registers the complete surface** — all eight
+pinned routes, from `POST /store/customers` through the five address-book
+routes under `/store/customers/me/addresses` (see
+[Implemented routes](#implemented-routes)); the README marks every customer
+route ✅. The coverage guard is the
 manifest drift test
 (`ceto.tests.types.http.store.test_customers_manifest`), the docs↔manifest
 inventory check (`ceto.tests.docs.test_customers_endpoints`) and the router
@@ -84,18 +85,32 @@ recorded decisions in `field-mapping.md`).
 - **`fields`** (routes 1–7): the pinned `SelectParams` selector. Ceto always
   serializes the `addresses` relation on the customer by default (Ceto policy:
   the address book loads with the customer and checkout needs it); `fields`
-  projects on top of that baseline. The delete route (8) has a fixed shape and
-  ignores `fields`.
+  projects on top of that baseline — `+`/`-`/`*` tokens add, remove or reset
+  on it, and on the address projections (routes 4 and 6) the collapsed label
+  trio (`first_name`, `last_name`, `company` — no dedicated columns, they
+  never serialize back) and any unknown field are refused
+  (`400 invalid_data`). The delete route (8) has a fixed shape and ignores
+  `fields`.
 - **Pagination** (route 4 only): `limit`, `offset`, `order`, `with_deleted`
   per the pinned `FindParams`. Window bounds are Ceto policy: `offset`
   defaults to 0, `limit` defaults to 20 with a maximum of 100. The response
   always reports the applied window as required `count` / `offset` / `limit`;
   the Postgres planner `estimate_count` of the pinned `PaginatedResponse` is
-  never reported (no ERPNext equivalent).
+  never reported (no ERPNext equivalent). `with_deleted` validates and is a
+  no-op — Ceto keeps no soft-deleted address surface.
+- **Ordering** (route 4 only): deterministic — the default is
+  `creation asc, name asc`; an explicit `order` may name `id`, `created_at`,
+  `updated_at`, `address_name`, `city` or `postal_code` with an optional
+  `+`/`-` direction and always carries the `name` tiebreak so equal sort keys
+  keep a stable order. An unknown or empty order field is `400 invalid_data`.
 - **Filters** (route 4 only): `q`, `city`, `country_code`, `postal_code` —
   the pinned `StoreCustomerAddressFilters` deliberately drops `company` and
   `province` from the base filters, so Ceto rejects them too. Filters accept
   the single-value member of the pinned `string | string[]` unions only.
+  `q` sweeps the label and street/city columns as a case-insensitive
+  substring (`address_title`, `address_line1`, `address_line2`, `city`);
+  `city` and `postal_code` match exactly; `country_code` must be a two-letter
+  ISO 3166-1 alpha-2 code that resolves to an ERPNext `Country`.
 - **Unknown parameters** are rejected (`400 invalid_data`) on every route,
   like every Ceto contract.
 
@@ -109,7 +124,8 @@ deletion semantics — are recorded with their sources in
 
 ## Implemented routes
 
-Phase 2 implements routes 1–3; routes 4-8 stay contract-only.
+Phase 3 completes the pinned surface: Phase 2 implemented routes 1–3 and
+Phase 3 adds the address book (routes 4–8) — all eight README rows are ✅.
 
 ### `POST /store/customers` — `ceto.api.store.customers.create_customer`
 
@@ -192,7 +208,112 @@ Phase 2 implements routes 1–3; routes 4-8 stay contract-only.
 - Same pinned `StoreCustomerResponse` shape and serializer as routes 1–2;
   the `addresses` relation always serializes.
 
+### `GET /store/customers/me/addresses` — `ceto.api.store.customers.list_customer_addresses`
+
+- Same authenticated gate as the profile routes: the publishable key is
+  validated first and the router refuses guests before the handler runs; a
+  Frappe session or an `auth`-purpose bearer token authenticates through the
+  shared auth hook, while registration and password-reset tokens never do.
+- The strict pinned query (`StoreCustomerAddressFilters`) validates before
+  the identity resolves: unknown parameters are `400 invalid_data`, including
+  the `company` and `province` filters the pinned type deliberately drops,
+  and only the single-value member of the pinned `string | string[]` unions
+  is accepted.
+- The window is Ceto policy (`offset` 0, `limit` 20 with a maximum of 100,
+  `limit=0` refused); the body always reports the applied `count` / `offset`
+  / `limit` and never an `estimate_count`. `with_deleted` validates and is a
+  no-op — Ceto keeps no soft-deleted address surface.
+- The customer's enabled entries — including pre-existing customer Addresses
+  under their existing names (recorded decision 5) — resolve as one bounded
+  per-user list, ordered deterministically (see *Ordering* above), the window
+  slices it and every page row projects through the pinned `fields`
+  selector.
+
+### `POST /store/customers/me/addresses` — `ceto.api.store.customers.create_customer_address`
+
+- Same authenticated gate. The body validates against the pinned
+  `StoreCreateCustomerAddress` before the identity resolves: an unknown field
+  is `400 invalid_data` and nothing is written; `address_1`, `city` and
+  `country_code` are required, and `country_code` must be a two-letter ISO
+  code that resolves to an ERPNext `Country`.
+- The identity chain resolves first (the same `401 unauthorized` mask as the
+  profile routes) and the entry is created inside the request transaction:
+  the public id is Ceto's stable `addr_` + 128 bits name minted onto the
+  ERPNext `Address` itself, with exactly one Dynamic Link — the owning
+  `Customer`, never a Quotation or Contact (recorded decision 5).
+- The label trio collapses into `address_title` as `address_name`, then
+  first+last name, then company; the collapsed fields never serialize back
+  and the pinned selector refuses them like unknown fields.
+- `metadata` lives on the entry's `Ceto Customer Address Reference` record
+  (recorded decision 4) and a supplied default flag clears the previous
+  per-customer holder through the normal Address controller (recorded
+  decision 6), so the parent's derived `default_billing_address_id` /
+  `default_shipping_address_id` already reflect the new entry.
+- The response is the pinned parent customer serialized fresh (address book
+  included) *after* the create; the `fields` selector projects it afterwards
+  — an invalid selector fails with `400 invalid_data` and the router rolls
+  the created entry back with the whole request.
+
+### `GET /store/customers/me/addresses/{address_id}` — `ceto.api.store.customers.retrieve_customer_address`
+
+- Same authenticated gate; the strict pinned query
+  (`StoreGetCustomerAddressParams`) carries only the `fields` selector.
+- Ownership masking: a missing, foreign (no `Customer` Dynamic Link to the
+  caller) or disabled entry renders the same `404 not_found` — a response
+  never confirms which addresses exist.
+- The entry serializes to the pinned `StoreCustomerAddress`: the stable
+  public id is the ERPNext `Address` name (recorded decision 5), `customer_id`
+  is the owning customer's public `cus_…` id, `metadata` is the decoded
+  reference record and `created_at` / `updated_at` come from `creation` /
+  `modified`. The `fields` selector projects the entry; the collapsed label
+  trio and unknown fields are refused like every Ceto contract.
+
+### `POST /store/customers/me/addresses/{address_id}` — `ceto.api.store.customers.update_customer_address`
+
+- Same authenticated gate. The pinned partial payload validates before the
+  identity resolves — an unknown field is `400 invalid_data` and a missing or
+  foreign entry is the same masked `404 not_found` — before anything is
+  written.
+- Only the fields present on the validated payload move
+  (`payload.model_fields_set`): an omitted field leaves its column
+  untouched; a present `null` — or a stripped empty string, which the pinned
+  payload model already normalized to `""` — clears it. Clearing a pinned
+  core column (`address_1`, `city`, `country_code`) is refused with
+  `400 invalid_data`.
+- The label recomposes only when the payload supplies a label field:
+  `address_name` wins over the supplied names over the supplied company
+  (recorded decision 5 mapping).
+- The default flags move the ERPNext checkboxes and the controller clears the
+  previous per-customer holder (recorded decision 6); `metadata` merges
+  through the reference with the shared semantics (recorded decision 4). A
+  no-op payload writes nothing; every effective change saves the entry, so
+  its `modified` — the contract's `updated_at` — advances.
+- The response is the pinned parent customer serialized after the update and
+  the `fields` selector projects it afterwards: an invalid selector fails
+  with `400 invalid_data` and the router rolls the applied update back with
+  the whole request.
+
+### `DELETE /store/customers/me/addresses/{address_id}` — `ceto.api.store.customers.delete_customer_address`
+
+- Same authenticated gate; the delete contract has no query parameters and a
+  fixed response shape, so no `fields` selector applies.
+- Ownership masking: a missing or foreign entry renders the same
+  `404 not_found` and a foreign entry is never touched.
+- Integrity (recorded decision 9): the customer's ERPNext default-address
+  slot is released when it names the entry; a sole-owned entry is then
+  destroyed through the normal ERPNext delete — static links from placed
+  orders and quotations raise `LinkExistsError` and the entry is retained
+  instead, the link check is never bypassed — while an entry another Customer
+  still owns is retained untouched for that owner and only unlinked from this
+  book. The `Ceto Customer Address Reference` is dropped either way, so the
+  entry `404`s here afterwards.
+- The response is the fixed `{id, object: "address", deleted: true, parent}`
+  shape: the removed id plus the unchanged parent customer, serialized after
+  the deletion (empty `addresses`, cleared derived default ids).
+
 Every refusal above renders the Medusa error envelope
-(`{"type": "unauthorized" | "invalid_data", "message": …}`), with missing,
-malformed, expired, wrong-provider and replayed registration tokens collapsed
-to the stable `401 unauthorized`.
+(`{"type": "unauthorized" | "invalid_data" | "not_found", "message": …}`):
+authentication failures — missing or unconfigured key, guest, wrong-purpose
+token, replayed registration token — collapse to the stable
+`401 unauthorized`, and the address ownership mask is always the same
+`404 not_found`.

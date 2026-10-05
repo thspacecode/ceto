@@ -146,7 +146,7 @@ class OrderListing:
 				| (carts.sales_channel_id == "")
 				| (carts.sales_channel_id == key.sales_channel_id)
 			)
-		if ids:
+		if ids is not None:
 			order_ids = [ids] if isinstance(ids, str) else list(ids)
 			conditions.append(references.order_id.isin(order_ids))
 		# The pinned "actually completed" lineage: a placed order's

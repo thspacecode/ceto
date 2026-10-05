@@ -150,6 +150,13 @@ class TestOrderListAPI(CetoTestSuite):
 						{order["id"] for order in both.get_json()["orders"]}, {first, second}
 					)
 
+			# An explicitly empty id remains a filter and matches no order;
+			# it must never widen into the unfiltered customer ledger.
+			empty_id = self._dispatch("GET", "/ceto/store/orders?id=")
+			self.assertEqual(
+				empty_id.get_json(), {"orders": [], "count": 0, "offset": 0, "limit": 50}
+			)
+
 			# Every placed order reports ``pending`` (Recorded Decision 6).
 			pending = self._dispatch("GET", "/ceto/store/orders?status=pending")
 			self.assertEqual(pending.get_json()["count"], 2)

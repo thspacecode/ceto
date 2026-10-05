@@ -52,15 +52,11 @@ from ceto.types.http.store.orders import StoreOrder
 from ceto.types.http.store.orders.manifest import (
 	ORDER_LIST_DEFAULT_LIMIT,
 	ORDER_LIST_DEFAULT_OFFSET,
+	ORDER_LIST_MAX_LIMIT,
 )
 
 if TYPE_CHECKING:
 	from frappe.model.document import Document
-
-#: Read-model bound for one page: a page's whole context (documents,
-#: children, addresses, holds) is loaded at once, so the service caps the
-#: page size instead of loading a whole ledger.
-ORDER_LIST_MAX_LIMIT = 100
 
 
 class OrderListing:

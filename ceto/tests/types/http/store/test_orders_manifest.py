@@ -1,11 +1,11 @@
 """Contract tests for the pinned Store Order routes manifest.
 
-Phase 0 pinned the contract only; Phase 2 wires its first route. The tests
-fail loudly on manifest drift against the verified upstream contracts, on
-drift against the routes the README advertises, on README status drift
-against the registered surface, and on any route registration beyond the
-implemented retrieve route. They are pure Python (no Frappe imports), like
-the manifest itself.
+Phase 0 pinned the contract only; Phase 2 wired the retrieve route and
+Phase 3 the list route. The tests fail loudly on manifest drift against the
+verified upstream contracts, on drift against the routes the README
+advertises, on README status drift against the registered surface, and on
+any route registration beyond the implemented retrieval+listing surface.
+They are pure Python (no Frappe imports), like the manifest itself.
 """
 
 import re
@@ -24,6 +24,7 @@ from ceto.types.http.store.orders.manifest import (
 	ORDER_LIST_DEFAULT_LIMIT,
 	ORDER_LIST_DEFAULT_OFFSET,
 	ORDER_LIST_FILTERS,
+	ORDER_LIST_MAX_LIMIT,
 	ORDER_ROUTES,
 	ORDER_SDK_METHODS,
 	ORDER_SDK_PACKAGE,
@@ -183,6 +184,10 @@ class TestOrderRouteManifest(unittest.TestCase):
 		self.assertEqual(ORDER_LIST_DEFAULT_LIMIT, 50)
 		self.assertEqual(ORDER_LIST_DEFAULT_OFFSET, 0)
 
+	def test_list_page_bound_is_a_ceto_decision(self):
+		"""Upstream 2.21.1 bounds no page size — the read-model cap is Ceto's."""
+		self.assertEqual(ORDER_LIST_MAX_LIMIT, 100)
+
 	def test_transfer_lifetime_is_a_ceto_decision(self):
 		"""Upstream 2.21.1 defines no expiry — 7 days is Ceto's pinned decision."""
 		self.assertEqual(ORDER_TRANSFER_LIFETIME_DAYS, 7)
@@ -205,29 +210,36 @@ class TestOrderRouteManifest(unittest.TestCase):
 	def test_readme_marks_exactly_the_registered_surface_implemented(self):
 		"""The advertised status is the implemented surface, mechanically: the
 		✅ rows are exactly the routes ``orders.py`` registers — the Phase 2
-		retrieval slice — and every other pinned row stays ⚪️ To implement."""
+		retrieval slice and the Phase 3 listing slice — and every other
+		pinned row stays ⚪️ To implement."""
 		statuses = {(method, path): status for method, path, status in readme_orders_rows()}
 		implemented = {route for route, status in statuses.items() if "✅" in status}
 		self.assertEqual(implemented, registered_orders_routes())
-		self.assertEqual(implemented, {("GET", "/store/orders/{id}")})
+		self.assertEqual(implemented, {("GET", "/store/orders/{id}"), ("GET", "/store/orders")})
 		unimplemented = {route for route, status in statuses.items() if "⚪" in status}
 		self.assertEqual(unimplemented, set(statuses) - implemented)
-		self.assertEqual(len(unimplemented), 5)
+		self.assertEqual(len(unimplemented), 4)
 
-	def test_phase_2_registers_only_the_retrieve_route(self):
-		"""Phase 2 boundary: ``orders.py`` wires exactly the retrieve route.
+	def test_phase_3_registers_exactly_retrieval_and_listing(self):
+		"""Phase 3 boundary: ``orders.py`` wires retrieval and listing exactly.
 
 		Read from source, not imported (the file-read convention of
 		``tests/docs/test_orders_field_mapping.py``): the registered surface
-		is exactly the one pinned retrieve route — guest-dispatchable, per
-		the pinned ``publishable-key`` auth — and ``routes.py`` wires the
-		module. The list and transfer routes stay contract-only until their
-		phase registers them; the runtime registry equality lives in
-		``ceto.tests.routing.test_router``.
+		is exactly the two implemented routes — retrieval guest-dispatchable,
+		per the pinned ``publishable-key`` auth, and listing
+		customer-authenticated, so its decorator carries no ``allow_guest`` —
+		and ``routes.py`` wires the module. The four transfer routes stay
+		contract-only until their phase registers them; the runtime registry
+		equality lives in ``ceto.tests.routing.test_router``.
 		"""
 		orders_api = (PACKAGE_ROOT / "api" / "store" / "orders.py").read_text()
-		self.assertEqual(registered_orders_routes(), {("GET", "/store/orders/{id}")})
+		self.assertEqual(
+			registered_orders_routes(),
+			{("GET", "/store/orders/{id}"), ("GET", "/store/orders")},
+		)
 		self.assertIn('@ceto_router.get("/store/orders/{id}", allow_guest=True)', orders_api)
+		self.assertIn('@ceto_router.get("/store/orders")', orders_api)
+		self.assertNotIn('@ceto_router.get("/store/orders", allow_guest=True)', orders_api)
 		self.assertIn("import ceto.api.store.orders", (PACKAGE_ROOT / "api" / "routes.py").read_text())
 
 

@@ -148,23 +148,28 @@ class TestRouter(CetoTestSuite):
 		pinned = {(route.method, f"/ceto{route.path}") for route in CART_ROUTES}
 		self.assertEqual(registered, pinned)
 
-	def test_implemented_order_routes_match_the_phase_2_slice(self):
+	def test_implemented_order_routes_match_the_phase_3_slice(self):
 		"""The registered order surface is exactly the implemented manifest slice.
 
-		Phase 2 registers only the pinned retrieve route (manifest route 1);
-		each later phase extends this assertion until it equals the full
-		``ORDER_ROUTES`` surface, like the carts check above. The list and
-		transfer routes must stay contract-only until their phase registers
-		them.
+		Phase 3 registers the pinned retrieve (manifest route 1) and list
+		(manifest route 2) routes; each later phase extends this assertion
+		until it equals the full ``ORDER_ROUTES`` surface, like the carts
+		check above. The four transfer routes must stay contract-only until
+		their phase registers them.
 		"""
 		registered = {
 			(route.method, route.path) for route in ceto_router.routes if "/store/orders" in route.path
 		}
-		retrieve = {
-			(route.method, f"/ceto{route.path}") for route in ORDER_ROUTES if route.sdk_method == "retrieve"
+		implemented = {
+			(route.method, f"/ceto{route.path}")
+			for route in ORDER_ROUTES
+			if route.sdk_method in ("retrieve", "list")
 		}
-		self.assertEqual(retrieve, {("GET", "/ceto/store/orders/{id}")})
-		self.assertEqual(registered, retrieve)
+		self.assertEqual(
+			implemented,
+			{("GET", "/ceto/store/orders/{id}"), ("GET", "/ceto/store/orders")},
+		)
+		self.assertEqual(registered, implemented)
 
 	def test_route_override_uses_external_route_key(self):
 		router = Router(prefix="/ceto")

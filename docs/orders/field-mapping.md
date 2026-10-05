@@ -2,11 +2,13 @@
 
 Phase 0 pinned the six Store Orders route contracts
 (`ceto/types/http/store/orders/manifest.py`) and recorded how a placed order
-is served from ERPNext. **Exactly one order route is now registered and
+is served from ERPNext. **Exactly two order routes are now registered and
 implemented** — the retrieval route `GET /store/orders/{id}` (Phase 2),
 serving the completion product of the cart flow (Phase 6 `CartCompletion` +
-`OrderSerializer`, see `docs/carts/field-mapping.md`); the list route and the
-four transfer routes remain contract-only. Of the Phase 1 models this
+`OrderSerializer`, see `docs/carts/field-mapping.md`) — and the list route
+`GET /store/orders` (Phase 3), paging the authenticated customer's placed
+orders out of the same read model (`OrderListing`); the four transfer routes
+remain contract-only. Of the Phase 1 models this
 document pins, the `owner_customer` snapshot on `Ceto Order Reference`
 **exists** (the completing transaction books it atomically and a one-time
 backfill patch filled legacy references); the `Ceto Order Transfer` record
@@ -119,8 +121,8 @@ reference's effective owner — the `owner_customer` snapshot first, the
 completed cart's `Ceto Cart Reference.owner_customer` as the legacy fallback
 above — the switch pinned here being a serializer detail, never a contract
 change. Phase 0 created neither the column nor any endpoint; the column
-landed in Phase 1, and the one registered endpoint (the retrieval route) in
-Phase 2.
+landed in Phase 1, the retrieval route in Phase 2, and the list route in
+Phase 3.
 
 ## Status mapping
 
@@ -272,6 +274,11 @@ difference.
 - The pinned list defaults are mirrored: `limit` 50, `offset` 0, and the
   pinned `{orders, count, offset, limit}` envelope (no `estimate_count` —
   Ceto has no index engine).
+- **One page is bounded**: `limit` is capped at `ORDER_LIST_MAX_LIMIT` (100)
+  and `offset` is non-negative — a Ceto decision, because the read model
+  loads a page's whole context at once (upstream 2.21.1 bounds no page
+  size). The contract rejects a page outside the bounds as `400
+  invalid_data` instead of silently clamping it.
 - Filters are the pinned `id` / `status` only. The `$and`/`$or` combinators,
   client `order` sort expressions and `with_deleted` (Ceto has no soft
   delete) are **rejected as `400 invalid_data`** instead of silently ignored
@@ -517,11 +524,13 @@ What Phase 0 drew, and where that boundary stands now:
   serializer's effective-owner read and the one-time backfill exist since
   Phase 1; the `Ceto Order Transfer` record with its token digest is still
   pinned only, not created.
-- Exactly one order route is registered: the retrieval route
+- Exactly two order routes are registered: the retrieval route
   `GET /store/orders/{id}`, guest-dispatchable per its pinned
-  `publishable-key` auth. The list route and the four transfer routes stay
-  contract-only, and `ceto.tests.types.http.store.test_orders_manifest`
-  (`test_phase_2_registers_only_the_retrieve_route`, with the runtime
+  `publishable-key` auth, and — since Phase 3 — the list route
+  `GET /store/orders`, customer-authenticated (no `allow_guest`). The four
+  transfer routes stay contract-only, and
+  `ceto.tests.types.http.store.test_orders_manifest`
+  (`test_phase_3_registers_exactly_retrieval_and_listing`, with the runtime
   registry check in `ceto.tests.routing.test_router`) fails if that changes.
 - The README's Orders table marks the retrieval route Implemented and every
   other orders route To implement; the README-drift test keeps the

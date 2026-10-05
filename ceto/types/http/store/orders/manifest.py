@@ -4,9 +4,9 @@ Source of truth: <https://docs.medusajs.com/api/store/orders>.
 Compatibility layer: ``@medusajs/js-sdk@2.21.1``.
 
 Phase 0 pinned the contract only — the manifest itself stays contract-only
-and carries no handlers: Phase 2 implements the retrieve route elsewhere, in
-``ceto/api/store/orders.py``, while the list and transfer routes remain
-contract-only until their phase registers them
+and carries no handlers: Phase 2 implements the retrieve route and Phase 3
+the list route, both in ``ceto/api/store/orders.py``, while the four
+transfer routes remain contract-only until their phase registers them
 (``ceto.tests.types.http.store.test_orders_manifest`` enforces the
 boundary). The manifest is pure Python (no Frappe imports) so it can drive
 request validation codegen and be tested standalone.
@@ -91,6 +91,12 @@ ORDER_LIST_FILTERS = ("id", "status")
 ORDER_LIST_DEFAULT_LIMIT = 50
 
 ORDER_LIST_DEFAULT_OFFSET = 0
+
+#: Ceto decision (NOT upstream parity — the pinned 2.21.1 validator bounds no
+#: page size): the list read model loads a page's whole context at once, so one
+#: page is capped at this many orders instead of loading a whole ledger. The
+#: query contract rejects a larger (or negative) page as ``400 invalid_data``.
+ORDER_LIST_MAX_LIMIT = 100
 
 #: Ceto decision (NOT upstream parity — the pinned 2.21.1 packages define no
 #: transfer expiry): a pending order transfer expires this many days after

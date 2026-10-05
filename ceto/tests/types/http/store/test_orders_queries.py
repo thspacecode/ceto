@@ -19,6 +19,7 @@ from ceto.types.http.store.orders.manifest import (
 	ORDER_LIST_DEFAULT_LIMIT,
 	ORDER_LIST_DEFAULT_OFFSET,
 	ORDER_LIST_FILTERS,
+	ORDER_LIST_MAX_LIMIT,
 )
 
 
@@ -54,6 +55,21 @@ class TestStoreOrderFilters(unittest.TestCase):
 		self.assertEqual(params.fields, "id,status")
 		self.assertEqual(params.limit, 10)
 		self.assertEqual(params.offset, 20)
+
+	def test_pagination_stays_inside_the_read_model_bounds(self):
+		"""One page is at most the pinned bulk-load cap; pages are non-negative.
+
+		The bound is a Ceto decision (upstream 2.21.1 bounds no page size):
+		the contract rejects a larger or negative page as invalid data
+		instead of silently clamping it, so a client never receives a page
+		it cannot reproduce.
+		"""
+		self.assertEqual(ORDER_LIST_MAX_LIMIT, 100)
+		self.assertEqual(StoreOrderFilters(limit=100).limit, ORDER_LIST_MAX_LIMIT)
+		self.assertEqual(StoreOrderFilters(limit=0, offset=0).limit, 0)
+		for key, value in (("limit", 101), ("limit", -1), ("offset", -1)):
+			with self.subTest(key=key), self.assertRaises(ValidationError):
+				StoreOrderFilters(**{key: value})
 
 	def test_pinned_filters_accept_single_or_list_values(self):
 		self.assertEqual(StoreOrderFilters(id="order_1").id, "order_1")

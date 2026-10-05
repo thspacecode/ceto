@@ -327,15 +327,16 @@ class TestOrdersFieldMappingDoc(unittest.TestCase):
 				self.assertNotIn(phrase, self.flat)
 
 	def test_phase_boundary_tracks_the_implemented_surface(self):
-		"""The doc states the live boundary: exactly one route registered and
-		implemented, list/transfers contract-only, the Phase 1 owner snapshot
-		existing and the transfer record still pinned only."""
+		"""The doc states the live boundary: exactly the retrieval+listing
+		routes registered and implemented, transfers contract-only, the
+		Phase 1 owner snapshot existing and the transfer record still pinned
+		only."""
 		boundary = self.flat.lower()
-		self.assertIn("exactly one order route is now registered and implemented", boundary)
-		self.assertIn("the list route and the four transfer routes remain contract-only", boundary)
+		self.assertIn("exactly two order routes are now registered and implemented", boundary)
+		self.assertIn("the four transfer routes remain contract-only", boundary)
 		self.assertIn("the `owner_customer` snapshot on `ceto order reference` **exists**", boundary)
 		self.assertIn("still pinned only, not created", boundary)
-		self.assertIn("the list route and the four transfer routes stay contract-only", boundary)
+		self.assertIn("the four transfer routes stay contract-only", boundary)
 		self.assertIn("ceto/types/http/store/orders/manifest.py", self.text)
 
 	def test_doc_boundary_names_exactly_the_registered_routes(self):
@@ -346,7 +347,7 @@ class TestOrdersFieldMappingDoc(unittest.TestCase):
 		registered = {
 			(method.upper(), path) for method, path in REGISTERED_ROUTE_RE.findall(ORDERS_API.read_text())
 		}
-		self.assertEqual(registered, {("GET", "/store/orders/{id}")})
+		self.assertEqual(registered, {("GET", "/store/orders/{id}"), ("GET", "/store/orders")})
 		for method, path in sorted(registered):
 			with self.subTest(route=f"{method} {path}"):
 				self.assertIn(f"`{method} {path}`", self.text)

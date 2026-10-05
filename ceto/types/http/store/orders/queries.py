@@ -6,7 +6,10 @@ list takes ``StoreOrderFilters`` (``id`` / ``status``, each a single value or
 a list, ``status`` over the pinned ``OrderStatus`` union) with the
 pagination of ``FindParams``. The list defaults mirror the upstream server
 validator (``createFindParams({offset: 0, limit: 50})``), pinned in the
-manifest.
+manifest beside the Ceto read-model page bound (``ORDER_LIST_MAX_LIMIT``):
+one page is at most a hundred orders and the page numbers are non-negative,
+so the bulk page load stays bounded — a request outside the bounds is
+rejected as ``400 invalid_data`` instead of silently clamped.
 
 The upstream validator additionally merges the ``$and``/``$or`` combinators
 and accepts the ``FindParams`` ``order`` sort expression and ``with_deleted``
@@ -17,12 +20,13 @@ reproduce. ``fields`` behaves as on the cart routes — the same selector
 implementation the handlers apply to the serialized order(s).
 """
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from ceto.types.http.store.orders.entities import OrderStatus
 from ceto.types.http.store.orders.manifest import (
 	ORDER_LIST_DEFAULT_LIMIT,
 	ORDER_LIST_DEFAULT_OFFSET,
+	ORDER_LIST_MAX_LIMIT,
 )
 
 
@@ -55,10 +59,12 @@ class StoreOrderFilters(_StoreOrderSelectParams):
 	and ``$or`` are deliberately absent and rejected as unknown fields
 	(Recorded Decision 8), as is every filter outside the pinned ``id`` /
 	``status`` — the list handler forces the caller's own customer id, so it
-	is never client-supplied.
+	is never client-supplied. The pagination carries the Ceto read-model
+	bounds: ``limit`` is the pinned default capped at one page's bulk load,
+	``offset`` non-negative.
 	"""
 
-	limit: int = ORDER_LIST_DEFAULT_LIMIT
-	offset: int = ORDER_LIST_DEFAULT_OFFSET
+	limit: int = Field(default=ORDER_LIST_DEFAULT_LIMIT, ge=0, le=ORDER_LIST_MAX_LIMIT)
+	offset: int = Field(default=ORDER_LIST_DEFAULT_OFFSET, ge=0)
 	id: str | list[str] | None = None
 	status: OrderStatus | list[OrderStatus] | None = None

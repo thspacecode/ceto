@@ -4,7 +4,7 @@ Composed from pieces that already exist: ``OrderAccess`` resolves one id
 under lineage and publishable-key scope (every failure the same ``404
 not_found``), ``OrderListing`` pages a customer's orders out of the same
 read model, ``OrderTransfer`` mints and cancels pending ownership-transfer
-requests under the order's row lock — and consumes one on acceptance —
+requests under the order's row lock — and consumes one on acceptance or decline —
 and ``OrderSerializer`` derives the
 canonical ``StoreOrder`` JSON from those records. The shared entity-neutral selector applies the
 routes' ``fields`` — the services support the pinned contracts without
@@ -144,6 +144,32 @@ class OrderService:
 		reloaded, re-serialized ``StoreOrder``.
 		"""
 		return self.transfers.accept(order_id, key, token=token)
+
+	def decline_transfer(
+		self,
+		order_id: str,
+		key: PublishableKeyScope,
+		*,
+		token: str,
+	) -> dict[str, Any]:
+		"""Decline the pending ownership transfer of ``order_id`` with ``token``.
+
+		Delegates to the transfer component (:class:`OrderTransfer`): the
+		same lock, masked resolution and credential gates as
+		:meth:`accept_transfer` — the order reference is row-locked before
+		any check, the presented token is only ever hashed, every failing
+		credential (wrong, expired, replayed-accepted, replayed-declined)
+		is the same ``403 not_allowed`` ``Invalid token.`` without
+		mutation, and a digest matching no record of an order without a
+		live pending request is ``400 invalid_data``. The holder's refusal
+		is one write: the record closes ``Declined`` — ownership stays as
+		it was and the order reference's email, the cart reference and the
+		Sales Order are untouched (Recorded Decision 12) — and the
+		``ceto_order_transfer_declined`` hook fires inside the transaction
+		without any token material. The response is the unchanged
+		serialized ``StoreOrder``.
+		"""
+		return self.transfers.decline(order_id, key, token=token)
 
 	def cancel_transfer(
 		self,

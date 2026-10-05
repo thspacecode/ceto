@@ -60,6 +60,17 @@ reference's ``email`` the stored ``new_email``) and the record closes as
 ``Accepted`` — never the cart reference, never the Sales Order (Recorded
 Decision 12).
 
+**Decline** is the holder's refusal (the ``declineTransfer`` surface): the
+same lock, masked resolution and credential gates as accept — the token is
+only ever hashed and every failing credential is refused exactly as there —
+but the holder's answer is one write: the record closes as ``Declined``.
+Ownership stays as it was, and the order reference's email and ``modified``
+stamp, the cart reference and the Sales Order are untouched (Recorded
+Decision 12), leaving the still-guest order free for a fresh request. The
+``ceto_order_transfer_declined`` hook announces the refusal inside the
+transaction with the same safe payload shape as acceptance, never any token
+material.
+
 **Cancel** is the requester's removal of that pending state (the Medusa
 ``cancelTransfer`` surface): the same lock-then-mask order finds the order
 reference, and the pending record is matched regardless of ``expires_at``
@@ -102,6 +113,11 @@ TRANSFER_REQUESTED_HOOK = "ceto_order_transfer_requested"
 #: payload never carries token material.
 TRANSFER_ACCEPTED_HOOK = "ceto_order_transfer_accepted"
 
+#: Frappe hook announcing a refused transfer (order id, transfer id, requester
+#: customer, would-be email). Fired inside the declining transaction; the
+#: payload never carries token material.
+TRANSFER_DECLINED_HOOK = "ceto_order_transfer_declined"
+
 ORDER_NOT_TRANSFERABLE = "Only orders without an owner can be requested for transfer"
 ORDER_TRANSFER_PENDING = "A transfer request is already pending for this order"
 ORDER_TRANSFER_NOT_PENDING = "No pending transfer request exists for this order"
@@ -126,7 +142,7 @@ def _dispatch_hook(hook: str, **payload: "str | None") -> None:
 
 
 class OrderTransfer:
-	"""Mint, accept and cancel pending ownership-transfer requests for placed orders."""
+	"""Mint, accept, decline and cancel pending ownership-transfer requests for placed orders."""
 
 	def __init__(
 		self,
@@ -227,6 +243,43 @@ class OrderTransfer:
 			email=values.get("email"),
 		)
 		order_reference.reload()
+		return self.orders.serialize(order_reference, sales_order, reference)
+
+	def decline(
+		self,
+		order_id: str,
+		key: PublishableKeyScope,
+		*,
+		token: str,
+	) -> dict[str, Any]:
+		"""Refuse the pending transfer of ``order_id`` with its single-use ``token``.
+
+		The same lock, masked resolution and credential gates as
+		:meth:`accept` apply — the order reference is row-locked before any
+		check, the token is only ever hashed, and every failing credential —
+		wrong, expired, replayed-accepted, replayed-declined — is the same
+		``403 not_allowed`` ``Invalid token.`` without mutation, while a
+		digest matching no record of an order without a live pending request
+		is the ``400 invalid_data`` missing-pending refusal. The holder's
+		refusal is one write: the record closes as ``Declined`` — ownership
+		stays as it was, and the order reference's email and ``modified``
+		stamp, the cart reference and the Sales Order are untouched
+		(Recorded Decision 12), leaving the still-guest order free for a
+		fresh request. The ``ceto_order_transfer_declined`` hook announces
+		the refusal inside the transaction with the same safe payload shape
+		as acceptance and never any token material. The response is the
+		unchanged serialized ``StoreOrder`` — never the token.
+		"""
+		self._lock_reference(order_id)
+		order_reference, sales_order, reference = self.access.resolve(order_id, key)
+		transfer = self._acceptable_transfer(order_reference.name, hash_code(token))
+		frappe.db.set_value("Ceto Order Transfer", transfer.name, "status", "Declined")
+		self._notify_declined(
+			order_id=order_reference.order_id,
+			transfer_id=transfer.transfer_id,
+			owner_customer=transfer.requested_by,
+			email=transfer.new_email,
+		)
 		return self.orders.serialize(order_reference, sales_order, reference)
 
 	def cancel(
@@ -401,6 +454,39 @@ class OrderTransfer:
 		"""
 		_dispatch_hook(
 			TRANSFER_ACCEPTED_HOOK,
+			order_id=order_id,
+			transfer_id=transfer_id,
+			owner_customer=owner_customer,
+			email=email,
+		)
+
+	@staticmethod
+	def _notify_declined(
+		*,
+		order_id: str,
+		transfer_id: str,
+		owner_customer: str,
+		email: str | None,
+	) -> None:
+		"""Announce the refused transfer through the completion hook.
+
+		Fires inside the declining transaction, after the status write: a
+		receiver already sees the record closed ``Declined``, and a receiver
+		failure propagates, so the API layer's rollback takes the decline
+		back whole. The payload keeps the completion shape of
+		:meth:`_notify_accepted` and is deliberately safe:
+		``(order_id, transfer_id, owner_customer, email)`` — the public
+		order id, the public ``tr_…`` transfer id, the Customer whose
+		request the decline closes (the transfer's stored requester;
+		ownership never moved) and the address the declined request would
+		have recorded (the stored ``new_email``, ``None`` without
+		``update_order_email``): the identifiers a site integration needs to
+		tell the requester the transfer was refused. No token material ever
+		rides it — the credential is consumed, and neither the plaintext nor
+		its digest is handed out again.
+		"""
+		_dispatch_hook(
+			TRANSFER_DECLINED_HOOK,
 			order_id=order_id,
 			transfer_id=transfer_id,
 			owner_customer=owner_customer,

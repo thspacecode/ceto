@@ -11,7 +11,8 @@ against the code's own Literal so document and implementation cannot drift.
 The implemented-route boundary the document states is compared against the
 surface ``ceto/api/store/orders.py`` actually registers — exactly the four
 Phase 4 routes, the token-authorized accept/decline pair staying
-contract-only for Phase 5 — and the README's Orders status rows are parsed
+contract-only until their registration while its core behavior is live
+since the Phase 5 services — and the README's Orders status rows are parsed
 and pinned to the same surface, so neither prose nor README can outgrow
 the code.
 """
@@ -48,7 +49,8 @@ REGISTERED_ROUTE_RE = re.compile(r'@ceto_router\.(\w+)\("([^"]+)"')
 
 #: The implemented Phase 4 surface: exactly these four routes are
 #: registered (retrieval, listing, transfer request/cancel); the
-#: token-authorized accept/decline pair stays contract-only for Phase 5.
+#: token-authorized accept/decline pair stays contract-only until its
+#: registration — its behavior is live since the Phase 5 services.
 REGISTERED_ROUTES = {
 	("GET", "/store/orders/{id}"),
 	("GET", "/store/orders"),
@@ -364,8 +366,10 @@ class TestOrdersFieldMappingDoc(unittest.TestCase):
 		"""The doc states the live boundary: exactly the four Phase 4 routes
 		registered and implemented, the transfer record persisting with its
 		digest and expiry window, the request/cancel behavior live since
-		Phase 4 and the token-authorized accept/decline pair contract-only
-		for Phase 5 — with none of the superseded Phase 0/3 claims left."""
+		Phase 4, the accept/decline core live since Phase 5 as services and
+		the token-authorized accept/decline pair still contract-only until
+		its registration — with none of the superseded Phase 0/3 claims
+		left."""
 		boundary = self.flat.lower()
 		self.assertIn("exactly four order routes are now registered and implemented", boundary)
 		self.assertIn("the `owner_customer` snapshot on `ceto order reference` **exists**", boundary)
@@ -374,10 +378,15 @@ class TestOrdersFieldMappingDoc(unittest.TestCase):
 		self.assertIn("hook receives the plaintext token once", boundary)
 		self.assertIn("the 7-day expiry is enforced", boundary)
 		self.assertIn(
-			"the token-authorized accept/decline routes remain contract-only until phase 5", boundary
+			"the token-authorized accept/decline routes remain contract-only until their registration",
+			boundary,
 		)
-		self.assertIn("the token-authorized accept/decline routes stay contract-only until phase 5", boundary)
-		self.assertIn("**accept** and **decline** remain contract-only until phase 5", boundary)
+		self.assertIn(
+			"the token-authorized accept/decline routes stay contract-only until their registration",
+			boundary,
+		)
+		self.assertIn("**accept** and **decline** are live since phase 5", boundary)
+		self.assertIn("the registration of both token-authorized routes remains", boundary)
 		self.assertIn("ceto/types/http/store/orders/manifest.py", self.text)
 		for stale in (
 			"exactly two order routes",

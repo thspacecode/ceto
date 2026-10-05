@@ -120,9 +120,9 @@ Medusa API implementation status, grouped by scope. Routes follow the [Medusa St
 | GET | `/store/orders/{id}` | ✅️ |
 | GET | `/store/orders` | ✅️ |
 | POST | `/store/orders/{id}/transfer/accept` | ⚪️ |
-| POST | `/store/orders/{id}/transfer/cancel` | ⚪️ |
+| POST | `/store/orders/{id}/transfer/cancel` | ✅️ |
 | POST | `/store/orders/{id}/transfer/decline` | ⚪️ |
-| POST | `/store/orders/{id}/transfer/request` | ⚪️ |
+| POST | `/store/orders/{id}/transfer/request` | ✅️ |
 
 ### Payment Collections
 

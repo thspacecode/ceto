@@ -1,8 +1,9 @@
 """Store order HTTP surface: the thin adapter over ``OrderService``.
 
-Phase 2 wires the pinned retrieve route and Phase 3 the list route; the
-boundary tests prove the four transfer routes stay contract-only until
-their phase registers them.
+Phase 2 wires the pinned retrieve route, Phase 3 the list route and Phase
+4 the transfer ``request``/``cancel`` routes; the boundary tests prove the
+accept and decline routes stay contract-only until their phase registers
+them.
 """
 
 from typing import Any
@@ -13,7 +14,7 @@ from ceto.api.store.publishable_key import CartPublishableKey
 from ceto.routing import ceto_router
 from ceto.services.carts.customers import CartCustomers
 from ceto.services.orders.service import OrderService
-from ceto.types.http.store.orders import StoreOrderFilters
+from ceto.types.http.store.orders import StoreOrderFilters, StoreRequestOrderTransfer
 
 #: The filters whose pinned wire format is a single value or an array: the
 #: SDK serializes a list as one comma-separated value (or repeated
@@ -66,6 +67,77 @@ def list_orders(**query: Any) -> dict[str, Any]:
 		offset=filters.offset,
 		fields=filters.fields,
 	)
+
+
+@ceto_router.post("/store/orders/{id}/transfer/request")
+def request_order_transfer(id: str, **payload: Any) -> dict[str, Any]:
+	"""Medusa ``requestTransfer``: ask ownership of a guest order for the caller.
+
+	Customer-authenticated like upstream pins it: the router refuses an
+	anonymous session before the handler and ``CartCustomers`` refuses a
+	customer-less one — both ``401 unauthorized`` — with the publishable
+	key required exactly as on every Store route. The body validates
+	against the pinned ``StoreRequestOrderTransfer``, whose unknown fields
+	are forbidden: upstream pins no recipient identifier, so the requester
+	is always the authenticated customer and the requester email is derived
+	from the session's User → Contact convention (see
+	``_session_requester_email``), never read from the payload (orders
+	Recorded Decision 9). Resolution and eligibility live in the service —
+	unknown, broken, cancelled and wrong-scoped orders are the masked
+	``404 not_found`` of retrieve, an owned order or a second live request
+	is ``400 invalid_data`` — and the single-use token reaches only the
+	``ceto_order_transfer_requested`` hook.
+
+	The response is the exact pinned ``StoreOrderResponse`` — the unchanged
+	``{order}`` — with no ``fields`` selector and never a token.
+	"""
+	publishable_key = CartPublishableKey.from_request()
+	customer = CartCustomers.resolve(frappe.session.user)
+	validated = StoreRequestOrderTransfer.model_validate(payload)
+	order = OrderService().request_transfer(
+		id,
+		publishable_key,
+		requested_by=customer,
+		requester_email=_session_requester_email(frappe.session.user),
+		description=validated.description,
+		update_order_email=validated.update_order_email,
+	)
+	return {"order": order}
+
+
+@ceto_router.post("/store/orders/{id}/transfer/cancel")
+def cancel_order_transfer(id: str) -> dict[str, Any]:
+	"""Medusa ``cancelTransfer``: remove the caller's pending transfer request.
+
+	Customer-authenticated exactly like the request route — publishable
+	key, then the session's Customer, both ``401 unauthorized`` when
+	missing — and bodyless (the pinned manifest carries
+	``request_type: None``): the handler takes no body parameter, so a sent
+	body is never read. Only the recorded requester's pending record is
+	removed (any other caller ``403 not_allowed``, a missing or replayed
+	request ``400 invalid_data``).
+
+	The response is the exact pinned ``StoreOrderResponse`` — the unchanged
+	``{order}`` — with no ``fields`` selector and never a token.
+	"""
+	publishable_key = CartPublishableKey.from_request()
+	customer = CartCustomers.resolve(frappe.session.user)
+	order = OrderService().cancel_transfer(id, publishable_key, requested_by=customer)
+	return {"order": order}
+
+
+def _session_requester_email(user: str) -> str | None:
+	"""The caller's email per the authenticated User → Contact convention.
+
+	The chain that resolves the session's Customer (``CartCustomers``)
+	also carries the customer-facing email: the linked Contact's
+	``email_id``, with the User's own login email as the fallback. The
+	transfer's ``update_order_email`` target is therefore always derived
+	from the authenticated session — the pinned request body carries no
+	recipient identifier and must never gain one through the back door.
+	"""
+	contact_email = frappe.db.get_value("Contact", {"user": user}, "email_id", order_by="creation asc")
+	return contact_email or frappe.db.get_value("User", user, "email")
 
 
 def _filter_values(query: dict[str, Any]) -> dict[str, Any]:

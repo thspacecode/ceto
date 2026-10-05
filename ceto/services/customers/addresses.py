@@ -170,6 +170,59 @@ class AddressBookSerializer:
 		return field
 
 
+def book_names(customer: str) -> list[str]:
+	"""The customer's enabled entry names in the deterministic book order."""
+	return frappe.get_all(
+		"Address",
+		filters=_book_filters(customer),
+		pluck="name",
+		order_by=_DEFAULT_ORDER,
+	)
+
+
+def serialize_book(customer: str, customer_id: str) -> list[StoreCustomerAddress]:
+	"""Serialize the enabled book of ``customer`` in the deterministic order.
+
+	The read behind the always-serialized ``addresses`` relation of the
+	customer serializer (Ceto policy: the address book loads with the
+	customer): the bounded per-user list resolves once — names, then the
+	metadata map — and every entry goes through the address serializer.
+	"""
+	names = book_names(customer)
+	metadata = _metadata_map(names)
+	return [
+		AddressBookSerializer.serialize(frappe.get_doc("Address", name), customer_id, metadata.get(name))
+		for name in names
+	]
+
+
+def default_address_id(customer: str, flag_column: str) -> str | None:
+	"""The public id of the enabled entry holding ``flag_column``; else ``None``.
+
+	The derived ``default_billing_address_id`` / ``default_shipping_address_id``
+	of the customer serializer (recorded decision 6): the flagged row of the
+	enabled book — the first in the deterministic order should legacy data
+	ever carry two flags of one kind.
+	"""
+	names = frappe.get_all(
+		"Address",
+		filters=[*_book_filters(customer), [flag_column, "=", 1]],
+		pluck="name",
+		order_by=_DEFAULT_ORDER,
+	)
+	return names[0] if names else None
+
+
+def _book_filters(customer: str) -> list[list[str]]:
+	"""The enabled ``Address`` ↔ ``Customer`` Dynamic Link book membership."""
+	return [
+		["disabled", "=", 0],
+		["Dynamic Link", "parenttype", "=", "Address"],
+		["Dynamic Link", "link_doctype", "=", "Customer"],
+		["Dynamic Link", "link_name", "=", customer],
+	]
+
+
 def create_address(user: str, payload: StoreCreateCustomerAddress) -> tuple[CustomerIdentity, object]:
 	"""Append one validated payload as an entry of ``user``'s address book.
 
@@ -471,12 +524,7 @@ def _drop_reference(address_name: str) -> None:
 
 def _matching_address_names(customer: str, query: StoreCustomerAddressFilters) -> list[str]:
 	"""The customer's enabled entry names matching the query, ordered."""
-	filters = [
-		["disabled", "=", 0],
-		["Dynamic Link", "parenttype", "=", "Address"],
-		["Dynamic Link", "link_doctype", "=", "Customer"],
-		["Dynamic Link", "link_name", "=", customer],
-	]
+	filters = _book_filters(customer)
 	if query.city:
 		filters.append(["city", "=", query.city])
 	if query.postal_code:

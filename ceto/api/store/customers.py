@@ -1,4 +1,4 @@
-"""Thin Medusa Store Customer endpoints (Phase 2: create, retrieve, update)."""
+"""Thin Medusa Store Customer endpoints (Phase 3: profile and address book)."""
 
 from typing import Any
 
@@ -11,14 +11,25 @@ from ceto.services.auth.tokens import (
 	consume_bearer_registration_token,
 	get_bearer_registration_subject,
 )
+from ceto.services.customers.addresses import (
+	create_address,
+	delete_address,
+	list_addresses,
+	retrieve_address,
+	update_address,
+)
 from ceto.services.customers.creation import create_customer_profile
 from ceto.services.customers.identity import resolve_customer_reference
 from ceto.services.customers.serialization import CustomerSerializer
 from ceto.services.customers.update import update_customer as apply_customer_update
 from ceto.types.http.store.customers import (
 	StoreCreateCustomer,
+	StoreCreateCustomerAddress,
+	StoreCustomerAddressFilters,
+	StoreGetCustomerAddressParams,
 	StoreGetCustomerParams,
 	StoreUpdateCustomer,
+	StoreUpdateCustomerAddress,
 )
 
 
@@ -103,3 +114,88 @@ def update_customer(fields: str | None = None, **payload: Any) -> dict[str, Any]
 	apply_customer_update(identity, reference, validated)
 	customer = CustomerSerializer.serialize(identity, reference).model_dump(mode="json")
 	return {"customer": CustomerSerializer.select_fields(customer, fields)}
+
+
+@ceto_router.get("/store/customers/me/addresses")
+def list_customer_addresses(**query: Any) -> dict[str, Any]:
+	"""Medusa ``listAddress``: the authenticated customer's address book.
+
+	Not guest-dispatchable, like every ``/me`` route. The pinned
+	``StoreCustomerAddressFilters`` carry the window (Ceto policy bounds),
+	the ``q``/``city``/``country_code``/``postal_code`` filters and the
+	``fields`` selector; unknown query parameters are refused with
+	``400 invalid_data`` before anything is resolved.
+	"""
+	CustomerPublishableKey.from_request()
+	filters = StoreCustomerAddressFilters.model_validate(query)
+	return list_addresses(frappe.session.user, filters)
+
+
+@ceto_router.post("/store/customers/me/addresses")
+def create_customer_address(fields: str | None = None, **payload: Any) -> dict[str, Any]:
+	"""Medusa ``createAddress``: append one entry to the address book.
+
+	Not guest-dispatchable, like every ``/me`` route. The pinned payload
+	validates before the identity resolves; the service creates the entry
+	inside the request transaction and returns the resolved
+	``(identity, reference)`` pair, so the route answers with the pinned
+	parent customer — serialized fresh, address book included. The
+	``fields`` selector projects that customer *after* the create ran: an
+	invalid selector fails with ``400 invalid_data`` and the router rolls
+	the created entry back with the whole request.
+	"""
+	CustomerPublishableKey.from_request()
+	validated = StoreCreateCustomerAddress.model_validate(payload)
+	identity, reference = create_address(frappe.session.user, validated)
+	customer = CustomerSerializer.serialize(identity, reference).model_dump(mode="json")
+	return {"customer": CustomerSerializer.select_fields(customer, fields)}
+
+
+@ceto_router.get("/store/customers/me/addresses/{address_id}")
+def retrieve_customer_address(address_id: str, **query: Any) -> dict[str, Any]:
+	"""Medusa ``retrieveAddress``: one owned entry of the address book.
+
+	Not guest-dispatchable, like every ``/me`` route. The service masks a
+	missing, foreign or disabled entry as the same ``404 not_found``; the
+	pinned ``StoreGetCustomerAddressParams`` selector projects the entry.
+	"""
+	CustomerPublishableKey.from_request()
+	params = StoreGetCustomerAddressParams.model_validate(query)
+	return {"address": retrieve_address(frappe.session.user, address_id, params.fields)}
+
+
+@ceto_router.post("/store/customers/me/addresses/{address_id}")
+def update_customer_address(address_id: str, fields: str | None = None, **payload: Any) -> dict[str, Any]:
+	"""Medusa ``updateAddress``: apply the body to one owned entry.
+
+	Not guest-dispatchable, like every ``/me`` route. The pinned partial
+	payload moves only the supplied fields of the entry; the route answers
+	with the pinned parent customer serialized after the update. The
+	``fields`` selector projects that customer *after* the update ran: an
+	invalid selector fails with ``400 invalid_data`` and the router rolls
+	the applied update back with the whole request.
+	"""
+	CustomerPublishableKey.from_request()
+	validated = StoreUpdateCustomerAddress.model_validate(payload)
+	identity, reference = update_address(frappe.session.user, address_id, validated)
+	customer = CustomerSerializer.serialize(identity, reference).model_dump(mode="json")
+	return {"customer": CustomerSerializer.select_fields(customer, fields)}
+
+
+@ceto_router.delete("/store/customers/me/addresses/{address_id}")
+def delete_customer_address(address_id: str) -> dict[str, Any]:
+	"""Medusa ``deleteAddress``: remove one owned entry from the address book.
+
+	Not guest-dispatchable, like every ``/me`` route. The delete contract
+	has no query parameters and a fixed response shape: the removed id, the
+	``address`` object literal, the ``deleted`` flag and the unchanged
+	parent customer, serialized after the deletion.
+	"""
+	CustomerPublishableKey.from_request()
+	identity, reference = delete_address(frappe.session.user, address_id)
+	return {
+		"id": address_id,
+		"object": "address",
+		"deleted": True,
+		"parent": CustomerSerializer.serialize(identity, reference).model_dump(mode="json"),
+	}

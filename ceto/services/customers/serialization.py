@@ -4,8 +4,8 @@ The public id comes from the ``Ceto Customer Reference``, the profile columns
 from the ``Contact``, the identity email from the ``User`` and the timestamps
 from the ``Customer`` (``docs/customers/field-mapping.md``). The ``addresses``
 relation is always serialized — Ceto policy: the address book loads with the
-customer — and stays empty until the address-book phase delivers
-customer-linked Addresses.
+customer — through the address book service, and the default ids are derived
+from the flagged book entries (recorded decision 6).
 """
 
 import json
@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 import frappe
 
 from ceto.routing.exceptions import InvalidDataError
+from ceto.services.customers.addresses import default_address_id, serialize_book
 from ceto.services.customers.identity import CustomerIdentity
 from ceto.types.http.store.customers import StoreCustomer
 
@@ -43,11 +44,14 @@ class CustomerSerializer:
 		return StoreCustomer(
 			id=reference.name,
 			email=frappe.db.get_value("User", identity.user, "email"),
+			default_billing_address_id=default_address_id(identity.customer, "is_primary_address"),
+			default_shipping_address_id=default_address_id(identity.customer, "is_shipping_address"),
 			company_name=profile.company_name or None,
 			first_name=profile.first_name or None,
 			last_name=profile.last_name or None,
 			phone=profile.phone or None,
 			metadata=json.loads(reference.metadata) if reference.metadata else None,
+			addresses=serialize_book(identity.customer, reference.name),
 			created_at=created,
 			updated_at=modified,
 		)

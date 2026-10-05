@@ -37,6 +37,13 @@ class TestRouter(CetoTestSuite):
 			),
 			("/ceto/store/customers", "POST", "/ceto/store/customers", {}),
 			("/ceto/store/customers/me", "GET", "/ceto/store/customers/me", {}),
+			("/ceto/store/customers/me/addresses", "GET", "/ceto/store/customers/me/addresses", {}),
+			(
+				"/ceto/store/customers/me/addresses/addr_012a",
+				"DELETE",
+				"/ceto/store/customers/me/addresses/{address_id}",
+				{"address_id": "addr_012a"},
+			),
 		):
 			with self.subTest(path=path):
 				route, matched_arguments = ceto_router.match(self._request(path, method))
@@ -144,23 +151,29 @@ class TestRouter(CetoTestSuite):
 		pinned = {(route.method, f"/ceto{route.path}") for route in CART_ROUTES}
 		self.assertEqual(registered, pinned)
 
-	def test_implemented_customer_routes_match_the_phase_2_subset(self):
+	def test_implemented_customer_routes_match_the_phase_3_subset(self):
 		"""The registered customer surface is exactly the implemented manifest slice.
 
-		Phase 2 registers the update route (manifest routes 1-3); each later
-		phase extends this assertion until it equals the full
-		``CUSTOMER_ROUTES`` surface, like the carts check above.
+		Phase 3 registers the address-book routes (manifest routes 1-8), so
+		the implemented slice now equals the full ``CUSTOMER_ROUTES``
+		surface, exactly like the carts check above: route drift in either
+		direction fails loudly.
 		"""
 		registered = {
 			(route.method, route.path) for route in ceto_router.routes if "/store/customers" in route.path
 		}
-		implemented = {(route.method, f"/ceto{route.path}") for route in CUSTOMER_ROUTES[:3]}
+		implemented = {(route.method, f"/ceto{route.path}") for route in CUSTOMER_ROUTES[:8]}
 		self.assertEqual(
 			implemented,
 			{
 				("POST", "/ceto/store/customers"),
 				("GET", "/ceto/store/customers/me"),
 				("POST", "/ceto/store/customers/me"),
+				("GET", "/ceto/store/customers/me/addresses"),
+				("POST", "/ceto/store/customers/me/addresses"),
+				("GET", "/ceto/store/customers/me/addresses/{address_id}"),
+				("POST", "/ceto/store/customers/me/addresses/{address_id}"),
+				("DELETE", "/ceto/store/customers/me/addresses/{address_id}"),
 			},
 		)
 		self.assertEqual(registered, implemented)

@@ -1,1 +1,1 @@
-"""Customers application services: identity resolution, creation, serialization."""
+"""Customers application services: identity resolution, creation, serialization, address book."""

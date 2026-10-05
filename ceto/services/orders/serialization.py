@@ -37,7 +37,7 @@ import frappe
 from frappe.utils import flt, get_datetime
 
 from ceto.routing.exceptions import InternalServerError
-from ceto.services.carts.addresses import serialize_address
+from ceto.services.addresses import serialize_address
 from ceto.services.carts.credits import CartCredits
 from ceto.services.carts.serialization import CartSerializer
 from ceto.services.carts.shipping import AppliedShippingCharge, CartShipping

@@ -9,12 +9,10 @@ Ceto lifetime, requester semantics, capability-based retrieval) and the list
 ``status`` filter hardening, whose pinned ``OrderStatus`` union is compared
 against the code's own Literal so document and implementation cannot drift.
 The implemented-route boundary the document states is compared against the
-surface ``ceto/api/store/orders.py`` actually registers — exactly the four
-Phase 4 routes, the token-authorized accept/decline pair staying
-contract-only until their registration while its core behavior is live
-since the Phase 5 services — and the README's Orders status rows are parsed
-and pinned to the same surface, so neither prose nor README can outgrow
-the code.
+surface ``ceto/api/store/orders.py`` actually registers — the full pinned
+six-route surface, complete since Phase 5 — and the README's Orders status
+rows are parsed and pinned to the same surface, so neither prose nor README
+can outgrow the code.
 """
 
 import re
@@ -47,19 +45,16 @@ MANIFEST_LIFETIME_RE = re.compile(r"^ORDER_TRANSFER_LIFETIME_DAYS\s*=\s*(\d+)\s*
 #: method and path), parsed from source like the manifest read above.
 REGISTERED_ROUTE_RE = re.compile(r'@ceto_router\.(\w+)\("([^"]+)"')
 
-#: The implemented Phase 4 surface: exactly these four routes are
-#: registered (retrieval, listing, transfer request/cancel); the
-#: token-authorized accept/decline pair stays contract-only until its
-#: registration — its behavior is live since the Phase 5 services.
+#: The registered surface since Phase 5: the whole pinned manifest, wired
+#: exactly once — retrieval guest-dispatchable, listing and the transfer
+#: request/cancel pair customer-authenticated, and the token-authorized
+#: accept/decline pair guest-dispatchable like retrieval.
 REGISTERED_ROUTES = {
 	("GET", "/store/orders/{id}"),
 	("GET", "/store/orders"),
 	("POST", "/store/orders/{id}/transfer/request"),
-	("POST", "/store/orders/{id}/transfer/cancel"),
-}
-
-CONTRACT_ONLY_ROUTES = {
 	("POST", "/store/orders/{id}/transfer/accept"),
+	("POST", "/store/orders/{id}/transfer/cancel"),
 	("POST", "/store/orders/{id}/transfer/decline"),
 }
 
@@ -363,47 +358,45 @@ class TestOrdersFieldMappingDoc(unittest.TestCase):
 				self.assertNotIn(phrase, self.flat)
 
 	def test_phase_boundary_tracks_the_implemented_surface(self):
-		"""The doc states the live boundary: exactly the four Phase 4 routes
-		registered and implemented, the transfer record persisting with its
-		digest and expiry window, the request/cancel behavior live since
-		Phase 4, the accept/decline core live since Phase 5 as services and
-		the token-authorized accept/decline pair still contract-only until
-		its registration — with none of the superseded Phase 0/3 claims
-		left."""
+		"""The doc states the live boundary: the whole pinned six-route
+		surface registered and implemented, the transfer record persisting
+		with its digest and expiry window, the request/cancel behavior live
+		since Phase 4 and the token-authorized accept/decline pair live and
+		registered since Phase 5 — with none of the superseded Phase 0/3
+		claims left."""
 		boundary = self.flat.lower()
-		self.assertIn("exactly four order routes are now registered and implemented", boundary)
+		self.assertIn("all six order routes are now registered and implemented", boundary)
+		self.assertIn("exactly six order routes are registered", boundary)
 		self.assertIn("the `owner_customer` snapshot on `ceto order reference` **exists**", boundary)
 		self.assertIn("phase 4 persists it with its token digest and expiry window", boundary)
 		self.assertIn("behaviors below are live since phase 4", boundary)
 		self.assertIn("hook receives the plaintext token once", boundary)
 		self.assertIn("the 7-day expiry is enforced", boundary)
-		self.assertIn(
-			"the token-authorized accept/decline routes remain contract-only until their registration",
-			boundary,
-		)
-		self.assertIn(
-			"the token-authorized accept/decline routes stay contract-only until their registration",
-			boundary,
-		)
 		self.assertIn("**accept** and **decline** are live since phase 5", boundary)
-		self.assertIn("the registration of both token-authorized routes remains", boundary)
+		self.assertIn("both token-authorized routes registered behind them", boundary)
+		self.assertIn("the token-authorized accept and decline endpoints since phase 5", boundary)
+		self.assertIn("guest-dispatchable like retrieval", boundary)
 		self.assertIn("ceto/types/http/store/orders/manifest.py", self.text)
 		for stale in (
 			"exactly two order routes",
+			"exactly four order routes",
 			"the four transfer routes remain contract-only",
 			"the four transfer routes stay contract-only",
 			"still pinned only, not created",
 			"no transfer endpoint is registered yet",
+			"remain contract-only",
+			"stays contract-only",
+			"still-unregistered",
+			"the registration of both token-authorized routes remains",
 		):
 			with self.subTest(stale=stale):
 				self.assertNotIn(stale, boundary)
 
 	def test_doc_boundary_names_exactly_the_registered_routes(self):
 		"""The implemented-route boundary the doc states is the surface
-		``ceto/api/store/orders.py`` actually registers — exactly the four
-		Phase 4 routes, accept/decline absent from the decorators
-		(source-parsed, no import coupling; the registered-surface equality
-		with the manifest lives in
+		``ceto/api/store/orders.py`` actually registers — the whole pinned
+		six-route surface (source-parsed, no import coupling; the
+		registered-surface equality with the manifest lives in
 		``ceto.tests.types.http.store.test_orders_manifest``)."""
 		registered = {
 			(method.upper(), path) for method, path in REGISTERED_ROUTE_RE.findall(ORDERS_API.read_text())
@@ -414,15 +407,15 @@ class TestOrdersFieldMappingDoc(unittest.TestCase):
 				self.assertIn(f"`{method} {path}`", self.text)
 
 	def test_readme_status_pins_exactly_the_registered_surface(self):
-		"""The README's ✅ rows are exactly the four registered routes and its
-		⚪ rows exactly the contract-only accept/decline pair — the advertised
-		status cannot drift from the registered surface."""
+		"""The README's ✅ rows are exactly the six registered routes and no
+		⚪ To-implement row remains — the advertised status cannot drift
+		from the registered surface."""
 		statuses = readme_order_statuses()
 		self.assertEqual(len(statuses), 6)
 		implemented = {route for route, status in statuses.items() if "✅" in status}
 		pending = {route for route, status in statuses.items() if "⚪" in status}
 		self.assertEqual(implemented, REGISTERED_ROUTES)
-		self.assertEqual(pending, CONTRACT_ONLY_ROUTES)
+		self.assertEqual(pending, set())
 		self.assertEqual(implemented | pending, set(statuses))
 
 	def test_no_custom_field_commitment(self):

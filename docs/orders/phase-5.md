@@ -38,7 +38,10 @@ only scopes the phase — it pins no new contracts.
 
 ## Status
 
-Plan committed as the phase boundary marker on `feat/orders-phase-5`;
-implementation commits follow on this branch. The PR is opened as a **draft**
-stacked on `feat/orders-phase-4` and is marked ready only when the routes are
-registered and the tests above pass.
+Complete on `feat/orders-phase-5`: both routes are registered
+guest-dispatchable behind the mandatory publishable-key check
+(`test_phase_5_registers_all_six_pinned_routes`, the runtime registry
+equality in `ceto.tests.routing.test_router` and the API surface tests in
+`ceto.tests.api.store.test_orders_transfers`), and the README and
+`docs/orders/field-mapping.md` advertise the full implemented six-route
+surface.

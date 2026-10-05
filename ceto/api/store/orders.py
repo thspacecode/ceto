@@ -1,9 +1,8 @@
 """Store order HTTP surface: the thin adapter over ``OrderService``.
 
-Phase 2 wires the pinned retrieve route, Phase 3 the list route and Phase
-4 the transfer ``request``/``cancel`` routes; the boundary tests prove the
-accept and decline routes stay contract-only until their phase registers
-them.
+Phase 2 wires the pinned retrieve route, Phase 3 the list route, Phase 4
+the transfer ``request``/``cancel`` routes and Phase 5 the transfer
+``accept``/``decline`` routes — the full pinned six-route surface.
 """
 
 from typing import Any
@@ -14,7 +13,12 @@ from ceto.api.store.publishable_key import CartPublishableKey
 from ceto.routing import ceto_router
 from ceto.services.carts.customers import CartCustomers
 from ceto.services.orders.service import OrderService
-from ceto.types.http.store.orders import StoreOrderFilters, StoreRequestOrderTransfer
+from ceto.types.http.store.orders import (
+	StoreAcceptOrderTransfer,
+	StoreDeclineOrderTransfer,
+	StoreOrderFilters,
+	StoreRequestOrderTransfer,
+)
 
 #: The filters whose pinned wire format is a single value or an array: the
 #: SDK serializes a list as one comma-separated value (or repeated
@@ -123,6 +127,54 @@ def cancel_order_transfer(id: str) -> dict[str, Any]:
 	publishable_key = CartPublishableKey.from_request()
 	customer = CartCustomers.resolve(frappe.session.user)
 	order = OrderService().cancel_transfer(id, publishable_key, requested_by=customer)
+	return {"order": order}
+
+
+@ceto_router.post("/store/orders/{id}/transfer/accept", allow_guest=True)
+def accept_order_transfer(id: str, **payload: Any) -> dict[str, Any]:
+	"""Medusa ``acceptTransfer``: consent to a pending transfer with its token.
+
+	Token-authorized like upstream pins it: the accept route carries no
+	customer authentication middleware upstream — the single-use transfer
+	token in the body authorizes — so the handler is guest-dispatchable and
+	never resolves a session Customer. The publishable key is still
+	required exactly as on every Store route, and the body validates
+	against the pinned ``StoreAcceptOrderTransfer`` whose unknown fields
+	are forbidden. Everything else lives in the service: the presented
+	token is only ever hashed, every failing credential — wrong, expired,
+	replayed consumed or declined — is the same ``403 not_allowed``
+	``Invalid token.`` without mutation, a digest matching no record of an
+	order without a live pending request is ``400 invalid_data``, and
+	resolution is the masked ``404 not_found`` of retrieve.
+
+	The response is the exact pinned ``StoreOrderResponse`` — the updated
+	``{order}`` — with no ``fields`` selector and never a token.
+	"""
+	publishable_key = CartPublishableKey.from_request()
+	validated = StoreAcceptOrderTransfer.model_validate(payload)
+	order = OrderService().accept_transfer(id, publishable_key, token=validated.token)
+	return {"order": order}
+
+
+@ceto_router.post("/store/orders/{id}/transfer/decline", allow_guest=True)
+def decline_order_transfer(id: str, **payload: Any) -> dict[str, Any]:
+	"""Medusa ``declineTransfer``: refuse a pending transfer with its token.
+
+	Token-authorized exactly like the accept route — no customer
+	authentication middleware, the body's single-use transfer token
+	authorizes, the publishable key is required exactly as on every Store
+	route and the body validates against the pinned
+	``StoreDeclineOrderTransfer`` whose unknown fields are forbidden. The
+	same lock, masked resolution and credential gates as acceptance apply;
+	the holder's refusal closes the pending record ``Declined`` and writes
+	nothing else (orders Recorded Decision 12).
+
+	The response is the exact pinned ``StoreOrderResponse`` — the unchanged
+	``{order}`` — with no ``fields`` selector and never a token.
+	"""
+	publishable_key = CartPublishableKey.from_request()
+	validated = StoreDeclineOrderTransfer.model_validate(payload)
+	order = OrderService().decline_transfer(id, publishable_key, token=validated.token)
 	return {"order": order}
 
 

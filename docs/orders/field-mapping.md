@@ -2,20 +2,20 @@
 
 Phase 0 pinned the six Store Orders route contracts
 (`ceto/types/http/store/orders/manifest.py`) and recorded how a placed order
-is served from ERPNext. **Exactly four order routes are now registered and
+is served from ERPNext. **All six order routes are now registered and
 implemented** — the retrieval route `GET /store/orders/{id}` (Phase 2),
 serving the completion product of the cart flow (Phase 6 `CartCompletion` +
 `OrderSerializer`, see `docs/carts/field-mapping.md`), the list route
 `GET /store/orders` (Phase 3), paging the authenticated customer's placed
-orders out of the same read model (`OrderListing`), and — since Phase 4 —
-the transfer request and cancel routes
-`POST /store/orders/{id}/transfer/request` and
-`POST /store/orders/{id}/transfer/cancel`, whose semantics and the hook
-delivery, digest-only token storage and 7-day expiry described below are
-live — joined in Phase 5 by the acceptance and decline behaviors
-themselves, the `OrderTransfer.accept` and `OrderTransfer.decline`
-services behind the still-unregistered routes; the token-authorized
-accept/decline routes remain contract-only until their registration. Of
+orders out of the same read model (`OrderListing`), the transfer request and
+cancel routes `POST /store/orders/{id}/transfer/request` and
+`POST /store/orders/{id}/transfer/cancel` (Phase 4), whose semantics and the
+hook delivery, digest-only token storage and 7-day expiry described below
+are live, and — since Phase 5 — the token-authorized transfer accept and
+decline routes `POST /store/orders/{id}/transfer/accept` and
+`POST /store/orders/{id}/transfer/decline`, dispatched on the transfer token
+alone (publishable key still required, no customer session) behind the
+`OrderTransfer.accept` and `OrderTransfer.decline` services. Of
 the Phase 1 models this document pins, the `owner_customer`
 snapshot on `Ceto Order Reference` **exists** (the completing transaction
 books it atomically and a one-time backfill patch filled legacy references)
@@ -320,8 +320,8 @@ only its SHA-256 digest is persisted and the 7-day expiry is enforced
 (`ceto/services/orders/transfer.py`). **Accept** and **decline** are live
 since Phase 5 as the same module's `OrderTransfer.accept` /
 `OrderService.accept_transfer` and `OrderTransfer.decline` /
-`OrderService.decline_transfer` services; the registration of both
-token-authorized routes remains.
+`OrderService.decline_transfer` services, with both token-authorized
+routes registered behind them.
 
 **Upstream contract facts** (verified in `@medusajs/core-flows@2.21.1` and
 `@medusajs/medusa@2.21.1`):
@@ -392,9 +392,8 @@ token-authorized routes remains.
   consents by accepting or declining; acceptance applies ownership to the
   requesting customer stored on the transfer, never to a payload-supplied or
   email-guessed recipient. The request and cancel endpoints are live since
-  Phase 4; the accept and decline endpoints remain contract-only, both
-  behaviors themselves live since Phase 5 as the `OrderTransfer.accept` and
-  `OrderTransfer.decline` services.
+  Phase 4 and the token-authorized accept and decline endpoints since
+  Phase 5 — the full pinned route surface is registered.
 - **Eligible orders** are guest/unowned ones (effective owner null — the
   order reference's `owner_customer` snapshot, or its legacy cart fallback
   before backfill): the transfer moves such an order to the requesting
@@ -591,22 +590,24 @@ What Phase 0 drew, and where that boundary stands now:
   serializer's effective-owner read and the one-time backfill exist since
   Phase 1, and the `Ceto Order Transfer` record with its token digest and
   expiry window exists since Phase 4.
-- Exactly four order routes are registered: the retrieval route
-  `GET /store/orders/{id}`, guest-dispatchable per its pinned
-  `publishable-key` auth; the list route `GET /store/orders`, added in
-  Phase 3; and — since Phase 4 — the transfer request and cancel routes
+- Exactly six order routes are registered — the whole pinned surface: the
+  retrieval route `GET /store/orders/{id}`, guest-dispatchable per its
+  pinned `publishable-key` auth; the list route `GET /store/orders`, added
+  in Phase 3; the transfer request and cancel routes
   `POST /store/orders/{id}/transfer/request` and
-  `POST /store/orders/{id}/transfer/cancel`, both customer-authenticated
-  (no `allow_guest`). The token-authorized accept/decline routes stay
-  contract-only until their registration, and
+  `POST /store/orders/{id}/transfer/cancel` (Phase 4), both
+  customer-authenticated (no `allow_guest`); and — since Phase 5 — the
+  token-authorized accept and decline routes
+  `POST /store/orders/{id}/transfer/accept` and
+  `POST /store/orders/{id}/transfer/decline`, guest-dispatchable like
+  retrieval (the single-use token authorizes, no customer session).
   `ceto.tests.types.http.store.test_orders_manifest`
-  (`test_phase_4_registers_exactly_retrieval_listing_request_and_cancel`,
+  (`test_phase_5_registers_all_six_pinned_routes`,
   with the runtime registry check in `ceto.tests.routing.test_router`)
   fails if that changes.
-- The README's Orders table marks exactly those four routes Implemented and
-  the token-authorized accept/decline routes To implement; the README-drift
-  test keeps the advertised table and the manifest identical and pins the
-  implemented status to the registered surface.
+- The README's Orders table marks all six routes Implemented; the
+  README-drift test keeps the advertised table and the manifest identical
+  and pins the implemented status to the registered surface.
 - The implementation phases add the handlers and turn this document's
   Ceto decisions into the route/service behavior, mirroring the carts
   pattern (manifest → endpoints/services → registry equality test).

@@ -1,19 +1,24 @@
-"""Phase 4 transfer endpoints: ``POST /store/orders/{id}/transfer/request``
-and ``POST /store/orders/{id}/transfer/cancel``.
+"""Phase 4/5 transfer endpoints: ``POST /store/orders/{id}/transfer/request``
+and ``POST /store/orders/{id}/transfer/cancel``, plus the Phase 5
+token-authorized ``POST /store/orders/{id}/transfer/accept`` and
+``POST /store/orders/{id}/transfer/decline``.
 
 Covers the HTTP surface of the transfer service (the service itself is
 covered by ``ceto.tests.services.orders``): the exact ``StoreOrderResponse``
-envelope both routes answer, the publishable-key + customer-session gate
-(an anonymous and a customer-less session are ``401 unauthorized``), the
-pinned bodies — the request validates ``StoreRequestOrderTransfer`` with
-unknown fields forbidden, cancel carries none — the requester email derived
-from the session's User → Contact convention and never from the payload,
-the masked service errors (unknown/wrong-scoped/cancelled ``404
-not_found``, an owned order or a missing pending request ``400
-invalid_data``, a foreign cancel ``403 not_allowed``) and the single-use
-token that never surfaces. Orders are placed through the HTTP surface
-itself; every placed order is committed so a later failing request's
-rollback cannot erase it.
+envelope all four routes answer, the publishable-key gate (an anonymous and
+a customer-less session are ``401 unauthorized`` on the
+customer-authenticated pair; the token-authorized pair is
+guest-dispatchable like retrieval and refuses a missing or wrong key the
+same way), the pinned bodies — the request validates
+``StoreRequestOrderTransfer`` with unknown fields forbidden, cancel carries
+none, accept/decline validate the strict ``{token}`` payloads — the
+requester email derived from the session's User → Contact convention and
+never from the payload, the masked service errors (unknown/wrong-scoped/
+cancelled ``404 not_found``, an owned order or a missing pending request
+``400 invalid_data``, a foreign cancel and every failing token ``403
+not_allowed``) and the single-use token that never surfaces. Orders are
+placed through the HTTP surface itself; every placed order is committed so
+a later failing request's rollback cannot erase it.
 """
 
 import json
@@ -22,12 +27,17 @@ import uuid
 from collections import Counter
 
 import frappe
+from frappe.utils import add_to_date, now_datetime
 from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request
 
 import ceto.api.routes
 from ceto.routing import ceto_router
-from ceto.services.orders.transfer import TRANSFER_REQUESTED_HOOK
+from ceto.services.orders.transfer import (
+	TRANSFER_ACCEPTED_HOOK,
+	TRANSFER_DECLINED_HOOK,
+	TRANSFER_REQUESTED_HOOK,
+)
 from ceto.tests.data.cart_test_data import CartTestData, make_customer_with_user
 from ceto.tests.utils import CetoTestSuite
 from ceto.types.http.store.orders import StoreOrderResponse
@@ -36,13 +46,34 @@ from ceto.types.http.store.orders import StoreOrderResponse
 #: minted plaintext token can be proven absent from every response.
 HOOK_CALLS: list[dict] = []
 
+#: Captured deliveries of the completion hooks, so the consumed credential
+#: can be proven absent from them and from every response.
+ACCEPTED_CALLS: list[dict] = []
+DECLINED_CALLS: list[dict] = []
+
 
 def record_transfer(**kwargs) -> None:
 	HOOK_CALLS.append(kwargs)
 
 
+def record_accepted(**kwargs) -> None:
+	ACCEPTED_CALLS.append(kwargs)
+
+
+def record_declined(**kwargs) -> None:
+	DECLINED_CALLS.append(kwargs)
+
+
 def delivery_hook_path() -> str:
 	return "ceto.tests.api.store.test_orders_transfers.record_transfer"
+
+
+def accepted_hook_path() -> str:
+	return "ceto.tests.api.store.test_orders_transfers.record_accepted"
+
+
+def declined_hook_path() -> str:
+	return "ceto.tests.api.store.test_orders_transfers.record_declined"
 
 
 class TestOrderTransferAPI(CetoTestSuite):
@@ -64,6 +95,8 @@ class TestOrderTransferAPI(CetoTestSuite):
 			},
 		}
 		HOOK_CALLS.clear()
+		ACCEPTED_CALLS.clear()
+		DECLINED_CALLS.clear()
 
 	def tearDown(self) -> None:
 		if self._previous_throttle is None:
@@ -211,33 +244,31 @@ class TestOrderTransferAPI(CetoTestSuite):
 		order_id = self._placed_order()
 		unknown = f"order_{uuid.uuid4().hex}"
 		with self.set_conf(ceto_cart=self.configuration), self.set_user(email):
-			for path in (
-				f"/ceto/store/orders/{order_id}/transfer/request",
-				f"/ceto/store/orders/{order_id}/transfer/cancel",
-			):
+			for path, payload in self._transfer_paths(order_id):
 				# A mutating transfer surface refuses nothing about the key
 				# beyond masking: a foreign order simply does not exist for
-				# that key (Recorded Decision 5).
-				response = self._dispatch("POST", path, {}, publishable_key="pk_other")
+				# that key (Recorded Decision 5) — and a presented token
+				# cannot unmask it into a credential error.
+				response = self._dispatch("POST", path, payload, publishable_key="pk_other")
 				self.assertEqual(response.status_code, 404)
 				self.assertEqual(response.get_json(), {"type": "not_found", "message": "Order not found"})
 
-			for path in (
-				f"/ceto/store/orders/{unknown}/transfer/request",
-				f"/ceto/store/orders/{unknown}/transfer/cancel",
-			):
-				unknown_response = self._dispatch("POST", path, {})
+			for path, payload in self._transfer_paths(unknown):
+				unknown_response = self._dispatch("POST", path, payload)
 				self.assertEqual(unknown_response.status_code, 404)
 				self.assertEqual(
 					unknown_response.get_json(), {"type": "not_found", "message": "Order not found"}
 				)
 
-			# A cancelled Sales Order is masked like an unknown id.
-			reference = frappe.get_doc("Ceto Order Reference", order_id)
-			frappe.db.set_value("Sales Order", reference.sales_order, "docstatus", 2, update_modified=False)
-			response = self._dispatch("POST", f"/ceto/store/orders/{order_id}/transfer/request", {})
-			self.assertEqual(response.status_code, 404)
-			self.assertEqual(response.get_json()["type"], "not_found")
+			# A cancelled Sales Order is masked like an unknown id, on every
+			# transfer surface (the failing dispatch's rollback undoes the
+			# cancellation, so each dispatch re-applies it first).
+			sales_order = frappe.db.get_value("Ceto Order Reference", order_id, "sales_order")
+			for path, payload in self._transfer_paths(order_id):
+				frappe.db.set_value("Sales Order", sales_order, "docstatus", 2, update_modified=False)
+				response = self._dispatch("POST", path, payload)
+				self.assertEqual(response.status_code, 404)
+				self.assertEqual(response.get_json()["type"], "not_found")
 
 	def test_an_owned_order_is_refused_as_invalid_data(self) -> None:
 		# Guest-only eligibility (Recorded Decision 9): the requester's own
@@ -319,6 +350,283 @@ class TestOrderTransferAPI(CetoTestSuite):
 		)
 		self.assertEqual(frappe.db.count("Ceto Order Transfer", {"requested_by": requester_customer}), 0)
 
+	def test_the_token_routes_are_guest_dispatchable(self) -> None:
+		"""Upstream pins no customer authentication on accept/decline: the
+		single-use token authorizes, so both routes are registered
+		guest-dispatchable like retrieval — while the customer-authenticated
+		request/cancel pair is not."""
+		registered = {(route.method, route.path): route for route in ceto_router.routes}
+		for path in ("/ceto/store/orders/{id}/transfer/accept", "/ceto/store/orders/{id}/transfer/decline"):
+			with self.subTest(path=path):
+				self.assertTrue(registered[("POST", path)].allow_guest)
+		for path in ("/ceto/store/orders/{id}/transfer/request", "/ceto/store/orders/{id}/transfer/cancel"):
+			with self.subTest(path=path):
+				self.assertFalse(registered[("POST", path)].allow_guest)
+
+	def test_the_transfer_token_accepts_the_exact_order_envelope(self) -> None:
+		email, customer = self._customer("accepting")
+		order_id = self._placed_order()
+		with self.set_conf(ceto_cart=self.configuration), self.set_user(email):
+			with self.patch_hooks({TRANSFER_REQUESTED_HOOK: [delivery_hook_path()]}):
+				requested = self._dispatch("POST", f"/ceto/store/orders/{order_id}/transfer/request", {})
+				self.assertEqual(requested.status_code, 200)
+			# The commit below persists the pending record: the later
+			# dispatches must not be able to roll the credential away.
+			frappe.db.commit()  # nosemgrep - the pending credential must survive failure rollbacks
+		token = HOOK_CALLS[0]["token"]
+		# Guest dispatch: the token authorizes, no customer session exists.
+		with self.set_conf(ceto_cart=self.configuration), self.set_user("Guest"):
+			with self.patch_hooks({TRANSFER_ACCEPTED_HOOK: [accepted_hook_path()]}):
+				accepted = self._dispatch(
+					"POST", f"/ceto/store/orders/{order_id}/transfer/accept", {"token": token}
+				)
+
+		self.assertEqual(accepted.status_code, 200)
+		body = accepted.get_json()
+		# The envelope is exactly the pinned StoreOrderResponse: {order} —
+		# no selector wrapper and never the consumed token.
+		self.assertEqual(set(body), {"order"})
+		order = body["order"]
+		self.assertEqual(order["id"], order_id)
+		# Acceptance applied the transfer's stored requester through the
+		# HTTP surface: the served owner is the requesting Customer, the
+		# email untouched without ``update_order_email``.
+		self.assertEqual(order["customer_id"], customer)
+		self.assertEqual(order["email"], "guest@example.com")
+		self.assertEqual(order["status"], "pending")
+		self.assertEqual(StoreOrderResponse.model_validate(body).model_dump(mode="json"), body)
+		# The completion hook fired without any token material, and the
+		# response leaks neither the token nor the internal Sales Order.
+		self.assertEqual(len(ACCEPTED_CALLS), 1)
+		self.assertEqual(ACCEPTED_CALLS[0]["order_id"], order_id)
+		self.assertNotIn("token", ACCEPTED_CALLS[0])
+		rendered = json.dumps(body)
+		self.assertNotIn("token", rendered)
+		self.assertNotIn(token, rendered)
+		self.assertNotIn(self._sales_order(order_id), rendered)
+		self.assertNotIn("sales_order", rendered)
+		# The credential is consumed, the record closed — not deleted.
+		self.assertEqual(self._transfer_status(order_id), "Accepted")
+
+	def test_the_accepted_order_serves_the_update_order_email_address(self) -> None:
+		email, customer = self._customer("readdressed")
+		order_id = self._placed_order()
+		with self.set_conf(ceto_cart=self.configuration), self.set_user(email):
+			with self.patch_hooks({TRANSFER_REQUESTED_HOOK: [delivery_hook_path()]}):
+				requested = self._dispatch(
+					"POST",
+					f"/ceto/store/orders/{order_id}/transfer/request",
+					{"update_order_email": True},
+				)
+				self.assertEqual(requested.status_code, 200)
+			frappe.db.commit()  # nosemgrep - the pending credential must survive failure rollbacks
+		token = HOOK_CALLS[0]["token"]
+		with self.set_conf(ceto_cart=self.configuration), self.set_user("Guest"):
+			accepted = self._dispatch(
+				"POST", f"/ceto/store/orders/{order_id}/transfer/accept", {"token": token}
+			)
+
+		self.assertEqual(accepted.status_code, 200)
+		order = accepted.get_json()["order"]
+		# The accepted ``update_order_email`` moved ownership and recorded
+		# the requesting customer's email on the served order.
+		self.assertEqual(order["customer_id"], customer)
+		self.assertEqual(order["email"], email)
+
+	def test_the_transfer_token_declines_the_exact_order_envelope(self) -> None:
+		email, _customer = self._customer("declining")
+		order_id = self._placed_order()
+		with self.set_conf(ceto_cart=self.configuration), self.set_user(email):
+			with self.patch_hooks({TRANSFER_REQUESTED_HOOK: [delivery_hook_path()]}):
+				requested = self._dispatch("POST", f"/ceto/store/orders/{order_id}/transfer/request", {})
+				self.assertEqual(requested.status_code, 200)
+			frappe.db.commit()  # nosemgrep - the pending credential must survive failure rollbacks
+		token = HOOK_CALLS[0]["token"]
+		# Guest dispatch: the token authorizes, no customer session exists.
+		with self.set_conf(ceto_cart=self.configuration), self.set_user("Guest"):
+			with self.patch_hooks({TRANSFER_DECLINED_HOOK: [declined_hook_path()]}):
+				declined = self._dispatch(
+					"POST", f"/ceto/store/orders/{order_id}/transfer/decline", {"token": token}
+				)
+
+		self.assertEqual(declined.status_code, 200)
+		body = declined.get_json()
+		# The envelope is exactly the pinned StoreOrderResponse: {order} —
+		# the unchanged order, never the refused token.
+		self.assertEqual(set(body), {"order"})
+		order = body["order"]
+		self.assertEqual(order["id"], order_id)
+		# The refusal wrote nothing but the record: the order stays
+		# guest-owned and the recorded email untouched.
+		self.assertIsNone(order["customer_id"])
+		self.assertEqual(order["email"], "guest@example.com")
+		self.assertEqual(StoreOrderResponse.model_validate(body).model_dump(mode="json"), body)
+		rendered = json.dumps(body)
+		self.assertNotIn("token", rendered)
+		self.assertNotIn(token, rendered)
+		# The completion hook fired with the safe payload, no token material.
+		self.assertEqual(len(DECLINED_CALLS), 1)
+		self.assertEqual(DECLINED_CALLS[0]["order_id"], order_id)
+		self.assertNotIn("token", DECLINED_CALLS[0])
+		self.assertEqual(self._transfer_status(order_id), "Declined")
+
+	def test_accept_and_decline_require_the_publishable_key_alone(self) -> None:
+		"""The token never replaces the key: a missing or wrong key is ``401
+		unauthorized`` even with a well-formed ``{token}`` body — and since
+		the routes are guest-dispatchable, the anonymous session fails on
+		the key alone."""
+		unknown = f"order_{uuid.uuid4().hex}"
+		with self.set_conf(ceto_cart=self.configuration), self.set_user("Guest"):
+			for path in (
+				f"/ceto/store/orders/{unknown}/transfer/accept",
+				f"/ceto/store/orders/{unknown}/transfer/decline",
+			):
+				for publishable_key in (None, "pk_unknown"):
+					with self.subTest(path=path, publishable_key=publishable_key):
+						response = self._dispatch(
+							"POST", path, {"token": "tok"}, publishable_key=publishable_key
+						)
+						self.assertEqual(response.status_code, 401)
+						self.assertEqual(response.get_json()["type"], "unauthorized")
+
+	def test_the_token_bodies_are_strict(self) -> None:
+		"""The pinned ``{token}`` payloads forbid unknown fields, an absent,
+		empty or non-string token and a non-object body — every refusal
+		``400 invalid_data`` before anything is resolved or consumed, with
+		no ``fields`` selector on the token routes either."""
+		unknown = f"order_{uuid.uuid4().hex}"
+		with self.set_conf(ceto_cart=self.configuration), self.set_user("Guest"):
+			for path in (
+				f"/ceto/store/orders/{unknown}/transfer/accept",
+				f"/ceto/store/orders/{unknown}/transfer/decline",
+			):
+				for payload in (
+					{},
+					{"token": ""},
+					{"token": "   "},
+					{"token": 42},
+					{"token": "tok_1", "customer_id": "cus_1"},
+					{"token": "tok_1", "email": "thief@example.com"},
+					["nope"],
+					# A query selector is just an unknown field of the
+					# strict body.
+					{"token": "tok_1", "fields": "id"},
+				):
+					with self.subTest(path=path, payload=payload):
+						response = self._dispatch("POST", path, payload)
+						self.assertEqual(response.status_code, 400)
+						self.assertEqual(response.get_json()["type"], "invalid_data")
+						self.assertNotIn("order", response.get_json())
+
+	def test_every_failing_credential_is_the_same_not_allowed(self) -> None:
+		"""Wrong and replayed tokens are the same masked ``403 not_allowed``
+		``Invalid token.`` through the HTTP surface — and none moves
+		ownership or consumes the record."""
+		email, customer = self._customer("credentials")
+		order_id = self._placed_order()
+		with self.set_conf(ceto_cart=self.configuration), self.set_user(email):
+			with self.patch_hooks({TRANSFER_REQUESTED_HOOK: [delivery_hook_path()]}):
+				requested = self._dispatch("POST", f"/ceto/store/orders/{order_id}/transfer/request", {})
+				self.assertEqual(requested.status_code, 200)
+			frappe.db.commit()  # nosemgrep - the pending credential must survive failure rollbacks
+		token = HOOK_CALLS[0]["token"]
+		with self.set_conf(ceto_cart=self.configuration), self.set_user("Guest"):
+			for path in (
+				f"/ceto/store/orders/{order_id}/transfer/accept",
+				f"/ceto/store/orders/{order_id}/transfer/decline",
+			):
+				with self.subTest(path=path):
+					wrong = self._dispatch("POST", path, {"token": "tok_wrong"})
+					self.assertEqual(wrong.status_code, 403)
+					self.assertEqual(wrong.get_json(), {"type": "not_allowed", "message": "Invalid token."})
+
+			accepted = self._dispatch(
+				"POST", f"/ceto/store/orders/{order_id}/transfer/accept", {"token": token}
+			)
+			self.assertEqual(accepted.status_code, 200)
+		# The commit below persists the acceptance: the replay's rollback
+		# must not undo the ownership the replays are measured against.
+		frappe.db.commit()  # nosemgrep - the acceptance must survive the replay rollbacks
+		with self.set_conf(ceto_cart=self.configuration), self.set_user("Guest"):
+			replayed_accept = self._dispatch(
+				"POST", f"/ceto/store/orders/{order_id}/transfer/accept", {"token": token}
+			)
+			replayed_decline = self._dispatch(
+				"POST", f"/ceto/store/orders/{order_id}/transfer/decline", {"token": token}
+			)
+		for response in (replayed_accept, replayed_decline):
+			self.assertEqual(response.status_code, 403)
+			self.assertEqual(response.get_json(), {"type": "not_allowed", "message": "Invalid token."})
+		# The acceptance stands and the replays consumed nothing further.
+		self.assertEqual(self._transfer_status(order_id), "Accepted")
+		self.assertEqual(frappe.db.get_value("Ceto Order Reference", order_id, "owner_customer"), customer)
+
+	def test_an_expired_token_is_the_same_invalid_token(self) -> None:
+		"""A token past its window is indistinguishable from a wrong one —
+		the same ``403 not_allowed`` on both token routes, consuming
+		nothing."""
+		email, _customer = self._customer("expired")
+		order_id = self._placed_order()
+		with self.set_conf(ceto_cart=self.configuration), self.set_user(email):
+			with self.patch_hooks({TRANSFER_REQUESTED_HOOK: [delivery_hook_path()]}):
+				requested = self._dispatch("POST", f"/ceto/store/orders/{order_id}/transfer/request", {})
+				self.assertEqual(requested.status_code, 200)
+			frappe.db.commit()  # nosemgrep - the pending credential must survive failure rollbacks
+		name = self._pending_transfer(order_id).name
+		# Committed, so the refusals' rollbacks cannot make the token live
+		# again for the next dispatch.
+		frappe.db.set_value(
+			"Ceto Order Transfer",
+			name,
+			"expires_at",
+			add_to_date(now_datetime(), days=-1),
+			update_modified=False,
+		)
+		frappe.db.commit()  # nosemgrep - the expired window must survive failure rollbacks
+		token = HOOK_CALLS[0]["token"]
+		with self.set_conf(ceto_cart=self.configuration), self.set_user("Guest"):
+			for path in (
+				f"/ceto/store/orders/{order_id}/transfer/accept",
+				f"/ceto/store/orders/{order_id}/transfer/decline",
+			):
+				with self.subTest(path=path):
+					expired = self._dispatch("POST", path, {"token": token})
+					self.assertEqual(expired.status_code, 403)
+					self.assertEqual(expired.get_json(), {"type": "not_allowed", "message": "Invalid token."})
+		# The expired record still stands — refusal consumed nothing.
+		self.assertIsNotNone(self._pending_transfer(order_id))
+
+	def test_a_cancelled_token_is_the_missing_pending_refusal(self) -> None:
+		"""A cancelled request's token died with its record: accept and
+		decline land on the ``400 invalid_data`` missing-pending refusal,
+		never a distinguishable cancelled-credential error."""
+		email, _customer = self._customer("cancelled")
+		order_id = self._placed_order()
+		with self.set_conf(ceto_cart=self.configuration), self.set_user(email):
+			with self.patch_hooks({TRANSFER_REQUESTED_HOOK: [delivery_hook_path()]}):
+				requested = self._dispatch("POST", f"/ceto/store/orders/{order_id}/transfer/request", {})
+				self.assertEqual(requested.status_code, 200)
+				cancelled = self._dispatch("POST", f"/ceto/store/orders/{order_id}/transfer/cancel")
+				self.assertEqual(cancelled.status_code, 200)
+			frappe.db.commit()  # nosemgrep - the deletion must survive the replay's rollback
+		self.assertIsNone(self._pending_transfer(order_id))
+		token = HOOK_CALLS[0]["token"]
+		with self.set_conf(ceto_cart=self.configuration), self.set_user("Guest"):
+			for path in (
+				f"/ceto/store/orders/{order_id}/transfer/accept",
+				f"/ceto/store/orders/{order_id}/transfer/decline",
+			):
+				with self.subTest(path=path):
+					response = self._dispatch("POST", path, {"token": token})
+					self.assertEqual(response.status_code, 400)
+					self.assertEqual(
+						response.get_json(),
+						{
+							"type": "invalid_data",
+							"message": "No pending transfer request exists for this order",
+						},
+					)
+
 	def test_the_routes_have_no_fields_selector_and_leak_no_token(self) -> None:
 		email, _customer = self._customer("selector")
 		order_id = self._placed_order()
@@ -351,7 +659,7 @@ class TestOrderTransferAPI(CetoTestSuite):
 				self.assertIn("status", cancelled.get_json()["order"])
 
 	def test_the_transfer_routes_are_registered_exactly_once(self) -> None:
-		"""The implemented four are wired once each — no drift, no duplicates."""
+		"""All six implemented routes are wired once each — no drift, no duplicates."""
 		registered = Counter(
 			(route.method, route.path) for route in ceto_router.routes if "/store/orders" in route.path
 		)
@@ -361,11 +669,13 @@ class TestOrderTransferAPI(CetoTestSuite):
 				("GET", "/ceto/store/orders/{id}"),
 				("GET", "/ceto/store/orders"),
 				("POST", "/ceto/store/orders/{id}/transfer/request"),
+				("POST", "/ceto/store/orders/{id}/transfer/accept"),
 				("POST", "/ceto/store/orders/{id}/transfer/cancel"),
+				("POST", "/ceto/store/orders/{id}/transfer/decline"),
 			},
 		)
 		self.assertEqual(max(registered.values()), 1)
-		self.assertEqual(sum(registered.values()), 4)
+		self.assertEqual(sum(registered.values()), 6)
 
 	def _customer(self, label: str) -> tuple[str, str]:
 		"""A committed Website User linked to its own Customer through a Contact.
@@ -436,6 +746,28 @@ class TestOrderTransferAPI(CetoTestSuite):
 	def _pending_transfer(self, order_id: str | None):
 		name = frappe.db.get_value("Ceto Order Transfer", {"order_reference": order_id, "status": "Pending"})
 		return frappe.get_doc("Ceto Order Transfer", name) if name else None
+
+	def _transfer_status(self, order_id: str | None) -> str | None:
+		name = frappe.db.get_value("Ceto Order Transfer", {"order_reference": order_id})
+		return frappe.db.get_value("Ceto Order Transfer", name, "status") if name else None
+
+	def _sales_order(self, order_id: str | None) -> str | None:
+		return frappe.db.get_value("Ceto Order Reference", order_id, "sales_order")
+
+	@staticmethod
+	def _transfer_paths(order_id: str) -> list[tuple[str, dict | None]]:
+		"""The four transfer surfaces of ``order_id`` with their pinned bodies.
+
+		The token routes send a well-formed body even where only resolution
+		is under test: validation precedes resolution, so only a syntactically
+		valid body can reach the masked service errors.
+		"""
+		return [
+			(f"/ceto/store/orders/{order_id}/transfer/request", {}),
+			(f"/ceto/store/orders/{order_id}/transfer/accept", {"token": "tok"}),
+			(f"/ceto/store/orders/{order_id}/transfer/cancel", None),
+			(f"/ceto/store/orders/{order_id}/transfer/decline", {"token": "tok"}),
+		]
 
 	def _dispatch(
 		self,

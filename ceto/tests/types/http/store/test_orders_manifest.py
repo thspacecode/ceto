@@ -1,12 +1,13 @@
 """Contract tests for the pinned Store Order routes manifest.
 
 Phase 0 pinned the contract only; Phase 2 wired the retrieve route, Phase
-3 the list route and Phase 4 the transfer request/cancel routes. The tests
-fail loudly on manifest drift against the verified upstream contracts, on
-drift against the routes the README advertises, on README status drift
-against the registered surface, and on any route registration beyond the
-implemented retrieval+listing+request/cancel surface. They are pure Python
-(no Frappe imports), like the manifest itself.
+3 the list route, Phase 4 the transfer request/cancel routes and Phase 5
+the token-authorized accept/decline routes. The tests fail loudly on
+manifest drift against the verified upstream contracts, on drift against
+the routes the README advertises, on README status drift against the
+registered surface, and on any route registration beyond the implemented
+six-route surface. They are pure Python (no Frappe imports), like the
+manifest itself.
 """
 
 import re
@@ -211,8 +212,9 @@ class TestOrderRouteManifest(unittest.TestCase):
 	def test_readme_marks_exactly_the_registered_surface_implemented(self):
 		"""The advertised status is the implemented surface, mechanically: the
 		✅ rows are exactly the routes ``orders.py`` registers — the Phase 2
-		retrieval slice, the Phase 3 listing slice and the Phase 4 transfer
-		request/cancel slice — and every other pinned row stays ⚪️ To
+		retrieval slice, the Phase 3 listing slice, the Phase 4 transfer
+		request/cancel slice and the Phase 5 token-authorized accept/decline
+		slice, together the whole pinned surface — so no row stays ⚪️ To
 		implement."""
 		statuses = {(method, path): status for method, path, status in readme_orders_rows()}
 		implemented = {route for route, status in statuses.items() if "✅" in status}
@@ -223,48 +225,45 @@ class TestOrderRouteManifest(unittest.TestCase):
 				("GET", "/store/orders/{id}"),
 				("GET", "/store/orders"),
 				("POST", "/store/orders/{id}/transfer/request"),
+				("POST", "/store/orders/{id}/transfer/accept"),
 				("POST", "/store/orders/{id}/transfer/cancel"),
+				("POST", "/store/orders/{id}/transfer/decline"),
 			},
 		)
 		unimplemented = {route for route, status in statuses.items() if "⚪" in status}
 		self.assertEqual(unimplemented, set(statuses) - implemented)
-		self.assertEqual(
-			unimplemented,
-			{
-				("POST", "/store/orders/{id}/transfer/accept"),
-				("POST", "/store/orders/{id}/transfer/decline"),
-			},
-		)
+		self.assertEqual(unimplemented, set())
 
-	def test_phase_4_registers_exactly_retrieval_listing_request_and_cancel(self):
-		"""Phase 4 boundary: ``orders.py`` wires the implemented four exactly.
+	def test_phase_5_registers_all_six_pinned_routes(self):
+		"""Phase 5 boundary: ``orders.py`` wires all six pinned routes exactly.
 
 		Read from source, not imported (the file-read convention of
 		``tests/docs/test_orders_field_mapping.py``): the registered surface
-		is exactly the four implemented routes — retrieval guest-dispatchable,
-		per the pinned ``publishable-key`` auth, and listing, transfer request
-		and cancel customer-authenticated, so their decorators carry no
-		``allow_guest`` — and ``routes.py`` wires the module. The accept and
-		decline routes stay contract-only until their phase registers them;
-		the runtime registry equality lives in ``ceto.tests.routing.test_router``.
+		is the whole pinned manifest — retrieval guest-dispatchable, per the
+		pinned ``publishable-key`` auth; listing, transfer request and cancel
+		customer-authenticated, so their decorators carry no ``allow_guest``;
+		and the token-authorized accept/decline pair guest-dispatchable like
+		retrieval (the single-use token authorizes, no customer
+		authentication middleware) — and ``routes.py`` wires the module. The
+		runtime registry equality lives in ``ceto.tests.routing.test_router``.
 		"""
 		orders_api = (PACKAGE_ROOT / "api" / "store" / "orders.py").read_text()
-		self.assertEqual(
-			registered_orders_routes(),
-			{
-				("GET", "/store/orders/{id}"),
-				("GET", "/store/orders"),
-				("POST", "/store/orders/{id}/transfer/request"),
-				("POST", "/store/orders/{id}/transfer/cancel"),
-			},
-		)
+		self.assertEqual(registered_orders_routes(), EXPECTED_METHOD_PATHS)
 		self.assertIn('@ceto_router.get("/store/orders/{id}", allow_guest=True)', orders_api)
 		self.assertIn('@ceto_router.get("/store/orders")', orders_api)
 		self.assertNotIn('@ceto_router.get("/store/orders", allow_guest=True)', orders_api)
 		self.assertIn('@ceto_router.post("/store/orders/{id}/transfer/request")', orders_api)
 		self.assertIn('@ceto_router.post("/store/orders/{id}/transfer/cancel")', orders_api)
-		self.assertNotIn('@ceto_router.post("/store/orders/{id}/transfer/accept"', orders_api)
-		self.assertNotIn('@ceto_router.post("/store/orders/{id}/transfer/decline"', orders_api)
+		self.assertNotIn(
+			'@ceto_router.post("/store/orders/{id}/transfer/request", allow_guest=True)', orders_api
+		)
+		self.assertNotIn(
+			'@ceto_router.post("/store/orders/{id}/transfer/cancel", allow_guest=True)', orders_api
+		)
+		self.assertIn('@ceto_router.post("/store/orders/{id}/transfer/accept", allow_guest=True)', orders_api)
+		self.assertIn(
+			'@ceto_router.post("/store/orders/{id}/transfer/decline", allow_guest=True)', orders_api
+		)
 		self.assertIn("import ceto.api.store.orders", (PACKAGE_ROOT / "api" / "routes.py").read_text())
 
 

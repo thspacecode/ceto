@@ -148,35 +148,23 @@ class TestRouter(CetoTestSuite):
 		pinned = {(route.method, f"/ceto{route.path}") for route in CART_ROUTES}
 		self.assertEqual(registered, pinned)
 
-	def test_implemented_order_routes_match_the_phase_4_slice(self):
-		"""The registered order surface is exactly the implemented manifest slice.
+	def test_implemented_order_routes_match_the_phase_5_slice(self):
+		"""The registered order surface is exactly the pinned manifest surface.
 
-		Phase 4 registers the pinned retrieve (manifest route 1), list
-		(manifest route 2), transfer request (route 3) and transfer cancel
-		(route 5) routes; each later phase extends this assertion until it
-		equals the full ``ORDER_ROUTES`` surface, like the carts check above.
-		The token-authorized accept/decline routes must stay contract-only
-		until their phase registers them.
+		Phase 5 completes the surface — every pinned manifest route must be
+		wired into ``ceto_router`` (with its prefix), like the carts check
+		above: retrieval guest-dispatchable per its pinned ``publishable-key``
+		auth, listing and the transfer request/cancel pair
+		customer-authenticated, and the token-authorized accept/decline pair
+		guest-dispatchable (the single-use token authorizes, no customer
+		authentication middleware).
 		"""
 		registered = [
 			(route.method, route.path) for route in ceto_router.routes if "/store/orders" in route.path
 		]
-		implemented = {
-			(route.method, f"/ceto{route.path}")
-			for route in ORDER_ROUTES
-			if route.sdk_method in ("retrieve", "list", "requestTransfer", "cancelTransfer")
-		}
-		self.assertEqual(
-			implemented,
-			{
-				("GET", "/ceto/store/orders/{id}"),
-				("GET", "/ceto/store/orders"),
-				("POST", "/ceto/store/orders/{id}/transfer/request"),
-				("POST", "/ceto/store/orders/{id}/transfer/cancel"),
-			},
-		)
-		# The registry is a list: the implemented surface is wired exactly once.
-		self.assertEqual(len(registered), 4)
+		implemented = {(route.method, f"/ceto{route.path}") for route in ORDER_ROUTES}
+		# The registry is a list: the pinned surface is wired exactly once.
+		self.assertEqual(len(registered), len(ORDER_ROUTES))
 		self.assertEqual(set(registered), implemented)
 
 	def test_route_override_uses_external_route_key(self):

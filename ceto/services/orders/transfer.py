@@ -1,11 +1,11 @@
-"""Pending ownership-transfer requests: the Medusa ``requestTransfer`` and
-``cancelTransfer`` surfaces.
+"""The ownership-transfer lifecycle of placed orders: the Medusa
+``requestTransfer``, ``acceptTransfer`` and ``cancelTransfer`` surfaces.
 
 An authenticated customer asks for ownership of a **guest** order: the
 pinned request body carries no recipient identifier, so the pending
 transfer records that requesting customer and the single-use token
-travels to the order's current email for the holder's consent — accept or
-decline belong to later phases (orders field-mapping Recorded Decision 9).
+travels to the order's current email for the holder's consent (orders
+field-mapping Recorded Decision 9).
 One request mints the whole pending state:
 
 - **One lock, then every check**: the ``Ceto Order Reference`` row is
@@ -39,7 +39,26 @@ One request mints the whole pending state:
   creation, so the pinned lifetime is explicit and auditable.
 - **Read-only lineage** (Recorded Decision 12): the order reference, the
   completed cart's reference and the Sales Order are only ever read —
-  acceptance owns those writes, in its own phase.
+  acceptance owns those writes.
+
+**Accept** is the holder's consent (the ``acceptTransfer`` surface): the
+presented token is hashed and its digest matched against this path
+order's records only — a token minted for another order is just a wrong
+credential here. Under the same lock, every failing credential is
+refused without mutation: a wrong token, a token past its window and a
+replayed consumed or declined token (the terminal record still carries
+the digest) are all the same ``403 not_allowed`` ``Invalid token.`` —
+expired credentials are indistinguishable from wrong ones — while a
+digest that matches no record of the order is a wrong credential for as
+long as a live pending request exists and becomes the ``400
+invalid_data`` missing-pending refusal once none does: never minted, or
+the request that carried the digest was cancelled or expiry-superseded
+away (its deletion is the credential's death; Recorded Decision 11). A
+matching live pending transfer is consumed atomically: the order reference's
+``owner_customer`` becomes the stored ``requested_by`` (optionally the
+reference's ``email`` the stored ``new_email``) and the record closes as
+``Accepted`` — never the cart reference, never the Sales Order (Recorded
+Decision 12).
 
 **Cancel** is the requester's removal of that pending state (the Medusa
 ``cancelTransfer`` surface): the same lock-then-mask order finds the order
@@ -78,14 +97,36 @@ if TYPE_CHECKING:
 #: its requester cancels it or it expires.
 TRANSFER_REQUESTED_HOOK = "ceto_order_transfer_requested"
 
+#: Frappe hook announcing a consumed transfer (order id, transfer id, owner
+#: customer, recorded email). Fired inside the accepting transaction; the
+#: payload never carries token material.
+TRANSFER_ACCEPTED_HOOK = "ceto_order_transfer_accepted"
+
 ORDER_NOT_TRANSFERABLE = "Only orders without an owner can be requested for transfer"
 ORDER_TRANSFER_PENDING = "A transfer request is already pending for this order"
 ORDER_TRANSFER_NOT_PENDING = "No pending transfer request exists for this order"
+#: The one refusal every failing credential gets (upstream's pinned message):
+#: wrong, expired and replayed consumed/declined tokens are indistinguishable.
+ORDER_TRANSFER_INVALID_TOKEN = "Invalid token."
 ORDER_TRANSFER_CANCEL_FORBIDDEN = "Only the customer who requested the transfer can cancel it"
 
 
+def _dispatch_hook(hook: str, **payload: "str | None") -> None:
+	"""Run every registered receiver of an order-transfer hook.
+
+	Hook paths come exclusively from installed-app configuration. This is
+	the standard Frappe extension boundary, not request-controlled dynamic
+	code. Every receiver runs inside the caller's open transaction.
+	"""
+	for method in frappe.get_hooks(hook, []):
+		frappe.call(  # nosemgrep: frappe-codeinjection-eval
+			frappe.get_attr(method),
+			**payload,
+		)
+
+
 class OrderTransfer:
-	"""Mint and cancel pending ownership-transfer requests for placed orders."""
+	"""Mint, accept and cancel pending ownership-transfer requests for placed orders."""
 
 	def __init__(
 		self,
@@ -139,6 +180,53 @@ class OrderTransfer:
 			}
 		).insert(ignore_permissions=True)
 		self._notify_requested(order_reference.order_id, token, original_email)
+		return self.orders.serialize(order_reference, sales_order, reference)
+
+	def accept(
+		self,
+		order_id: str,
+		key: PublishableKeyScope,
+		*,
+		token: str,
+	) -> dict[str, Any]:
+		"""Consume the pending transfer of ``order_id`` with its single-use ``token``.
+
+		The order reference is row-locked before any check and resolution is
+		the retrieve path's masked ``404 not_found``. The token is only ever
+		hashed: the digest is matched against this path order's records, and
+		every failing credential — wrong, expired, replayed-accepted,
+		declined — is the same ``403 not_allowed`` ``Invalid token.``
+		without mutation, while a digest matching no record of an order
+		without a live pending request is the ``400 invalid_data``
+		missing-pending refusal. The winner is consumed atomically: the
+		order reference's ``owner_customer`` is set to the transfer's
+		stored ``requested_by`` (optionally the reference's ``email`` to
+		the stored ``new_email``, the ``update_order_email`` target) and
+		the record closes as ``Accepted`` — the cart reference and the
+		Sales Order are never written (Recorded Decision 12). The
+		``ceto_order_transfer_accepted`` hook announces the consumed
+		transfer inside the transaction without any token material. The
+		response is the reloaded, re-serialized ``StoreOrder`` — never the
+		token.
+		"""
+		self._lock_reference(order_id)
+		order_reference, sales_order, reference = self.access.resolve(order_id, key)
+		transfer = self._acceptable_transfer(order_reference.name, hash_code(token))
+		# One UPDATE: the owner snapshot and the optional recorded address
+		# move together, or a failure's rollback takes both back (Recorded
+		# Decisions 2 and 12).
+		values: dict[str, str] = {"owner_customer": transfer.requested_by}
+		if transfer.new_email:
+			values["email"] = transfer.new_email
+		frappe.db.set_value("Ceto Order Reference", order_reference.name, values)
+		frappe.db.set_value("Ceto Order Transfer", transfer.name, "status", "Accepted")
+		self._notify_accepted(
+			order_id=order_reference.order_id,
+			transfer_id=transfer.transfer_id,
+			owner_customer=transfer.requested_by,
+			email=values.get("email"),
+		)
+		order_reference.reload()
 		return self.orders.serialize(order_reference, sales_order, reference)
 
 	def cancel(
@@ -202,20 +290,77 @@ class OrderTransfer:
 		if live:
 			raise InvalidDataError(ORDER_TRANSFER_PENDING)
 
+	@classmethod
+	def _acceptable_transfer(cls, order_reference: str, digest: str) -> "_dict":
+		"""Return the live pending transfer ``digest`` unlocks, or refuse.
+
+		Every check runs under the held reference lock and keyed on this
+		path order's reference alone, so a token minted for another order
+		cannot match here — against this order it is just a wrong or
+		missing credential. The order is pinned:
+
+		- A pending record matching the digest is the candidate; past its
+		  window it gets the same ``not_allowed`` as any other failing
+		  credential — expired tokens are indistinguishable from wrong
+		  ones and mutate nothing (Recorded Decision 11).
+		- A terminal record still matching the digest is a consumed or
+		  declined credential: the same ``not_allowed``, checked before
+		  the missing-pending fallback so a replayed accept or
+		  re-presented declined token can never be told apart from a
+		  wrong guess.
+		- A live pending request under a different token is a wrong token.
+		- No matching digest and no live pending request is the
+		  ``invalid_data`` missing-pending refusal — never minted,
+		  cancelled, or superseded after expiry; all three deleted the
+		  record that carried the digest.
+		"""
+		pending = cls._pending_requests(order_reference)
+		for record in pending:
+			if record.token_hash == digest:
+				if get_datetime(record.expires_at) <= now_datetime():
+					raise NotAllowedError(ORDER_TRANSFER_INVALID_TOKEN)
+				return record
+		if digest in cls._terminal_hashes(order_reference):
+			raise NotAllowedError(ORDER_TRANSFER_INVALID_TOKEN)
+		if pending:
+			raise NotAllowedError(ORDER_TRANSFER_INVALID_TOKEN)
+		raise InvalidDataError(ORDER_TRANSFER_NOT_PENDING)
+
+	@staticmethod
+	def _terminal_hashes(order_reference: str) -> "list[str]":
+		"""The digests the order's closed transfers still carry.
+
+		Terminal records stay addressable beside a new pending one (the
+		record schema pins no per-order uniqueness), so a replayed
+		accepted or declined credential still finds its digest here and
+		fails closed as ``not_allowed`` instead of the missing-pending
+		``invalid_data`` that cancelled and superseded records — deleted
+		with their digest — produce.
+		"""
+		return frappe.get_all(
+			"Ceto Order Transfer",
+			filters={
+				"order_reference": order_reference,
+				"status": ("in", ("Accepted", "Declined")),
+			},
+			pluck="token_hash",
+		)
+
 	@staticmethod
 	def _pending_requests(order_reference: str) -> "list[_dict]":
 		"""The order's pending transfer records, if any, regardless of expiry.
 
 		Expiry is deliberately the caller's concern: :meth:`request`
 		removes the expired records under the lock before minting a fresh
-		one, while :meth:`cancel` must still find an expired record — the
+		one, :meth:`cancel` must still find an expired record — the
 		requester's cancel is exactly what removes it (Recorded Decision
-		11).
+		11) — and :meth:`accept` compares the presented digest and reads
+		the stored requester and email from the winner.
 		"""
 		return frappe.get_all(
 			"Ceto Order Transfer",
 			filters={"order_reference": order_reference, "status": "Pending"},
-			fields=["name", "expires_at", "requested_by"],
+			fields=["name", "transfer_id", "token_hash", "expires_at", "requested_by", "new_email"],
 		)
 
 	@staticmethod
@@ -229,12 +374,35 @@ class OrderTransfer:
 		request simply stays pending until its requester cancels it or it
 		expires.
 		"""
-		for method in frappe.get_hooks(TRANSFER_REQUESTED_HOOK, []):
-			# Hook paths come exclusively from installed-app configuration. This is the
-			# standard Frappe extension boundary, not request-controlled dynamic code.
-			frappe.call(  # nosemgrep: frappe-codeinjection-eval
-				frappe.get_attr(method),
-				order_id=order_id,
-				token=token,
-				email=email,
-			)
+		_dispatch_hook(TRANSFER_REQUESTED_HOOK, order_id=order_id, token=token, email=email)
+
+	@staticmethod
+	def _notify_accepted(
+		*,
+		order_id: str,
+		transfer_id: str,
+		owner_customer: str,
+		email: str | None,
+	) -> None:
+		"""Announce the consumed transfer through the completion hook.
+
+		Fires inside the accepting transaction, after both writes: a
+		receiver already sees the moved ownership, and a receiver failure
+		propagates, so the API layer's rollback takes the acceptance back
+		whole. The payload is deliberately safe and exactly
+		``(order_id, transfer_id, owner_customer, email)`` — the public
+		order id, the public ``tr_…`` transfer id, the Customer that now
+		owns the order (the transfer's stored requester) and the address
+		recorded on the order reference (``None`` without
+		``update_order_email``): the identifiers a site integration needs
+		to tell the recipient the transfer completed. No token material
+		ever rides it — the credential is consumed, and neither the
+		plaintext nor its digest is handed out again.
+		"""
+		_dispatch_hook(
+			TRANSFER_ACCEPTED_HOOK,
+			order_id=order_id,
+			transfer_id=transfer_id,
+			owner_customer=owner_customer,
+			email=email,
+		)

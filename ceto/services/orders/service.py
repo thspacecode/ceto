@@ -4,7 +4,8 @@ Composed from pieces that already exist: ``OrderAccess`` resolves one id
 under lineage and publishable-key scope (every failure the same ``404
 not_found``), ``OrderListing`` pages a customer's orders out of the same
 read model, ``OrderTransfer`` mints and cancels pending ownership-transfer
-requests under the order's row lock, and ``OrderSerializer`` derives the
+requests under the order's row lock — and consumes one on acceptance —
+and ``OrderSerializer`` derives the
 canonical ``StoreOrder`` JSON from those records. The shared entity-neutral selector applies the
 routes' ``fields`` — the services support the pinned contracts without
 owning any representation. The response envelope stays the API layer's
@@ -22,7 +23,7 @@ from ceto.types.http.store.orders.manifest import ORDER_LIST_DEFAULT_LIMIT, ORDE
 
 
 class OrderService:
-	"""Retrieve and list placed orders, and request or cancel their ownership transfer."""
+	"""Retrieve and list placed orders, and drive their ownership transfer."""
 
 	def __init__(
 		self,
@@ -116,6 +117,33 @@ class OrderService:
 			description=description,
 			update_order_email=update_order_email,
 		)
+
+	def accept_transfer(
+		self,
+		order_id: str,
+		key: PublishableKeyScope,
+		*,
+		token: str,
+	) -> dict[str, Any]:
+		"""Accept the pending ownership transfer of ``order_id`` with ``token``.
+
+		Delegates to the transfer component (:class:`OrderTransfer`): the
+		order reference is row-locked before any check, resolution is the
+		retrieve path's masked ``404 not_found`` and the presented token is
+		only ever hashed — every failing credential (wrong, expired,
+		replayed, declined) is the same ``403 not_allowed``
+		``Invalid token.`` without mutation, while a digest matching no
+		record of an order without a live pending request is ``400
+		invalid_data``. The winner is consumed atomically: the order
+		reference's ``owner_customer`` moves to the transfer's stored
+		requester (optionally the reference's email to the stored
+		``new_email``) and the record closes as ``Accepted`` — the cart
+		reference and the Sales Order are never written (Recorded Decision
+		12), and the ``ceto_order_transfer_accepted`` hook fires inside the
+		transaction without any token material. The response is the
+		reloaded, re-serialized ``StoreOrder``.
+		"""
+		return self.transfers.accept(order_id, key, token=token)
 
 	def cancel_transfer(
 		self,

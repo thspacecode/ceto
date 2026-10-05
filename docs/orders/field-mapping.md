@@ -12,8 +12,10 @@ the transfer request and cancel routes
 `POST /store/orders/{id}/transfer/request` and
 `POST /store/orders/{id}/transfer/cancel`, whose semantics and the hook
 delivery, digest-only token storage and 7-day expiry described below are
-live; the token-authorized accept/decline routes remain contract-only until
-Phase 5. Of the Phase 1 models this document pins, the `owner_customer`
+live — joined in Phase 5 by the acceptance behavior itself, the
+`OrderTransfer.accept` service behind the still-unregistered route; the
+token-authorized accept/decline routes remain contract-only until their
+registration. Of the Phase 1 models this document pins, the `owner_customer`
 snapshot on `Ceto Order Reference` **exists** (the completing transaction
 books it atomically and a one-time backfill patch filled legacy references)
 and the `Ceto Order Transfer` record described below **exists** — Phase 4
@@ -132,7 +134,7 @@ address recorded on the order reference is the source and the Sales Order's
 `contact_email` the fallback — the column and the serializer's
 preference-with-fallback read are live, rows without a recorded address
 serialize exactly as before, and the acceptance flow that records the
-address lands later in Phase 5. The Sales Order keeps its birth contact
+address is live since Phase 5. The Sales Order keeps its birth contact
 lineage either way (Recorded Decision 12).
 
 ## Status mapping
@@ -314,8 +316,10 @@ The **request** and **cancel** behaviors below are live since Phase 4: the
 pending `Ceto Order Transfer` record exists, the
 `ceto_order_transfer_requested` hook receives the plaintext token once,
 only its SHA-256 digest is persisted and the 7-day expiry is enforced
-(`ceto/services/orders/transfer.py`). **Accept** and **decline** remain
-contract-only until Phase 5.
+(`ceto/services/orders/transfer.py`). **Accept** is live since Phase 5 as
+the same module's `OrderTransfer.accept` / `OrderService.accept_transfer`
+service; **decline** and the registration of both token-authorized routes
+remain.
 
 **Upstream contract facts** (verified in `@medusajs/core-flows@2.21.1` and
 `@medusajs/medusa@2.21.1`):
@@ -386,7 +390,8 @@ contract-only until Phase 5.
   consents by accepting or declining; acceptance applies ownership to the
   requesting customer stored on the transfer, never to a payload-supplied or
   email-guessed recipient. The request and cancel endpoints are live since
-  Phase 4; accept and decline remain contract-only until Phase 5.
+  Phase 4; the accept and decline endpoints remain contract-only, the accept
+  behavior itself live since Phase 5 as the `OrderTransfer.accept` service.
 - **Eligible orders** are guest/unowned ones (effective owner null — the
   order reference's `owner_customer` snapshot, or its legacy cart fallback
   before backfill): the transfer moves such an order to the requesting
@@ -413,6 +418,16 @@ contract-only until Phase 5.
   recipient email) so the site's own notification integration delivers it —
   Ceto ships no email provider. With no hook receiver registered the request
   simply stays pending until it is cancelled by its requester or expires.
+- **Acceptance delivery (live since Phase 5)**: acceptance fires the
+  `ceto_order_transfer_accepted` hook inside the accepting transaction, after
+  both writes, with the deliberate safe payload `(order_id, transfer_id,
+  owner_customer, email)` — the public order id, the public `tr_…` transfer
+  id, the Customer that now owns the order (the transfer's stored requester)
+  and the address recorded on the order reference (`null` without
+  `update_order_email`). The payload never carries token material — neither
+  the plaintext nor its digest; the credential is consumed and the record
+  keeps only its digest. A receiver failure propagates, so the rollback
+  takes the acceptance back whole.
 - **Recipient**: the order's current email (upstream's `original_email`), so
   the person who placed the guest order is the one who can accept or decline.
 - **Lifetime — 7 days (Ceto decision, not upstream parity)**: upstream
@@ -424,18 +439,23 @@ contract-only until Phase 5.
   request's state can be probed through the difference — and an expired
   attempt never changes ownership. The requester can still cancel an expired
   request.
-- **Replay**: consumed (accepted), declined, cancelled and expired
-  credentials all fail closed — a consumed or wrong token is `not_allowed`,
-  a missing pending request is `invalid_data`, matching the pinned error
-  families.
+- **Replay (accept is live since Phase 5)**: every failing credential is
+  refused without mutation. An expired token, a wrong token against a live
+  request, and a replayed consumed or declined token — the terminal record's
+  digest still matches it — are all the same `not_allowed` `Invalid token.`;
+  a presented token that matches no record of the order and finds no live
+  pending request is the `invalid_data` missing-pending refusal, matching
+  the pinned error families. A cancelled or expiry-superseded token matches
+  no record any more: while a fresh live request exists it is just a wrong
+  token (`not_allowed`), and with no live request left it lands on that
+  `invalid_data` refusal.
 - **`update_order_email`**: acceptance moves ownership to the requesting
   customer's Customer and records the new email on the order reference,
   which the serializer serves — over the Sales Order's `contact_email`,
   the fallback every row without a recorded address keeps. The reference
-  column and the serializer's source/fallback read are live since Phase 5;
-  the acceptance write that records the address lands later in the phase.
-  The submitted ERPNext Sales Order is **never** modified — see Recorded
-  Decision 12.
+  column, the serializer's source/fallback read and the acceptance write
+  that records the address are live since Phase 5. The submitted ERPNext
+  Sales Order is **never** modified — see Recorded Decision 12.
 
 ## Deliberate omissions
 
@@ -523,7 +543,11 @@ the orders surface:
     — a deliberate Ceto addition, never upstream behavior. Expired tokens
     fail with the same safe `not_allowed` family as wrong ones and change no
     ownership; a consumed or wrong token is `not_allowed`, a missing pending
-    request is `invalid_data`.
+    request is `invalid_data`. A replayed consumed or declined token — its
+    terminal record still carries the digest — is `not_allowed`; a cancelled
+    or expiry-superseded token matches no record any more and is a wrong
+    token (`not_allowed`) while a fresh request is live, the `invalid_data`
+    missing-pending refusal once none is.
 12. **Immutable Sales Order, transfer write scope** — an accepted
     `update_order_email` records the new email on the order reference
     (served from there by the serializer, over the Sales Order's
@@ -554,7 +578,7 @@ What Phase 0 drew, and where that boundary stands now:
   `POST /store/orders/{id}/transfer/request` and
   `POST /store/orders/{id}/transfer/cancel`, both customer-authenticated
   (no `allow_guest`). The token-authorized accept/decline routes stay
-  contract-only until Phase 5, and
+  contract-only until their registration, and
   `ceto.tests.types.http.store.test_orders_manifest`
   (`test_phase_4_registers_exactly_retrieval_listing_request_and_cancel`,
   with the runtime registry check in `ceto.tests.routing.test_router`)

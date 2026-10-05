@@ -312,7 +312,10 @@ def delete_address(user: str, address_id: str) -> tuple[CustomerIdentity, object
 	the link check is never bypassed. An entry another Customer still owns is
 	retained untouched for that owner and only unlinked from this book, and
 	its reference record is dropped either way so the entry ``404``s here
-	afterwards. Returns the resolved ``(identity, reference)`` pair.
+	afterwards. The unlink removes the Dynamic Link rows directly, so a
+	retained entry leaves the book even when the Address controller's
+	owner-based relink would re-attach the customer's own link on a save.
+	Returns the resolved ``(identity, reference)`` pair.
 	"""
 	identity, reference = resolve_customer_reference(user)
 	address = _owned_address(address_id, identity.customer)
@@ -499,16 +502,27 @@ def _destroy(address) -> bool:
 
 
 def _unlink_customer(address, customer: str) -> None:
-	"""Remove this customer's Dynamic Link so the entry leaves the book.
+	"""Remove this customer's Dynamic Link rows so the entry leaves the book.
 
-	An entry that keeps no link at all stays linkless: its owner is the
-	Administrator elevation, so the Address controller's owner-based relink
-	finds no Contact and nothing is re-attached.
+	The rows are removed at the database level instead of saving the entry:
+	saving runs the Address controller's owner-based ``link_address()``,
+	which re-attaches the links of the Contact carrying the entry owner's
+	email — for a legacy entry owned by the customer's own user that is
+	exactly the Customer link being removed, so the unlink would undo itself
+	and the entry would stay in the book behind a ``deleted: true``. Static
+	links are untouched — the normal ERPNext link check keeps the entry
+	retained — and no controller behavior changes for any other save.
 	"""
-	for row in list(address.links or []):
-		if row.link_doctype == "Customer" and row.link_name == customer:
-			address.remove(row)
-	address.save(ignore_permissions=True)
+	frappe.db.delete(
+		"Dynamic Link",
+		{
+			"parenttype": "Address",
+			"parent": address.name,
+			"parentfield": "links",
+			"link_doctype": "Customer",
+			"link_name": customer,
+		},
+	)
 
 
 def _drop_reference(address_name: str) -> None:

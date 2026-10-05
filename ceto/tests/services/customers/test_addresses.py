@@ -108,8 +108,13 @@ class TestCustomerAddressBook(CetoTestSuite):
 		stored = frappe.db.get_value("Ceto Customer Address Reference", name, "metadata")
 		return json.loads(stored) if stored else None
 
-	def _legacy_address(self, title: str | None = None) -> str:
-		"""A pre-existing customer-linked Address named by ERPNext, not Ceto."""
+	def _legacy_address(self, title: str | None = None, owner: str | None = None) -> str:
+		"""A pre-existing customer-linked Address named by ERPNext, not Ceto.
+
+		``owner`` inserts the entry through that user's login, so the stored
+		``owner`` column names them — like a legacy entry the customer created
+		themselves through the ERPNext web form.
+		"""
 		doc = frappe.get_doc(
 			{
 				"doctype": "Address",
@@ -122,7 +127,11 @@ class TestCustomerAddressBook(CetoTestSuite):
 			}
 		)
 		doc.flags.ignore_permissions = True
-		doc.insert()
+		if owner:
+			with self.set_user(owner):
+				doc.insert()
+		else:
+			doc.insert()
 		return doc.name
 
 	def _quotation_referencing(self, address_name: str) -> str:
@@ -579,6 +588,32 @@ class TestCustomerAddressBook(CetoTestSuite):
 		self.assertIsNone(frappe.db.get_value("Ceto Customer Address Reference", name))
 		with self.assertRaises(RouteNotFoundError):
 			retrieve_address(self.email, name)
+
+	def test_delete_of_a_user_owned_retained_entry_leaves_the_book(self) -> None:
+		"""Regression: owner=user + a static reference still ends the membership.
+
+		A legacy entry owned by the customer's own login (so a ``Contact``
+		carries the owner's email) that a static Quotation still references is
+		retained by the normal link check — and used to stay in the book,
+		because the unlink saved the entry and the save ran the Address
+		controller's owner-based ``link_address``, re-attaching the Customer
+		Dynamic Link from the owner's Contact.
+		"""
+		name = self._legacy_address("Legacy Owned Home", owner=self.email)
+		self._quotation_referencing(name)
+
+		delete_address(self.email, name)
+
+		# Retained for the Quotation, but out of the book: no Dynamic Link
+		# remains and the entry 404s here afterwards (recorded decision 9).
+		self.assertIsNotNone(frappe.db.get_value("Address", name))
+		self.assertFalse(is_customer_address(name, self.identity.customer))
+		self.assertEqual(frappe.db.count("Dynamic Link", {"parenttype": "Address", "parent": name}), 0)
+		self.assertIsNone(frappe.db.get_value("Ceto Customer Address Reference", name))
+		with self.assertRaises(RouteNotFoundError):
+			retrieve_address(self.email, name)
+		body = list_addresses(self.email, StoreCustomerAddressFilters())
+		self.assertEqual((body["count"], body["addresses"]), (0, []))
 
 	def test_delete_retains_an_entry_another_customer_still_owns(self) -> None:
 		name = self._create()

@@ -355,6 +355,34 @@ class TestCustomerAddressAPI(CustomerAPITestBase):
 					self.assertEqual(response.get_json()["type"], "not_found")
 		self.assertTrue(frappe.db.exists("Address", foreign))
 
+	def test_delete_rejects_query_parameters_without_touching_the_entry(self):
+		# The pinned manifest names no query contract for the delete route:
+		# the strict empty query refuses every key — including a `fields`
+		# selector the fixed response shape never applies — before the
+		# entry resolves, so nothing is deleted or unlinked.
+		name = self._committed_entry()
+
+		with self.set_user(self.email):
+			for query in ("?fields=id", "?limit=5", "?not_a_field=1"):
+				with self.subTest(query=query):
+					response = self._dispatch("DELETE", f"/ceto/store/customers/me/addresses/{name}{query}")
+					self.assertEqual(response.status_code, 400)
+					self.assertEqual(response.get_json()["type"], "invalid_data")
+
+		self.assertTrue(frappe.db.exists("Address", name))
+		self.assertTrue(frappe.db.exists("Ceto Customer Address Reference", name))
+		self.assertTrue(
+			frappe.db.exists(
+				"Dynamic Link",
+				{
+					"parenttype": "Address",
+					"parent": name,
+					"link_doctype": "Customer",
+					"link_name": self.identity.customer,
+				},
+			)
+		)
+
 	# ------------------------------------------------- profile serialization
 
 	def test_profile_routes_carry_the_address_book(self):

@@ -22,6 +22,7 @@ from ceto.types.http.store.customers.queries import (
 	StoreCustomerAddressFilters,
 	StoreCustomerFindParams,
 	StoreCustomerSelectParams,
+	StoreDeleteCustomerAddressParams,
 	StoreGetCustomerAddressParams,
 	StoreGetCustomerParams,
 )
@@ -52,6 +53,7 @@ __all__ = [
 	"StoreCustomerFindParams",
 	"StoreCustomerResponse",
 	"StoreCustomerSelectParams",
+	"StoreDeleteCustomerAddressParams",
 	"StoreGetCustomerAddressParams",
 	"StoreGetCustomerParams",
 	"StoreUpdateCustomer",

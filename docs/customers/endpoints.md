@@ -89,8 +89,9 @@ recorded decisions in `field-mapping.md`).
   on it, and on the address projections (routes 4 and 6) the collapsed label
   trio (`first_name`, `last_name`, `company` — no dedicated columns, they
   never serialize back) and any unknown field are refused
-  (`400 invalid_data`). The delete route (8) has a fixed shape and ignores
-  `fields`.
+  (`400 invalid_data`). The delete route (8) has a fixed shape and carries no
+  query contract in the pinned manifest, so every key — `fields` included —
+  is refused (`400 invalid_data`).
 - **Pagination** (route 4 only): `limit`, `offset`, `order`, `with_deleted`
   per the pinned `FindParams`. Window bounds are Ceto policy: `offset`
   defaults to 0, `limit` defaults to 20 with a maximum of 100. The response
@@ -295,8 +296,10 @@ Phase 3 adds the address book (routes 4–8) — all eight README rows are ✅.
 
 ### `DELETE /store/customers/me/addresses/{address_id}` — `ceto.api.store.customers.delete_customer_address`
 
-- Same authenticated gate; the delete contract has no query parameters and a
-  fixed response shape, so no `fields` selector applies.
+- Same authenticated gate; the strict empty query (the pinned manifest names
+  no query contract for the delete route) refuses every parameter — a
+  `fields` selector included, the fixed response shape never projects — with
+  `400 invalid_data` before the entry resolves.
 - Ownership masking: a missing or foreign entry renders the same
   `404 not_found` and a foreign entry is never touched.
 - Integrity (recorded decision 9): the customer's ERPNext default-address
@@ -306,7 +309,11 @@ Phase 3 adds the address book (routes 4–8) — all eight README rows are ✅.
   instead, the link check is never bypassed — while an entry another Customer
   still owns is retained untouched for that owner and only unlinked from this
   book. The `Ceto Customer Address Reference` is dropped either way, so the
-  entry `404`s here afterwards.
+  entry `404`s here afterwards. The unlink is authoritative: the Dynamic Link
+  rows are removed directly instead of saving the entry, whose save would run
+  the Address controller's owner-based `link_address()` and re-attach the
+  Customer link for an entry the customer's own user owns — a retained entry
+  always leaves the book behind a `deleted: true`.
 - The response is the fixed `{id, object: "address", deleted: true, parent}`
   shape: the removed id plus the unchanged parent customer, serialized after
   the deletion (empty `addresses`, cleared derived default ids).

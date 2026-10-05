@@ -26,6 +26,7 @@ from ceto.types.http.store.customers import (
 	StoreCreateCustomer,
 	StoreCreateCustomerAddress,
 	StoreCustomerAddressFilters,
+	StoreDeleteCustomerAddressParams,
 	StoreGetCustomerAddressParams,
 	StoreGetCustomerParams,
 	StoreUpdateCustomer,
@@ -183,15 +184,16 @@ def update_customer_address(address_id: str, fields: str | None = None, **payloa
 
 
 @ceto_router.delete("/store/customers/me/addresses/{address_id}")
-def delete_customer_address(address_id: str) -> dict[str, Any]:
+def delete_customer_address(address_id: str, **query: Any) -> dict[str, Any]:
 	"""Medusa ``deleteAddress``: remove one owned entry from the address book.
 
-	Not guest-dispatchable, like every ``/me`` route. The delete contract
-	has no query parameters and a fixed response shape: the removed id, the
-	``address`` object literal, the ``deleted`` flag and the unchanged
-	parent customer, serialized after the deletion.
+	Not guest-dispatchable, like every ``/me`` route. The pinned manifest
+	names no query contract for the delete route — the response shape is
+	fixed — so the strict empty query refuses every parameter, including a
+	``fields`` selector, with ``400 invalid_data`` before the entry resolves.
 	"""
 	CustomerPublishableKey.from_request()
+	StoreDeleteCustomerAddressParams.model_validate(query)
 	identity, reference = delete_address(frappe.session.user, address_id)
 	return {
 		"id": address_id,

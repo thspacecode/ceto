@@ -62,7 +62,8 @@ already copies captured temporaries into exactly this shape.
 - `fields` — the pinned `SelectParams` selector applies to routes 1–7; Ceto
   always serializes the `addresses` relation on the customer (Ceto policy:
   the address book loads with the customer and checkout needs it); the delete
-  route has a fixed shape.
+  route has a fixed shape and its pinned manifest carries no query contract,
+  so every parameter — `fields` included — is rejected there.
 - Pagination — Ceto policy window: `offset` defaults to 0, `limit` defaults
   to 20 with a maximum of 100; the response always reports the applied
   `count` / `offset` / `limit`. The pinned `PaginatedResponse.estimate_count`
@@ -137,7 +138,10 @@ already copies captured temporaries into exactly this shape.
 9. **Address deletion semantics** — the pinned delete contract responds
    `{id, object: "address", deleted: true, parent: StoreCustomer}`; Ceto
    mirrors the soft-delete semantics by unlinking the Customer ↔ Address
-   Dynamic Link (the address leaves the address book and `404`s afterwards),
+   Dynamic Link (the address leaves the address book and `404`s afterwards —
+   the unlink is authoritative, removed directly so the entry leaves the book
+   even when the Address controller's owner-based relink would re-attach the
+   Customer link for an entry the customer's own user owns),
    clearing the customer's default slot when the deleted address held one,
    and destroying the ERPNext `Address` document only when nothing references
    it — placed orders and quotations keep their historical address (Ceto

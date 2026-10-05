@@ -2,7 +2,7 @@
 
 Pins the fields selector, the pagination window of the address list, the
 pinned address filters (with ``company``/``province`` dropped by the pinned
-``Omit``) and the unknown-parameter strictness of
+``Omit``), the empty delete query and the unknown-parameter strictness of
 ``@medusajs/types@2.21.1`` (``http/customer/store``).
 """
 
@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from ceto.types.http.store.customers import (
 	StoreCustomerAddressFilters,
+	StoreDeleteCustomerAddressParams,
 	StoreGetCustomerAddressParams,
 	StoreGetCustomerParams,
 )
@@ -34,6 +35,22 @@ class TestStoreGetCustomerParams(unittest.TestCase):
 	def test_rejects_unknown_parameters(self):
 		with self.assertRaises(ValidationError):
 			StoreGetCustomerAddressParams(email="customer@example.com")
+
+
+class TestStoreDeleteCustomerAddressParams(unittest.TestCase):
+	def test_accepts_an_empty_query(self):
+		self.assertEqual(StoreDeleteCustomerAddressParams().model_dump(), {})
+
+	def test_carries_no_field_at_all(self):
+		# The pinned manifest names no query contract for the delete route
+		# (query_type=None): the fixed response shape never projects.
+		self.assertEqual(StoreDeleteCustomerAddressParams.model_fields, {})
+
+	def test_rejects_every_parameter_including_the_fields_selector(self):
+		for query in ({"fields": "id"}, {"limit": "5"}, {"not_a_field": "1"}, {"with_deleted": "true"}):
+			with self.subTest(query=query):
+				with self.assertRaises(ValidationError):
+					StoreDeleteCustomerAddressParams(**query)
 
 
 class TestStoreCustomerAddressFilters(unittest.TestCase):

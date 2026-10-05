@@ -56,6 +56,19 @@ class StoreGetCustomerAddressParams(StoreCustomerSelectParams):
 	"""Query of ``GET /store/customers/me/addresses/{address_id}``."""
 
 
+class StoreDeleteCustomerAddressParams(BaseModel):
+	"""Query of ``DELETE /store/customers/me/addresses/{address_id}``.
+
+	The pinned manifest names no query contract for the delete route
+	(``query_type=None`` — the SDK sends no query either): the response shape
+	is fixed, so nothing can be selected. The model accepts nothing and
+	forbids everything, so every key — including a ``fields`` selector the
+	fixed shape never applies — is refused like every unknown parameter.
+	"""
+
+	model_config = ConfigDict(extra="forbid")
+
+
 class StoreCustomerAddressFilters(StoreCustomerFindParams):
 	"""Query of ``GET /store/customers/me/addresses``.
 

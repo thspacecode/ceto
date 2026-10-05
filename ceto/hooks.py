@@ -248,6 +248,17 @@ after_request = ["ceto.routing.medusa.normalize_ceto_error"]
 
 auth_hooks = ["ceto.services.auth.tokens.authenticate_bearer_token"]
 
+# Downstream apps deliver order-transfer tokens through this hook:
+# ceto_order_transfer_requested = ["my_app.orders.deliver_transfer_token"]
+#
+# The handler receives order_id (the public order_… id), token (the plaintext
+# single-use UUIDv4 transfer token) and email (the order's current email —
+# the recipient) keyword arguments. Ceto persists only the token's digest and
+# never returns or logs the plaintext: delivery is wholly the receiver's job,
+# inside the request's open transaction (a receiver failure fails the request
+# and rolls the pending transfer back). With no receiver registered the
+# request simply stays pending until its requester cancels it or it expires.
+
 # Downstream apps deliver and react to customer verification codes through these hooks:
 # ceto_auth_verification_requested = ["my_app.auth.deliver_verification_code"]
 # ceto_auth_verification_confirmed = ["my_app.auth.on_identity_verified"]

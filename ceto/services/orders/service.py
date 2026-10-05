@@ -3,7 +3,9 @@
 Composed from pieces that already exist: ``OrderAccess`` resolves one id
 under lineage and publishable-key scope (every failure the same ``404
 not_found``), ``OrderListing`` pages a customer's orders out of the same
-read model, and ``OrderSerializer`` derives the canonical ``StoreOrder``
+read model, ``OrderTransfer`` mints pending ownership-transfer requests
+under the order's row lock, and ``OrderSerializer`` derives the canonical
+``StoreOrder``
 JSON from those records. The shared entity-neutral selector applies the
 routes' ``fields`` — the services support the pinned contracts without
 owning any representation. The response envelope stays the API layer's
@@ -15,22 +17,25 @@ from typing import Any
 from ceto.services.orders.access import OrderAccess, PublishableKeyScope
 from ceto.services.orders.listing import OrderListing
 from ceto.services.orders.serialization import OrderSerializer
+from ceto.services.orders.transfer import OrderTransfer
 from ceto.services.serialization import select_fields
 from ceto.types.http.store.orders.manifest import ORDER_LIST_DEFAULT_LIMIT, ORDER_LIST_DEFAULT_OFFSET
 
 
 class OrderService:
-	"""Retrieve and list placed orders."""
+	"""Retrieve and list placed orders, and request their ownership transfer."""
 
 	def __init__(
 		self,
 		access: OrderAccess | None = None,
 		orders: OrderSerializer | None = None,
 		listing: OrderListing | None = None,
+		transfers: OrderTransfer | None = None,
 	) -> None:
 		self.access = access or OrderAccess()
 		self.orders = orders or OrderSerializer()
 		self.listing = listing or OrderListing(self.orders)
+		self.transfers = transfers or OrderTransfer(self.access, self.orders)
 
 	def retrieve(
 		self,
@@ -80,4 +85,35 @@ class OrderService:
 			limit=limit,
 			offset=offset,
 			fields=fields,
+		)
+
+	def request_transfer(
+		self,
+		order_id: str,
+		key: PublishableKeyScope,
+		*,
+		requested_by: str,
+		requester_email: str | None = None,
+		description: str | None = None,
+		update_order_email: bool | None = None,
+	) -> dict[str, Any]:
+		"""Request ownership of ``order_id`` for the authenticated customer.
+
+		Delegates to the transfer component (:class:`OrderTransfer`): the
+		order reference is row-locked before any check, resolution is the
+		retrieve path's masked ``404 not_found``, eligibility is guest-only
+		(Recorded Decision 9) and one live pending request is enforced under
+		the lock (Recorded Decision 11). ``requested_by`` / ``requester_email``
+		are the authenticated caller's Customer and email, resolved by the
+		adapter — never payload data. The plaintext token is handed only to
+		the ``ceto_order_transfer_requested`` hook; the response is the
+		unchanged serialized ``StoreOrder``.
+		"""
+		return self.transfers.request(
+			order_id,
+			key,
+			requested_by=requested_by,
+			requester_email=requester_email,
+			description=description,
+			update_order_email=update_order_email,
 		)

@@ -1,4 +1,5 @@
-"""Pending ownership-transfer requests (the Medusa ``requestTransfer`` surface).
+"""Pending ownership-transfer requests: the Medusa ``requestTransfer`` and
+``cancelTransfer`` surfaces.
 
 An authenticated customer asks for ownership of a **guest** order: the
 pinned request body carries no recipient identifier, so the pending
@@ -40,6 +41,16 @@ One request mints the whole pending state:
   completed cart's reference and the Sales Order are only ever read —
   acceptance owns those writes, in its own phase.
 
+**Cancel** is the requester's removal of that pending state (the Medusa
+``cancelTransfer`` surface): the same lock-then-mask order finds the order
+reference, and the pending record is matched regardless of ``expires_at``
+— an expired request stays cancellable by its requester (Recorded
+Decision 11). Deleting the record destroys the digest-only token with it,
+so cancellation is the record's death, never a status flip. A missing
+pending request, including a replayed cancel, is ``400 invalid_data``; any
+caller other than the recorded ``requested_by`` is ``403 not_allowed`` and
+consumes nothing.
+
 The requester identity and email arrive from the HTTP adapter (the
 authenticated session user's Customer and its email); the service accepts
 no client-supplied recipient. The response is the unchanged serialized
@@ -52,7 +63,7 @@ from typing import TYPE_CHECKING, Any
 import frappe
 from frappe.utils import add_to_date, get_datetime, now_datetime
 
-from ceto.routing.exceptions import InvalidDataError
+from ceto.routing.exceptions import InvalidDataError, NotAllowedError
 from ceto.services.carts.credits import hash_code
 from ceto.services.orders.access import OrderAccess, PublishableKeyScope
 from ceto.services.orders.ownership import OrderOwnership
@@ -69,10 +80,12 @@ TRANSFER_REQUESTED_HOOK = "ceto_order_transfer_requested"
 
 ORDER_NOT_TRANSFERABLE = "Only orders without an owner can be requested for transfer"
 ORDER_TRANSFER_PENDING = "A transfer request is already pending for this order"
+ORDER_TRANSFER_NOT_PENDING = "No pending transfer request exists for this order"
+ORDER_TRANSFER_CANCEL_FORBIDDEN = "Only the customer who requested the transfer can cancel it"
 
 
 class OrderTransfer:
-	"""Mint pending ownership-transfer requests for placed orders."""
+	"""Mint and cancel pending ownership-transfer requests for placed orders."""
 
 	def __init__(
 		self,
@@ -128,6 +141,35 @@ class OrderTransfer:
 		self._notify_requested(order_reference.order_id, token, original_email)
 		return self.orders.serialize(order_reference, sales_order, reference)
 
+	def cancel(
+		self,
+		order_id: str,
+		key: PublishableKeyScope,
+		*,
+		requested_by: str,
+	) -> dict[str, Any]:
+		"""Remove the pending transfer of ``order_id`` requested by ``requested_by``.
+
+		``key`` is the publishable key scope every Store route resolves
+		(``CartPublishableKey.from_request``); ``requested_by`` is the
+		authenticated caller's Customer, resolved by the adapter — never
+		accepted from the payload. The pending record is found regardless of
+		``expires_at`` (Recorded Decision 11: the requester can still cancel
+		an expired request) and deleting it destroys the digest-only token
+		with the record. The order reference, its completed cart and the
+		Sales Order are never written (Recorded Decision 12); the response
+		is the unchanged serialized ``StoreOrder`` — never the token.
+		"""
+		self._lock_reference(order_id)
+		order_reference, sales_order, reference = self.access.resolve(order_id, key)
+		pending = self._pending_requests(order_reference.name)
+		if not pending:
+			raise InvalidDataError(ORDER_TRANSFER_NOT_PENDING)
+		if pending[0].requested_by != requested_by:
+			raise NotAllowedError(ORDER_TRANSFER_CANCEL_FORBIDDEN)
+		frappe.delete_doc("Ceto Order Transfer", pending[0].name, ignore_permissions=True)
+		return self.orders.serialize(order_reference, sales_order, reference)
+
 	@staticmethod
 	def _lock_reference(order_id: str) -> None:
 		"""Row-lock the order reference before any check reads state.
@@ -162,11 +204,18 @@ class OrderTransfer:
 
 	@staticmethod
 	def _pending_requests(order_reference: str) -> "list[_dict]":
-		"""The order's pending transfer records, if any."""
+		"""The order's pending transfer records, if any, regardless of expiry.
+
+		Expiry is deliberately the caller's concern: :meth:`request`
+		removes the expired records under the lock before minting a fresh
+		one, while :meth:`cancel` must still find an expired record — the
+		requester's cancel is exactly what removes it (Recorded Decision
+		11).
+		"""
 		return frappe.get_all(
 			"Ceto Order Transfer",
 			filters={"order_reference": order_reference, "status": "Pending"},
-			fields=["name", "expires_at"],
+			fields=["name", "expires_at", "requested_by"],
 		)
 
 	@staticmethod

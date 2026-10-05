@@ -3,10 +3,9 @@
 Composed from pieces that already exist: ``OrderAccess`` resolves one id
 under lineage and publishable-key scope (every failure the same ``404
 not_found``), ``OrderListing`` pages a customer's orders out of the same
-read model, ``OrderTransfer`` mints pending ownership-transfer requests
-under the order's row lock, and ``OrderSerializer`` derives the canonical
-``StoreOrder``
-JSON from those records. The shared entity-neutral selector applies the
+read model, ``OrderTransfer`` mints and cancels pending ownership-transfer
+requests under the order's row lock, and ``OrderSerializer`` derives the
+canonical ``StoreOrder`` JSON from those records. The shared entity-neutral selector applies the
 routes' ``fields`` — the services support the pinned contracts without
 owning any representation. The response envelope stays the API layer's
 job, as on carts.
@@ -23,7 +22,7 @@ from ceto.types.http.store.orders.manifest import ORDER_LIST_DEFAULT_LIMIT, ORDE
 
 
 class OrderService:
-	"""Retrieve and list placed orders, and request their ownership transfer."""
+	"""Retrieve and list placed orders, and request or cancel their ownership transfer."""
 
 	def __init__(
 		self,
@@ -117,3 +116,26 @@ class OrderService:
 			description=description,
 			update_order_email=update_order_email,
 		)
+
+	def cancel_transfer(
+		self,
+		order_id: str,
+		key: PublishableKeyScope,
+		*,
+		requested_by: str,
+	) -> dict[str, Any]:
+		"""Cancel the pending ownership transfer of ``order_id``.
+
+		Delegates to the transfer component (:class:`OrderTransfer`): the
+		order reference is row-locked before any check, resolution is the
+		retrieve path's masked ``404 not_found``, the pending record is
+		found regardless of expiry and only its recorded ``requested_by``
+		customer may remove it — a missing one, including a replayed
+		cancel, is ``400 invalid_data`` and any other caller is ``403
+		not_allowed``. Deleting the record destroys its digest-only token;
+		nothing in the order lineage is written (Recorded Decision 12) and
+		the response is the unchanged serialized ``StoreOrder``.
+		``requested_by`` is the authenticated caller's Customer, resolved
+		by the adapter — never payload data.
+		"""
+		return self.transfers.cancel(order_id, key, requested_by=requested_by)

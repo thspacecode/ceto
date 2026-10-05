@@ -132,6 +132,33 @@ class TestCetoOrderReference(CetoTestSuite):
 		with self.assertRaises(frappe.exceptions.LinkValidationError):
 			self._make_order_reference(owner_customer=f"Ceto Missing Customer {uuid.uuid4().hex[:8]}")
 
+	def test_records_an_optional_transfer_email(self) -> None:
+		self.sales_order = self._complete_cart()
+		reference = self._make_order_reference(email="moved@example.com")
+
+		self.assertEqual(
+			frappe.db.get_value("Ceto Order Reference", reference.name, "email"),
+			"moved@example.com",
+		)
+
+	def test_transfer_email_defaults_to_unset(self) -> None:
+		self.sales_order = self._complete_cart()
+		reference = self._make_order_reference()
+
+		self.assertIsNone(reference.email)
+
+	def test_normalizes_the_transfer_email(self) -> None:
+		self.sales_order = self._complete_cart()
+		reference = self._make_order_reference(email="  moved@example.com  ")
+
+		self.assertEqual(reference.email, "moved@example.com")
+
+		# Blank padding is no address: it stays unset instead of a stub.
+		reference.email = "   "
+		reference.save(ignore_permissions=True)
+
+		self.assertIsNone(frappe.db.get_value("Ceto Order Reference", reference.name, "email"))
+
 	def test_rejects_unknown_sales_order(self) -> None:
 		self.sales_order = self._complete_cart()
 		with self.assertRaises(frappe.exceptions.ValidationError):

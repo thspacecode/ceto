@@ -15,6 +15,10 @@ and consumes the cart's credit holds. This module reads that state back:
   completion snapshots the cart's owner at birth, so the serialized order
   is unchanged by the switch — for records born with the snapshot and for
   Phase 6 legacy rows alike.
+- The order's ``email`` prefers the transfer-updated address recorded on
+  the order reference (an accepted ``update_order_email``; Phase 5) and
+  falls back to the Sales Order's ``contact_email``, so completion-born
+  and pre-column rows serialize exactly as before.
 - Money, lines, addresses and the applied shipping charge come from the
   Sales Order the ERPNext mapper produced — nothing is re-derived here.
 - The consumed credit holds (order-credit reads via
@@ -117,7 +121,11 @@ class OrderSerializer:
 			region_id=reference.region_id or None,
 			customer_id=OrderOwnership.effective_owner(order_reference),
 			sales_channel_id=reference.sales_channel_id or None,
-			email=sales_order.contact_email or None,
+			# The transfer-updated email rides the order reference (an
+			# accepted update_order_email); rows without one — every
+			# completion-born row so far — keep serving the Sales Order's
+			# contact email.
+			email=order_reference.get("email") or sales_order.contact_email or None,
 			currency_code=sales_order.currency.lower(),
 			metadata=json.loads(reference.metadata) if reference.metadata else None,
 			billing_address=OrderSerializer._order_address(sales_order.customer_address, context),

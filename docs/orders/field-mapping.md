@@ -109,7 +109,7 @@ the immutable cart history for the order's whole life.
 | `sales_order` link | `Ceto Order Reference.sales_order` (Ceto-internal, never serialized) | gap |
 | `region_id`, `sales_channel_id`, `metadata` | completed cart's `Ceto Cart Reference` (via `cart_id`) | direct |
 | `customer_id` | effective owner: the `Ceto Order Reference.owner_customer` snapshot (populated atomically by the completing transaction); references completed before the snapshot existed fall back to the completed cart's `Ceto Cart Reference.owner_customer` and are backfilled | derived |
-| `email` | `Sales Order.contact_email` | direct |
+| `email` | the transfer-updated address recorded on `Ceto Order Reference.email` (an accepted `update_order_email`), falling back to `Sales Order.contact_email` | derived |
 | `currency_code` | `Sales Order.currency` (lower-cased) | direct |
 | `shipping_address`, `billing_address` | `Sales Order.shipping_address_name` / `customer_address` (customer-linked Address copies made at claim/completion, carts Recorded Decision 4) | direct |
 | `items[]` | `Sales Order Item` rows, identities carried over via `Ceto Cart Line Item Reference` (the client keeps the same `li_…` ids) | derived |
@@ -127,7 +127,13 @@ completed cart's `Ceto Cart Reference.owner_customer` as the legacy fallback
 above — the switch pinned here being a serializer detail, never a contract
 change. Phase 0 created neither the column nor any endpoint; the column
 landed in Phase 1, the retrieval route in Phase 2, and the list route in
-Phase 3.
+Phase 3. The `email` row is the **Phase 5 model**: the transfer-updated
+address recorded on the order reference is the source and the Sales Order's
+`contact_email` the fallback — the column and the serializer's
+preference-with-fallback read are live, rows without a recorded address
+serialize exactly as before, and the acceptance flow that records the
+address lands later in Phase 5. The Sales Order keeps its birth contact
+lineage either way (Recorded Decision 12).
 
 ## Status mapping
 
@@ -423,9 +429,13 @@ contract-only until Phase 5.
   a missing pending request is `invalid_data`, matching the pinned error
   families.
 - **`update_order_email`**: acceptance moves ownership to the requesting
-  customer's Customer and records the new email on the order reference, which
-  the serializer serves. The submitted ERPNext Sales Order is **never**
-  modified — see Recorded Decision 12.
+  customer's Customer and records the new email on the order reference,
+  which the serializer serves — over the Sales Order's `contact_email`,
+  the fallback every row without a recorded address keeps. The reference
+  column and the serializer's source/fallback read are live since Phase 5;
+  the acceptance write that records the address lands later in the phase.
+  The submitted ERPNext Sales Order is **never** modified — see Recorded
+  Decision 12.
 
 ## Deliberate omissions
 
@@ -515,8 +525,9 @@ the orders surface:
     ownership; a consumed or wrong token is `not_allowed`, a missing pending
     request is `invalid_data`.
 12. **Immutable Sales Order, transfer write scope** — an accepted
-    `update_order_email` records the new email on the order reference (served
-    from there by the serializer); acceptance writes only the order
+    `update_order_email` records the new email on the order reference
+    (served from there by the serializer, over the Sales Order's
+    `contact_email` fallback); acceptance writes only the order
     reference's `owner_customer`/email — never the completed cart's
     `Ceto Cart Reference.owner_customer` and never the Sales Order's
     customer/link lineage; submitted ERPNext documents are never mutated by

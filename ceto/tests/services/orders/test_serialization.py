@@ -123,6 +123,33 @@ class TestOrderSerialization(CetoTestSuite):
 		self.assertAlmostEqual(order["tax_total"], LINE_TAX)
 		self.assertAlmostEqual(order["shipping_total"], SHIPPING_FLAT_RATE_AMOUNT)
 
+	def test_email_falls_back_to_the_sales_order_contact_email(self) -> None:
+		reference, _quotation = self._cart()
+		order_reference, sales_order = self._completed_cart(reference)
+		# No transfer has touched this order: the reference records no
+		# email, so the order serves the Sales Order's contact email — the
+		# shape every completion-born row keeps.
+		self.assertIsNone(order_reference.get("email"))
+
+		order = self.serializer.serialize(order_reference, sales_order, reference)
+
+		self.assertEqual(order["email"], sales_order.contact_email)
+		# The fallback stays safe when neither side carries an address.
+		sales_order.contact_email = None
+		self.assertIsNone(self.serializer.serialize(order_reference, sales_order, reference)["email"])
+
+	def test_a_recorded_transfer_email_overrides_the_sales_order_contact_email(self) -> None:
+		reference, _quotation = self._cart()
+		order_reference, sales_order = self._completed_cart(reference)
+		# Acceptance (Phase 5) records the transfer email on the reference;
+		# the serializer serves the recorded address over the Sales Order
+		# contact it superseded (Recorded Decision 12).
+		order_reference.email = "moved@example.com"
+
+		order = self.serializer.serialize(order_reference, sales_order, reference)
+
+		self.assertEqual(order["email"], "moved@example.com")
+
 	def test_order_lines_and_shipping_mirror_the_sales_order(self) -> None:
 		reference, _quotation = self._cart()
 		order_reference, sales_order = self._completed_cart(reference)

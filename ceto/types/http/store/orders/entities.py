@@ -4,6 +4,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from ceto.types.http.store.carts.entities import StoreCartAddress
+from ceto.types.http.store.customers.entities import StoreCustomer
 
 #: Pinned ``OrderStatus`` union of ``@medusajs/types@2.21.1``.
 OrderStatus = Literal["pending", "completed", "draft", "archived", "canceled", "requires_action"]
@@ -117,19 +118,33 @@ class StoreOrder(BaseModel):
 	``custom_display_id`` — Medusa's sequential display numbers have no
 	ERPNext equivalent and the public order id is Ceto's own ``order_…``
 	id — plus ``version``, ``summary``, ``transactions``,
-	``payment_collections``, ``fulfillments`` and ``customer``, which stay
-	omitted until the matching provider (payments, fulfillment) exists. The
-	pinned ``item_discount_total`` / ``shipping_discount_total`` split is
-	omitted too: ERPNext carries a single order-level ``discount_amount``
-	(per-row discounts ride the item rows) and gives the Shipping Rule
-	charge no discount bucket, so the Medusa item/shipping discount split
-	cannot be derived without inventing numbers — ``discount_total`` keeps
-	the order-level amount.
+	``payment_collections`` and ``fulfillments``, which stay omitted until
+	the matching provider (payments, fulfillment) exists. The pinned
+	``item_discount_total`` / ``shipping_discount_total`` split is omitted
+	too: ERPNext carries a single order-level ``discount_amount`` (per-row
+	discounts ride the item rows) and gives the Shipping Rule charge no
+	discount bucket, so the Medusa item/shipping discount split cannot be
+	derived without inventing numbers — ``discount_total`` keeps the
+	order-level amount.
+
+	The pinned order's optional ``customer`` relation embeds the same pinned
+	``StoreCustomer`` the customers contract serves (verified against the
+	published ``HttpTypes`` when the customers surface was pinned, see
+	``docs/customers/endpoints.md``): the completed cart's owner resolves
+	through the shared identity resolver and its ``Ceto Customer Reference``
+	and serializes with the shared ``CustomerSerializer``, so the embedded
+	representation is exactly what the customers routes return. The column
+	stays ``None`` for guests and for owners without a reference — no
+	identity is ever invented — while ``customer_id`` above keeps the
+	carts' historical ERPNext Customer-name mapping beside the embedded
+	stable ``cus_…`` id (the recorded compatibility deviation, decision 10
+	of ``docs/carts/field-mapping.md``).
 	"""
 
 	id: str
 	region_id: str | None = None
 	customer_id: str | None = None
+	customer: StoreCustomer | None = None
 	sales_channel_id: str | None = None
 	email: str | None = None
 	currency_code: str

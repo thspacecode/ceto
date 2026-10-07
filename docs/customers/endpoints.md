@@ -5,7 +5,21 @@ phases build against. **Phase 3 registers the complete surface** — all eight
 pinned routes, from `POST /store/customers` through the five address-book
 routes under `/store/customers/me/addresses` (see
 [Implemented routes](#implemented-routes)); the README marks every customer
-route ✅. The coverage guard is the
+route ✅. **Phase 4 hardens that surface without changing it** — no route is
+added, removed or given a different status: the integration suites
+(`ceto.tests.integration`) walk all eight routes end to end through the real
+router (register → profile → address book → claim → complete → replay →
+retention/unlink), and the hardening suite pins the cross-cutting boundaries
+their isolation cannot exercise: a lost optimistic race renders the stable
+`400 invalid_data` and rolls the whole request back, a disabled identity is
+`401 unauthorized` on every `/me` route (performing none of the route's
+work), a claimed cart's settle failure keeps the claim, and a duplicate
+registration identity — pre-check or lost concurrent race — renders the
+identical stable `400 invalid_data` duplicate body instead of a storage
+`500`. The placed order now embeds this surface's pinned `StoreCustomer`
+(see the *Order → embedded customer* section of
+[field-mapping.md](./field-mapping.md)) — still without an order *route*: the
+README's order rows stay ⚪️. The coverage guard is the
 manifest drift test
 (`ceto.tests.types.http.store.test_customers_manifest`), the docs↔manifest
 inventory check (`ceto.tests.docs.test_customers_endpoints`) and the router
@@ -127,6 +141,9 @@ deletion semantics — are recorded with their sources in
 
 Phase 3 completes the pinned surface: Phase 2 implemented routes 1–3 and
 Phase 3 adds the address book (routes 4–8) — all eight README rows are ✅.
+Phase 4 changes no route status: it hardens the implemented surface end to
+end (see the phase 4 note at the top) and embeds the surface's pinned
+`StoreCustomer` on placed orders.
 
 ### `POST /store/customers` — `ceto.api.store.customers.create_customer`
 
@@ -138,6 +155,13 @@ Phase 3 adds the address book (routes 4–8) — all eight README rows are ✅.
 - The identity is the token subject (recorded decision 3): an omitted body
   email falls back to it and a disagreeing one is refused with
   `400 invalid_data`, mirroring the credential update's token/email match.
+- The register route that issues this token renders a duplicate identity as
+  the stable `400 invalid_data` refusal (`Customer {email} is already
+  registered`) at the boundary — the pre-check refusal and a lost concurrent
+  registration race converge on the identical body, and the translation is
+  scoped to that route so genuine storage-level duplicates elsewhere still
+  surface as `500 internal_error` (pinned by
+  `ceto.tests.integration.test_hardening`).
 - The profile is created inside the request transaction
   (`ceto.services.customers.creation.create_customer_profile`); a disabled,
   pre-owned or ambiguous identity is refused with `401 unauthorized` before
@@ -201,7 +225,12 @@ Phase 3 adds the address book (routes 4–8) — all eight README rows are ✅.
   so `customer_name` recomposes from the effective names with the identity
   email as fallback (recorded decision 2) and the contract's `updated_at`
   advances. The saves stay unlocked inside the request transaction, so a
-  lost race surfaces as the standard optimistic-concurrency error.
+  lost race surfaces as `frappe.TimestampMismatchError`, which rides the
+  `frappe.ValidationError` family and renders as the standard `400
+  invalid_data` at the router — the update service raises it unchanged, and
+  the boundary behavior (translation plus the full request rollback) is
+  already pinned by `ceto.tests.services.customers.test_update` and the
+  integration hardening suite (`ceto.tests.integration.test_hardening`).
 - The pinned `SelectParams` `fields` selector projects the freshly
   serialized customer *after* the update ran: an invalid selector fails
   with `400 invalid_data` and the router rolls the whole request back —

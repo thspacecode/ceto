@@ -113,3 +113,20 @@ def resolve_customer_reference(user: str) -> tuple[CustomerIdentity, "Document"]
 		# not bless it — masked like every other unresolvable identity.
 		raise UnauthorizedError("No customer account is linked to this user")
 	return identity, reference
+
+
+def find_customer_reference(user: str) -> tuple[CustomerIdentity, "Document"] | None:
+	"""Resolve ``user`` to its identity chain and reference, or ``None``.
+
+	The quiet twin of :func:`resolve_customer_reference` for read paths that
+	must render without an identity — the order serializer embeds the
+	completed cart's owner only when a resolvable customer exists. Every
+	refusal the strict resolver raises (no chain, no Customer, no reference,
+	a drifted reference) resolves to ``None`` here, so the read surface can
+	never disagree with the customers contract about who owns a public
+	``cus_…`` id, and no identity is ever invented for the gaps.
+	"""
+	try:
+		return resolve_customer_reference(user)
+	except UnauthorizedError:
+		return None

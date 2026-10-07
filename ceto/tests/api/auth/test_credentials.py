@@ -9,6 +9,7 @@ from ceto.api.auth.credentials import (
 	update_customer_authentication,
 )
 from ceto.routing import JSON
+from ceto.routing.exceptions import InvalidDataError
 from ceto.services.auth.tokens import decode_customer_token
 from ceto.tests.data.bootstrap_test_master_data import (
 	TEST_CUSTOMER,
@@ -69,11 +70,16 @@ class TestCredentials(CetoTestSuite):
 		self.assertEqual(user.user_type, "Website User")
 		check_password(email.lower(), TEST_CUSTOMER_PASSWORD)
 
-	def test_register_rejects_existing_customer(self):
+	def test_register_rejects_existing_customer_as_invalid_data(self):
+		# The API boundary translates the duplicate identity conflict into
+		# the stable invalid_data refusal (rendered 400 by the router) —
+		# never the storage-level 500 internal_error.
 		for existing in (TEST_CUSTOMER, TEST_DISABLED_CUSTOMER):
 			with self.subTest(user=existing):
-				with self.assertRaises(frappe.DuplicateEntryError) as raised:
+				with self.assertRaises(InvalidDataError) as raised:
 					register_customer("emailpass", email=existing, password=TEST_CUSTOMER_PASSWORD)
+				self.assertEqual(raised.exception.error_type, "invalid_data")
+				self.assertEqual(raised.exception.status_code, 400)
 				self.assertEqual(raised.exception.args[0], f"Customer {existing} is already registered")
 
 	def test_register_rejects_weak_password_without_identity(self):

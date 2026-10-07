@@ -57,6 +57,23 @@ Address-book entries are customer-linked `Address` records (Dynamic Link),
 unlike the cart-scoped temporary Addresses of the cart flow; a cart claim
 already copies captured temporaries into exactly this shape.
 
+## Order → embedded customer
+
+The order contract embeds this mapping's `StoreCustomer` on its pinned,
+optional `customer` relation (Customers Phase 4): the completed cart's owner
+resolves through the shared identity chain and its `Ceto Customer
+Reference`, and the shared customers serializer builds the embedded
+representation — so a placed order's `customer` is exactly what the
+customers routes serve, never a re-derived copy. See the recorded
+compatibility deviation in `docs/carts/field-mapping.md` (decision 10).
+
+| Medusa `StoreOrder` field | Source | Classification |
+|---|---|---|
+| `customer.id` | the owner's `Ceto Customer Reference` name — the stable public `cus_…` id (recorded decision 1) | derived |
+| `customer.email`, profile columns, `addresses`, `metadata`, timestamps | the same sources as `StoreCustomer` above, through the same serializer | derived |
+| `customer` (the column itself) | `null` for guests and for owners without a `Ceto Customer Reference` — no identity is invented | gap |
+| `order.customer_id` | **not** the embedded id: it keeps the carts' historical ERPNext `Customer`-name mapping for backward compatibility (recorded decision 10 of `docs/carts/field-mapping.md`) | direct/derived |
+
 ## Query envelope decisions (recorded in the contract, not decisions below)
 
 - `fields` — the pinned `SelectParams` selector applies to routes 1–7; Ceto

@@ -14,6 +14,7 @@ import frappe
 from ceto.routing.exceptions import UnauthorizedError
 from ceto.services.customers.creation import create_customer_profile
 from ceto.services.customers.identity import (
+	find_customer_reference,
 	resolve_customer_identity,
 	resolve_customer_reference,
 )
@@ -106,6 +107,36 @@ class TestCustomerIdentity(CetoTestSuite):
 				resolve_customer_reference(email)
 
 		self.assertEqual(str(raised.exception), NO_CUSTOMER_MESSAGE)
+
+	def test_the_quiet_reference_twin_resolves_like_the_strict_one(self) -> None:
+		with self.set_conf(throttle_user_limit=THROTTLE_USER_LIMIT):
+			email = new_identity("quiet-reference")
+			identity, reference = create_customer_profile(email)
+
+		found = find_customer_reference(email)
+
+		self.assertIsNotNone(found)
+		self.assertEqual(found[0], identity)
+		self.assertEqual(found[1].name, reference.name)
+
+	def test_the_quiet_reference_twin_says_none_where_the_strict_one_refuses(self) -> None:
+		# The order surface renders without an identity: the quiet twin maps
+		# every strict refusal to None — a missing chain, a chain without a
+		# Ceto Customer Reference, a drifted reference — without inventing
+		# an identity, and never diverges from the strict resolver's refusals.
+		with self.set_conf(throttle_user_limit=THROTTLE_USER_LIMIT):
+			anonymous = new_identity("quiet-anonymous")
+			referenceless, _customer, _contact = make_chain("quiet-referenceless")
+			drifted = new_identity("quiet-drifted")
+			_identity, reference = create_customer_profile(drifted)
+			other = make_customer("quiet-drifted")
+			frappe.db.set_value("Ceto Customer Reference", reference.name, "customer", other)
+
+			for user in (anonymous, referenceless, drifted):
+				with self.subTest(user=user):
+					self.assertIsNone(find_customer_reference(user))
+					with self.assertRaises(UnauthorizedError):
+						resolve_customer_reference(user)
 
 	def test_requires_an_enabled_website_user(self) -> None:
 		with self.set_conf(throttle_user_limit=THROTTLE_USER_LIMIT):

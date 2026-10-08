@@ -1,6 +1,7 @@
 import frappe
 
-from ceto.services.carts.quotation import CartService, privileged_scope
+from ceto.services.carts.quotation import CartService
+from ceto.services.common import privileged_scope
 from ceto.tests.data.cart_test_data import CartTestData
 from ceto.tests.utils import CetoTestSuite
 from ceto.types.http.store.carts import StoreCreateCart

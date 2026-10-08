@@ -6,7 +6,8 @@ completed cart's reference — and pins the deliberate omissions: the Medusa
 display numbers (``display_id``, ``custom_display_id``) have no ERPNext
 equivalent and the public order id is Ceto's own ``order_…`` id, while the
 payment, fulfillment and summary surfaces stay out until their providers
-exist.
+exist. The nullable ``customer`` column embeds the pinned ``StoreCustomer``
+the customers contract serves.
 """
 
 import unittest
@@ -15,6 +16,7 @@ from datetime import UTC, datetime
 from pydantic import ValidationError
 
 from ceto.types.http.store.carts import StoreCartAddress
+from ceto.types.http.store.customers import StoreCustomer
 from ceto.types.http.store.orders import (
 	StoreOrder,
 	StoreOrderAddress,
@@ -109,10 +111,40 @@ class TestStoreOrderEntity(unittest.TestCase):
 			"transactions",
 			"payment_collections",
 			"fulfillments",
-			"customer",
 		):
 			with self.subTest(field=field):
 				self.assertNotIn(field, StoreOrder.model_fields)
+
+	def test_customer_is_a_nullable_pinned_column(self):
+		# The pinned StoreOrder of @medusajs/types@2.21.1 carries the
+		# customer as an optional expanded relation of the pinned
+		# StoreCustomer; Ceto mirrors it nullable and leaves it None when no
+		# contract-safe identity exists (guests, reference-less owners).
+		order = StoreOrder(id="order_1", currency_code="usd")
+		self.assertIn("customer", StoreOrder.model_fields)
+		self.assertIsNone(order.customer)
+		self.assertIn("customer", order.model_dump())
+		self.assertIsNone(order.model_dump()["customer"])
+		self.assertIsNone(StoreOrder(id="order_1", currency_code="usd", customer=None).customer)
+
+	def test_customer_embeds_the_pinned_store_customer(self):
+		order = StoreOrder(
+			id="order_1",
+			currency_code="usd",
+			customer=StoreCustomer(id="cus_" + "0" * 32, email="user@example.com"),
+		)
+		self.assertEqual(order.customer.id, "cus_" + "0" * 32)
+		self.assertEqual(order.customer.email, "user@example.com")
+		# The pinned StoreCustomer shape: the address book relation defaults
+		# to empty, never to a missing column.
+		self.assertEqual(order.customer.addresses, [])
+		self.assertEqual(order.model_dump(mode="json")["customer"]["id"], "cus_" + "0" * 32)
+		# The embedded id and email are the pinned required identities: an
+		# anonymous or email-less customer cannot be serialized — the
+		# resolver returns None instead of inventing either.
+		for customer in ({"email": "user@example.com"}, {"id": "cus_" + "0" * 32}):
+			with self.subTest(customer=customer), self.assertRaises(ValidationError):
+				StoreOrder(id="order_1", currency_code="usd", customer=customer)
 
 	def test_locale_is_a_cart_column_only(self):
 		# The pinned StoreOrder of @medusajs/types@2.21.1 has no locale column

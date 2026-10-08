@@ -169,7 +169,6 @@ class OrderSerializer:
 		)
 
 	@staticmethod
-	@staticmethod
 	def _shipping_charge(
 		sales_order: "Document", context: "OrderPageContext | None"
 	) -> "AppliedShippingCharge | None":

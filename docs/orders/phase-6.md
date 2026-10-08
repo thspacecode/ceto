@@ -62,7 +62,14 @@ the user-creation throttle, so the site needs no `site_config.json` edits):
 - **Full suite** — 729 tests, passed twice (repeat run for determinism).
 - **pre-commit** — passed (`--all-files`: ruff lint + format, hygiene hooks).
 - **semgrep** — 76 rules over 115 targets, 0 findings.
-- **pip-audit** — no known vulnerabilities.
+- **pip-audit** — no known vulnerabilities in the app's declared dependency
+  closure at its current CI resolution: the project-mode job
+  (`pip-audit --desc on .`) resolves `pyproject.toml` fresh, installing
+  PyJWT 2.15.x under the hardened floor `PyJWT>=2.15.0,<3` (re-confirmed
+  after the raise — see the evidence in
+  [release-evidence.md](release-evidence.md)). The job does not audit the
+  shared bench runtime; advisories on that environment's installed packages
+  are operational concerns outside this repo's declared closure.
 - **Indexes pinned** — `ceto.tests.test_persistence_indexes` holds the
   schema-level net over the audited read paths.
 - **README** — the Orders table already marks all six routes Implemented,
@@ -71,8 +78,11 @@ the user-creation throttle, so the site needs no `site_config.json` edits):
 Landed in this phase: Dependabot setup (pip + GitHub Actions), the repository
 security policy, the persistence-index schema test
 (`ceto.tests.test_persistence_indexes`), the user-creation throttle guard in
-`ceto.tests.services.carts.test_privileged_scope`, and the release-evidence
-route map (`docs/orders/release-evidence.md`).
+`ceto.tests.services.carts.test_privileged_scope`, the release-evidence
+route map (`docs/orders/release-evidence.md`), and the PyJWT floor raised to
+the first audit-clean release (`PyJWT>=2.15.0,<3`, used by the customer
+auth-token service — evidence in
+[release-evidence.md](release-evidence.md)).
 
 Blocked (still outstanding — **not** landed from this branch): the
 least-privilege CI token — the branch's push credential is a GitHub App

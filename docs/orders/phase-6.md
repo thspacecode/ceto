@@ -54,6 +54,20 @@ Read paths and the schema guarantees they ride:
 
 ## Status
 
-In progress on `feat/orders-phase-6`. Landed so far: this note. Remaining:
-least-privilege CI token, Dependabot setup, security policy, and the
-persistence-index schema test; the full app suite runs at phase close.
+In progress on `feat/orders-phase-6`. Landed: Dependabot setup (pip + GitHub
+Actions), the repository security policy, and the persistence-index schema
+test (`ceto.tests.test_persistence_indexes`).
+
+Blocked: the least-privilege CI token — the branch's push credential is a
+GitHub App installation without the `workflows` permission, so it may not
+create or update `.github/workflows/ci.yml`. The one-line change lands out of
+band:
+
+```yaml
+# .github/workflows/ci.yml, after `pull_request:` in `on:`
+permissions:
+  contents: read
+```
+
+The full app suite runs at phase close; this deliverable runs focused tests
+only.

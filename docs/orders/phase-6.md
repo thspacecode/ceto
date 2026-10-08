@@ -54,18 +54,30 @@ Read paths and the schema guarantees they ride:
 
 ## Status
 
-In progress on `feat/orders-phase-6`. Landed: Dependabot setup (pip + GitHub
-Actions), the repository security policy, the persistence-index schema test
-(`ceto.tests.test_persistence_indexes`), and the user-creation throttle guard
-in `ceto.tests.services.carts.test_privileged_scope` — the module now lifts
-`throttle_user_limit` in memory and restores it like its sibling suites, so
-the full suite runs on an unmodified site without editing
-`site_config.json`.
+Release-ready on `feat/orders-phase-6` — every Phase 6 deliverable has landed.
+Final validation from the authoritative latest run, on the unchanged baseline
+`test_site` configuration (`allow_tests` true only — the suite self-manages
+the user-creation throttle, so the site needs no `site_config.json` edits):
 
-Blocked: the least-privilege CI token — the branch's push credential is a
-GitHub App installation without the `workflows` permission, so it may not
-create or update `.github/workflows/ci.yml`. The one-line change lands out of
-band:
+- **Full suite** — 729 tests, passed twice (repeat run for determinism).
+- **pre-commit** — passed (`--all-files`: ruff lint + format, hygiene hooks).
+- **semgrep** — 76 rules over 115 targets, 0 findings.
+- **pip-audit** — no known vulnerabilities.
+- **Indexes pinned** — `ceto.tests.test_persistence_indexes` holds the
+  schema-level net over the audited read paths.
+- **README** — the Orders table already marks all six routes Implemented,
+  pinned to the registered surface by the README-drift tests.
+
+Landed in this phase: Dependabot setup (pip + GitHub Actions), the repository
+security policy, the persistence-index schema test
+(`ceto.tests.test_persistence_indexes`), the user-creation throttle guard in
+`ceto.tests.services.carts.test_privileged_scope`, and the release-evidence
+route map (`docs/orders/release-evidence.md`).
+
+Blocked (still outstanding — **not** landed from this branch): the
+least-privilege CI token — the branch's push credential is a GitHub App
+installation without the `workflows` permission, so it may not create or
+update `.github/workflows/ci.yml`; the one-line change ships out of band:
 
 ```yaml
 # .github/workflows/ci.yml, after `pull_request:` in `on:`
@@ -73,5 +85,3 @@ permissions:
   contents: read
 ```
 
-The full app suite runs at phase close; this deliverable runs focused tests
-only.

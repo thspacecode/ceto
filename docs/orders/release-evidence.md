@@ -107,8 +107,9 @@ the user-creation throttle, so no `site_config.json` edits):
   (`pip-audit --desc on .`) resolves `pyproject.toml` fresh, installing
   PyJWT 2.15.x under the hardened floor `PyJWT>=2.15.0,<3` (re-confirmed
   after the raise). Floor evidence from per-pin pip-audit runs: PyJWT
-  2.13.0 carries 14 advisories (12 fixed in 2.14.0; `PYSEC-2026-4141` and
-  `PYSEC-2026-4183` fixed in 2.15.0), 2.14.0 still carries those two, and
+  2.13.0 carries 14 advisories (12 are no longer detected in 2.14.0;
+  `PYSEC-2026-4141` and `PYSEC-2026-4183` are fixed in 2.15.0), 2.14.0
+  still carries those two, and
   2.15.0 is clean — 2.15.0 is the first audit-clean compatible release. The
   job audits the app's declared closure, not the shared bench runtime;
   advisories on that environment's installed packages are operational

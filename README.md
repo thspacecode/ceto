@@ -92,14 +92,14 @@ Medusa API implementation status, grouped by scope. Routes follow the [Medusa St
 
 | Method | Route | Status |
 | --- | --- | --- |
-| GET | `/store/customers/me/addresses/{address_id}` | ⚪️ |
-| GET | `/store/customers/me` | ⚪️ |
-| GET | `/store/customers/me/addresses` | ⚪️ |
-| POST | `/store/customers/me/addresses` | ⚪️ |
-| POST | `/store/customers` | ⚪️ |
-| POST | `/store/customers/me` | ⚪️ |
-| POST | `/store/customers/me/addresses/{address_id}` | ⚪️ |
-| DELETE | `/store/customers/me/addresses/{address_id}` | ⚪️ |
+| GET | `/store/customers/me/addresses/{address_id}` | ✅️ |
+| GET | `/store/customers/me` | ✅️ |
+| GET | `/store/customers/me/addresses` | ✅️ |
+| POST | `/store/customers/me/addresses` | ✅️ |
+| POST | `/store/customers` | ✅️ |
+| POST | `/store/customers/me` | ✅️ |
+| POST | `/store/customers/me/addresses/{address_id}` | ✅️ |
+| DELETE | `/store/customers/me/addresses/{address_id}` | ✅️ |
 
 ### Gift Cards
 
@@ -392,7 +392,7 @@ Authenticated customers can refresh a bearer token with `POST /ceto/auth/token/r
 
 ### Registration, password reset, and credential updates
 
-`POST /ceto/auth/customer/{auth_provider}/register` validates registration credentials and returns a single-purpose `registration` token without creating the customer; a confirmed registration token is exchanged when creating the customer through the store customers API. `POST /ceto/auth/customer/{auth_provider}/reset-password` returns `200` with an empty body whether or not the identifier is registered, so it cannot be used to enumerate customers. For a registered website customer Ceto issues a single-purpose `password_reset` token and calls every handler in the `ceto_auth_password_reset` hook:
+`POST /ceto/auth/customer/{auth_provider}/register` validates registration credentials and creates the login Website User, but never the ERP Customer profile; it returns a single-purpose `registration` token that `POST /ceto/store/customers` exchanges to complete the registration by creating that customer profile. `POST /ceto/auth/customer/{auth_provider}/reset-password` returns `200` with an empty body whether or not the identifier is registered, so it cannot be used to enumerate customers. For a registered website customer Ceto issues a single-purpose `password_reset` token and calls every handler in the `ceto_auth_password_reset` hook:
 
 ```python
 ceto_auth_password_reset = ["my_app.auth.deliver_password_reset_token"]

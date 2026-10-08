@@ -7,6 +7,7 @@ from frappe.utils.password import check_password, update_password
 from ceto.data.base_importer import BaseImporter, Report, apply_values, values_differ
 from ceto.data.bootstrap_dev.settings import BootstrapSettings
 from ceto.data.bootstrap_dev.setup_site import SetupSite
+from ceto.tests.testsuite import bypass_user_creation_throttle
 
 TEST_CUSTOMER = "ceto.customer@example.com"
 TEST_CUSTOMER_PASSWORD = "Correct Horse Battery Staple 42!"
@@ -76,7 +77,8 @@ class BootStrapTestMasterData(BaseImporter):
 			changed = True
 
 		if created:
-			self.create_and_record(user, owned_fields, "User", email)
+			with bypass_user_creation_throttle():
+				self.create_and_record(user, owned_fields, "User", email)
 		elif changed:
 			user.save(ignore_permissions=True)
 			self.record_change("updated", "User", email)

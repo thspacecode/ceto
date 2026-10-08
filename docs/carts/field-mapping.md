@@ -186,6 +186,8 @@ recreate the Shipping Rule charge row exactly once
 | `type: "cart"` (incomplete) | Quotation left open; completion error surfaced | gap |
 | `payment_collection` requirement | Ceto requires payment readiness (authorized/captured per provider settings) **before** creating the Sales Order | gap |
 | `order.id`, `order.display_id` | Ceto order-correlation record (Sales Order ↔ Medusa order id) | gap |
+| `order.customer_id` | the owning ERPNext `Customer` name (`Ceto Cart Reference.owner_customer`; `null` for guests) — the historical mapping, kept for backward compatibility (Recorded Decision 10) | direct/derived |
+| `order.customer` (embedded) | the pinned `StoreCustomer` the customers contract serves, built by the shared customers serializer from the completed cart's owner identity chain and its `Ceto Customer Reference`; `null` for guests and reference-less owners (Recorded Decision 10) | derived |
 | payment status / credits | tracked in the provider ledger; cart credits consumed on completion | gap |
 
 Phase 6 pins the completion contracts (the completion payload/response of the
@@ -203,14 +205,26 @@ for the complete replay.
   `total` on the ERPNext grand total).
 - `display_id` / `custom_display_id` are deliberately omitted (Recorded
   Decision 9), as are `version`, `summary`, `transactions`,
-  `payment_collections`, `fulfillments` and `customer` until the matching
-  provider exists. The pinned `item_discount_total` /
+  `payment_collections` and `fulfillments` until the matching provider
+  exists. The pinned `item_discount_total` /
   `shipping_discount_total` split is omitted for the same reason of
   honesty: ERPNext carries a single order-level `discount_amount` (the
   coupon/additional discount; per-row pricing discounts ride the item
   rows) and gives the Shipping Rule charge no discount bucket, so the
   Medusa item/shipping discount split cannot be derived without inventing
   numbers — `discount_total` keeps the order-level amount.
+- `order.customer` (Customers Phase 4) populates the pinned order's
+  optional `customer` relation. The embedded shape is the pinned
+  `StoreCustomer` — verified against the published `HttpTypes` when the
+  customers surface was pinned (`docs/customers/endpoints.md`; the
+  `@medusajs/types` package source is not vendored in this workspace) —
+  built by the shared customers serializer from the completed cart's
+  owner: the identity chain resolves through the strict customers
+  resolver and its `Ceto Customer Reference` (quietly, so a rendering
+  order never refuses), and the representation is exactly what the
+  customers routes serve, never re-derived. Guests and owners without a
+  reference serialize `customer: null` — no identity is invented. The
+  split from `customer_id` is Recorded Decision 10 below.
 - An order reference can only be born from a completed cart: its Quotation
   must be submitted. Submitted Quotations fail the draft check every cart
   route makes, so a completed cart is masked as `404 not_found` on the whole
@@ -256,6 +270,21 @@ for the complete replay.
    Medusa's `display_id` / `custom_display_id` are omitted: no ERPNext
    equivalent exists and the ERPNext Sales Order name stays internal to the
    `Ceto Order Reference` mapping.
+10. **Order customer ids (compatibility deviation)** — Ceto deliberately
+   splits the two places Medusa names an order's customer. `customer_id`
+   keeps the carts' historical mapping and serializes the owning ERPNext
+   `Customer` name (`Ceto Cart Reference.owner_customer`, `null` for
+   guests) — the shipped cart and order surface has always reported it, and
+   changing it would break existing clients. The embedded `order.customer`
+   is the pinned `StoreCustomer` the customers contract serves: the
+   completed cart's owner resolves through the shared identity resolver and
+   its `Ceto Customer Reference` and serializes with the shared customers
+   serializer, so `customer.id` is the stable public `cus_…` id. In Medusa
+   both carry the same id; clients must treat them as independent columns
+   here. Guests and claimed owners without a `Ceto Customer Reference`
+   (pre-existing ERPNext accounts linked outside Ceto) embed no customer —
+   the column stays `null` instead of inventing an identity, while
+   `customer_id` keeps naming the ERPNext Customer either way.
 
 ## Demonstrated Phase 0 behavior
 

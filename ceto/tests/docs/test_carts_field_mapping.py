@@ -95,9 +95,9 @@ class TestCartsFieldMappingDoc(unittest.TestCase):
 		self.assertIn("negative `Actual` row", self.text)
 		self.assertIn("total + discount_total + credit_line_total == subtotal + tax_total", self.text)
 
-	def test_nine_decisions_are_recorded(self):
+	def test_ten_decisions_are_recorded(self):
 		decision_lines = re.findall(r"^\d+\. \*\*", self.text, re.MULTILINE)
-		self.assertEqual(len(decision_lines), 9)
+		self.assertEqual(len(decision_lines), 10)
 
 	def test_decisions_cover_required_topics(self):
 		decisions = re.findall(
@@ -105,7 +105,7 @@ class TestCartsFieldMappingDoc(unittest.TestCase):
 			self.text,
 			re.MULTILINE | re.DOTALL,
 		)
-		self.assertEqual(len(decisions), 9)
+		self.assertEqual(len(decisions), 10)
 		for title, body in decisions:
 			blob = (title + " " + body).lower()
 			for keywords in REQUIRED_DECISION_KEYWORDS:

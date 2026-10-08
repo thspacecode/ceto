@@ -55,9 +55,9 @@ from ceto.routing.exceptions import RouteNotFoundError
 from ceto.services.carts.access import CartAccess
 from ceto.services.carts.conversion import convert_quotation_to_sales_order
 from ceto.services.carts.credits import CartCredits
-from ceto.services.carts.quotation import privileged_scope
 from ceto.services.carts.serialization import CartSerializer
 from ceto.services.carts.shipping import CartShipping
+from ceto.services.common import privileged_scope
 from ceto.services.orders.serialization import OrderSerializer
 from ceto.types.http.store.carts import (
 	StoreCart,

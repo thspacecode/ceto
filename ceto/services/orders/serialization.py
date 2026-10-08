@@ -9,6 +9,13 @@ and consumes the cart's credit holds. This module reads that state back:
   is deliberately **not** carried over: the pinned ``StoreOrder`` of
   ``@medusajs/types@2.21.1`` has no locale column — it is a cart-only
   column — so the order never reports one.
+- The optional embedded ``customer`` is the pinned ``StoreCustomer`` the
+  customers contract serves: the cart's owner resolves through the shared
+  identity resolver and its ``Ceto Customer Reference`` and serializes with
+  the shared ``CustomerSerializer``. Guests and reference-less owners stay
+  ``None`` — no identity is invented — while ``customer_id`` keeps the
+  historical ERPNext Customer-name mapping (the recorded compatibility
+  deviation, decision 10 of ``docs/carts/field-mapping.md``).
 - Money, lines, addresses and the applied shipping charge come from the
   Sales Order the ERPNext mapper produced — nothing is re-derived here.
 - The consumed credit holds (order-credit reads via
@@ -37,10 +44,13 @@ import frappe
 from frappe.utils import flt, get_datetime
 
 from ceto.routing.exceptions import InternalServerError
-from ceto.services.carts.addresses import serialize_address
+from ceto.services.addresses import serialize_address
 from ceto.services.carts.credits import CartCredits
 from ceto.services.carts.serialization import CartSerializer
 from ceto.services.carts.shipping import AppliedShippingCharge, CartShipping
+from ceto.services.customers.identity import find_customer_reference
+from ceto.services.customers.serialization import CustomerSerializer
+from ceto.types.http.store.customers.entities import StoreCustomer
 from ceto.types.http.store.orders import (
 	StoreOrder,
 	StoreOrderAddress,
@@ -99,6 +109,7 @@ class OrderSerializer:
 			id=order_reference.order_id,
 			region_id=reference.region_id or None,
 			customer_id=reference.owner_customer or None,
+			customer=OrderSerializer._customer(reference.owner_user),
 			sales_channel_id=reference.sales_channel_id or None,
 			email=sales_order.contact_email or None,
 			currency_code=sales_order.currency.lower(),
@@ -138,6 +149,29 @@ class OrderSerializer:
 			original_shipping_subtotal=shipping_total,
 			original_shipping_tax_total=0,
 		)
+
+	@staticmethod
+	def _customer(owner_user: str | None) -> StoreCustomer | None:
+		"""Serialize the completed cart's owner as the embedded customer.
+
+		The owner resolves through the shared identity resolver and its
+		``Ceto Customer Reference`` — the strict customers-contract chain,
+		quietly — and serializes with the shared ``CustomerSerializer``, so
+		the embedded representation is exactly what the customers routes
+		serve, never a re-derived one. Guests (no owner) and owners without
+		a reference — a pre-existing ERPNext account linked outside Ceto —
+		have no contract-safe ``cus_…`` identity, so the column stays
+		``None`` instead of inventing one; ``customer_id`` keeps the
+		historical ERPNext Customer-name mapping regardless (Recorded
+		Decision 10 of ``docs/carts/field-mapping.md``).
+		"""
+		if not owner_user:
+			return None
+		found = find_customer_reference(owner_user)
+		if found is None:
+			return None
+		identity, reference = found
+		return CustomerSerializer.serialize(identity, reference)
 
 	@staticmethod
 	def _order_address(address_name: str | None) -> StoreOrderAddress | None:

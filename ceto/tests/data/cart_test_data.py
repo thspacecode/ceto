@@ -24,6 +24,7 @@ from ceto.data.bootstrap_dev.dataset import ITEM_PRICES
 from ceto.data.bootstrap_dev.seeders.setup_company import resolve_company
 from ceto.data.bootstrap_dev.settings import BootstrapSettings
 from ceto.services.carts.credits import hash_code
+from ceto.tests.testsuite import bypass_user_creation_throttle
 from ceto.tests.utils import boot_strap_test_master_data
 
 TEST_TAX_ACCOUNT = "Ceto Test Cart Tax"
@@ -474,15 +475,18 @@ def make_customer_with_user(label: str) -> tuple[str, str]:
 	setting up their fixtures, like the promotion API tests do.
 	"""
 	email = f"ceto.cart.{label}.{uuid.uuid4().hex[:8]}@example.com"
-	frappe.get_doc(
+	user = frappe.get_doc(
 		{
 			"doctype": "User",
 			"email": email,
 			"first_name": f"Cart {label}",
 			"user_type": "Website User",
+			"enabled": 1,
 			"send_welcome_email": 0,
 		}
-	).insert(ignore_permissions=True)
+	)
+	with bypass_user_creation_throttle():
+		user.insert(ignore_permissions=True)
 	customer = frappe.get_doc(
 		{
 			"doctype": "Customer",

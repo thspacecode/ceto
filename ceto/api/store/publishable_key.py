@@ -52,3 +52,25 @@ class CartPublishableKey:
 			raise NotAllowedError("Publishable API key cannot access this cart region")
 		if self.sales_channel_id and sales_channel_id and sales_channel_id != self.sales_channel_id:
 			raise NotAllowedError("Publishable API key cannot access this sales channel")
+
+
+@dataclass(frozen=True)
+class CustomerPublishableKey:
+	"""Boundary-only publishable-key validation for the customer routes.
+
+	Recorded decision 7 of ``docs/customers/field-mapping.md`` extends the
+	cart key policy: every customer route requires the
+	``x-publishable-api-key`` header, validated at the HTTP boundary against
+	the storefront key store and never persisted. Customers carry no
+	region/sales-channel scope, so unlike the cart key there is no per-record
+	scope to apply.
+	"""
+
+	@classmethod
+	def from_request(cls) -> Self:
+		provided = frappe.request.headers.get("x-publishable-api-key", "").encode()
+		configured = (frappe.conf.get("ceto_cart") or {}).get("publishable_keys") or {}
+		for key in configured:
+			if secrets.compare_digest(provided, str(key).encode()):
+				return cls()
+		raise UnauthorizedError("Invalid publishable API key")

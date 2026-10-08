@@ -1,4 +1,5 @@
 import frappe
+from frappe.utils.password import check_password
 from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request
 
@@ -8,8 +9,13 @@ from ceto.api.auth.credentials import (
 	update_customer_authentication,
 )
 from ceto.routing import JSON
+from ceto.routing.exceptions import InvalidDataError
 from ceto.services.auth.tokens import decode_customer_token
-from ceto.tests.data.bootstrap_test_master_data import TEST_CUSTOMER, TEST_CUSTOMER_PASSWORD
+from ceto.tests.data.bootstrap_test_master_data import (
+	TEST_CUSTOMER,
+	TEST_CUSTOMER_PASSWORD,
+	TEST_DISABLED_CUSTOMER,
+)
 from ceto.tests.utils import CetoTestSuite
 from ceto.types.http.auth import AuthResponse
 
@@ -46,7 +52,7 @@ class TestCredentials(CetoTestSuite):
 			self.assertNotIn(endpoint, frappe.whitelisted)
 			self.assertFalse(hasattr(endpoint, "is_whitelisted"))
 
-	def test_register_returns_registration_token(self):
+	def test_register_creates_usable_website_user(self):
 		email = self._new_email()
 		response = register_customer("emailpass", email=email, password=TEST_CUSTOMER_PASSWORD)
 
@@ -54,11 +60,36 @@ class TestCredentials(CetoTestSuite):
 		self.assertIsInstance(response.value, AuthResponse)
 		claims = decode_customer_token(response.value.token, purpose="registration")
 		self.assertEqual(claims["sub"], email.lower())
-		self.assertFalse(frappe.db.exists("User", email))
+		# The JWT is only signed, never encrypted, so the password must not be
+		# recoverable from the token or any of its claims.
+		self.assertNotIn(TEST_CUSTOMER_PASSWORD, response.value.token)
+		self.assertNotIn(TEST_CUSTOMER_PASSWORD, str(claims))
 
-	def test_register_rejects_existing_customer(self):
-		with self.assertRaises(frappe.DuplicateEntryError):
-			register_customer("emailpass", email=TEST_CUSTOMER, password=TEST_CUSTOMER_PASSWORD)
+		user = frappe.db.get_value("User", email.lower(), ["enabled", "user_type"], as_dict=True)
+		self.assertTrue(user.enabled)
+		self.assertEqual(user.user_type, "Website User")
+		check_password(email.lower(), TEST_CUSTOMER_PASSWORD)
+
+	def test_register_rejects_existing_customer_as_invalid_data(self):
+		# The API boundary translates the duplicate identity conflict into
+		# the stable invalid_data refusal (rendered 400 by the router) —
+		# never the storage-level 500 internal_error.
+		for existing in (TEST_CUSTOMER, TEST_DISABLED_CUSTOMER):
+			with self.subTest(user=existing):
+				with self.assertRaises(InvalidDataError) as raised:
+					register_customer("emailpass", email=existing, password=TEST_CUSTOMER_PASSWORD)
+				self.assertEqual(raised.exception.error_type, "invalid_data")
+				self.assertEqual(raised.exception.status_code, 400)
+				self.assertEqual(raised.exception.args[0], f"Customer {existing} is already registered")
+
+	def test_register_rejects_weak_password_without_identity(self):
+		email = self._new_email()
+		with (
+			self.change_settings("System Settings", enable_password_policy=1, minimum_password_score=4),
+			self.assertRaises(frappe.ValidationError),
+		):
+			register_customer("emailpass", email=email, password="weak")
+		self.assertFalse(frappe.db.exists("User", email.lower()))
 
 	def test_reset_password_delivers_token_to_hooks(self):
 		hooks = {"ceto_auth_password_reset": ["ceto.tests.api.auth.test_credentials.capture_reset_token"]}
@@ -169,9 +200,11 @@ class TestCredentials(CetoTestSuite):
 		user.email = email
 		user.first_name = "Ceto Cred Test"
 		user.user_type = "Website User"
+		user.enabled = 1
 		user.send_welcome_email = 0
 		user.flags.ignore_permissions = True
-		user.insert()
+		with self.bypass_user_creation_throttle():
+			user.insert()
 
 	@staticmethod
 	def _request(path: str, method: str, **kwargs) -> Request:

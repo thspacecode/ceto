@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING
 import frappe
 
 from ceto.routing.exceptions import InvalidDataError
+from ceto.services.addresses import is_customer_address, resolve_country
 from ceto.types.http.store.carts.entities import StoreCartAddress
 
 if TYPE_CHECKING:
@@ -115,7 +116,7 @@ class CartAddresses:
 		attached = {quotation.get(field) for field in displays} - {None}
 		copies: dict[str, str] = {}
 		for address_name in attached:
-			if CartAddresses.is_customer_address(address_name, customer):
+			if is_customer_address(address_name, customer):
 				continue
 			if not CartAddresses.is_cart_temporary(address_name, quotation.name):
 				# Neither the customer's nor this cart's temporary: never
@@ -205,7 +206,7 @@ class CartAddresses:
 	) -> str:
 		if not payload.country_code:
 			raise InvalidDataError("Address country_code is required")
-		country = CartAddresses.resolve_country(payload.country_code)
+		country = resolve_country(payload.country_code)
 		address = frappe.get_doc(
 			{
 				"doctype": "Address",
@@ -233,15 +234,6 @@ class CartAddresses:
 		address.insert()
 		return address.name
 
-	@staticmethod
-	def resolve_country(country_code: str) -> str:
-		"""Resolve a Medusa (lowercase ISO alpha-2) country code to ERPNext Country."""
-		code = country_code.strip().upper()
-		country = frappe.db.get_value("Country", {"code": code}, "name")
-		if not country:
-			raise InvalidDataError(f"Unknown address country code: {country_code.lower()}")
-		return country
-
 	def _link_existing(self, reference: "Document", quotation: "Document", address_id: str) -> str:
 		try:
 			address = frappe.get_doc("Address", address_id)
@@ -250,23 +242,6 @@ class CartAddresses:
 		if not self.belongs_to_party(address.name, quotation.name, reference.owner_customer):
 			raise InvalidDataError("Address does not belong to this cart")
 		return address.name
-
-	@staticmethod
-	def is_customer_address(address_name: str, customer: str | None) -> bool:
-		"""Return whether ``address_name`` is linked to ``customer``."""
-		if not customer:
-			return False
-		return bool(
-			frappe.db.exists(
-				"Dynamic Link",
-				{
-					"parenttype": "Address",
-					"parent": address_name,
-					"link_doctype": "Customer",
-					"link_name": customer,
-				},
-			)
-		)
 
 	@staticmethod
 	def belongs_to_party(address_name: str, quotation_name: str, owner_customer: str | None) -> bool:
@@ -351,8 +326,3 @@ def render_address(
 def _country_code(country: str) -> str | None:
 	"""Return the ISO alpha-2 code of a Country master, if it carries one."""
 	return frappe.db.get_value("Country", country, "code")
-
-
-def serialize_address(address_name: str | None) -> StoreCartAddress | None:
-	"""Serialize a linked ERPNext Address into a Medusa ``StoreCartAddress``."""
-	return render_address(load_address(address_name))

@@ -7,13 +7,18 @@ cart through the service on the test site inside a single rolled-back
 transaction, then assert on the ``OrderSerializer`` output: the pinned
 ``StoreOrder`` JSON derived from the ERPNext Sales Order, the cart
 reference and the consumed credit holds — with the same carve-out
-arithmetic and summary identity the cart serializer pins.
+arithmetic and summary identity the cart serializer pins. The customer
+cases pin the nullable embedded ``StoreCustomer``: a reference-backed
+claimed owner, a reference-less claimed owner (ERPNext ``customer_id``
+only), a guest null and the replay equality.
 """
 
 import frappe
 from frappe.utils import flt
 
+from ceto.ceto.doctype.ceto_customer_reference.ceto_customer_reference import mint_customer_id
 from ceto.routing.exceptions import InternalServerError
+from ceto.services.carts.claim import CartClaim
 from ceto.services.carts.completion import CartCompletion
 from ceto.services.carts.quotation import CartService
 from ceto.services.orders.serialization import OrderSerializer
@@ -45,6 +50,7 @@ class TestOrderSerialization(CetoTestSuite):
 		frappe.set_user("Administrator")
 		self.masters = CartTestData()
 		self.carts = CartService()
+		self.claims = CartClaim()
 		self.completion = CartCompletion()
 		self.serializer = OrderSerializer()
 		# Frappe throttles user creation per hour; the store-credit case
@@ -78,13 +84,31 @@ class TestOrderSerialization(CetoTestSuite):
 			)
 			return self.carts.retrieve(reference.cart_id)
 
-	def _completed_cart(self, reference) -> tuple:
+	def _completed_cart(self, reference, *, user: str = "Guest") -> tuple:
 		"""Complete the cart through the service; return its records."""
-		with self.set_conf(ceto_cart=self.masters.configuration), self.set_user("Guest"):
+		with self.set_conf(ceto_cart=self.masters.configuration), self.set_user(user):
 			response = self.completion.complete(reference.cart_id, StoreCompleteCart())
 		order_reference = frappe.get_doc("Ceto Order Reference", response.order.id)
 		sales_order = frappe.get_doc("Sales Order", order_reference.sales_order)
 		return order_reference, sales_order
+
+	def _customer_reference(self, email: str, customer: str):
+		"""Book the public ``cus_…`` identity for a cart owner's chain."""
+		return frappe.get_doc(
+			{
+				"doctype": "Ceto Customer Reference",
+				"customer_id": mint_customer_id(),
+				"customer": customer,
+				"user": email,
+			}
+		).insert(ignore_permissions=True)
+
+	def _claimed_cart(self, email: str) -> tuple:
+		"""Claim the checkout-ready guest cart for ``email``'s Customer."""
+		reference, _quotation = self._cart()
+		with self.set_conf(ceto_cart=self.masters.configuration), self.set_user(email):
+			claimed, _quotation = self.claims.claim(reference.cart_id)
+		return claimed
 
 	def test_serializes_the_placed_order_from_its_records(self) -> None:
 		reference, _quotation = self._cart()
@@ -218,3 +242,67 @@ class TestOrderSerialization(CetoTestSuite):
 			),
 			2,
 		)
+
+	def test_a_guest_order_reports_no_customer(self) -> None:
+		reference, _quotation = self._cart()
+		order_reference, sales_order = self._completed_cart(reference)
+
+		order = self.serializer.serialize(order_reference, sales_order, reference)
+
+		# A guest owns no contract-safe customer identity: the embedded
+		# column stays null instead of inventing one (the pinned StoreOrder
+		# carries the customer as a nullable relation), and customer_id
+		# keeps its historical guest null.
+		self.assertIsNone(order["customer"])
+		self.assertIsNone(order["customer_id"])
+
+	def test_a_claimed_order_embeds_the_reference_backed_customer(self) -> None:
+		email, customer = make_customer_with_user("order-customer")
+		customer_reference = self._customer_reference(email, customer)
+		cart_reference = self._claimed_cart(email)
+		order_reference, sales_order = self._completed_cart(cart_reference, user=email)
+
+		order = self.serializer.serialize(order_reference, sales_order, cart_reference)
+
+		# The embedded customer is the customers contract's pinned identity:
+		# the stable cus_… id, the identity email and the address book the
+		# claim copied onto the Customer — the exact StoreCustomer the
+		# customers serializer builds, never a re-derived one.
+		self.assertEqual(order["customer"]["id"], customer_reference.name)
+		self.assertEqual(order["customer"]["email"], email)
+		self.assertEqual(len(order["customer"]["addresses"]), 1)
+		self.assertEqual(order["customer"]["addresses"][0]["city"], "Bangkok")
+		# The recorded compatibility deviation: customer_id keeps the
+		# historical ERPNext Customer-name mapping beside the embedded
+		# cus_… id (the two deliberately disagree).
+		self.assertEqual(order["customer_id"], customer)
+		self.assertNotEqual(order["customer_id"], order["customer"]["id"])
+
+	def test_a_reference_less_claimed_order_keeps_only_the_erpnext_customer_id(self) -> None:
+		# A pre-existing ERPNext account linked outside Ceto can claim and
+		# complete a cart (the claim resolves the identity chain alone), but
+		# it owns no public cus_… identity: the order embeds no customer
+		# instead of inventing one, while customer_id keeps the ERPNext
+		# Customer name the carts surface has always reported.
+		email, customer = make_customer_with_user("order-no-reference")
+		cart_reference = self._claimed_cart(email)
+		order_reference, sales_order = self._completed_cart(cart_reference, user=email)
+
+		order = self.serializer.serialize(order_reference, sales_order, cart_reference)
+
+		self.assertIsNone(order["customer"])
+		self.assertEqual(order["customer_id"], customer)
+
+	def test_the_replayed_completion_serializes_the_same_customer(self) -> None:
+		email, customer = make_customer_with_user("order-replay")
+		self._customer_reference(email, customer)
+		cart_reference = self._claimed_cart(email)
+		with self.set_conf(ceto_cart=self.masters.configuration), self.set_user(email):
+			first = self.completion.complete(cart_reference.cart_id, StoreCompleteCart())
+			replayed = self.completion.complete(cart_reference.cart_id, StoreCompleteCart())
+
+		# The replay re-serializes the same placed order from the same
+		# records: the embedded customer is equal, not re-derived.
+		self.assertEqual(first.order.id, replayed.order.id)
+		self.assertEqual(first.order.customer, replayed.order.customer)
+		self.assertEqual(replayed.order.customer.id, first.order.customer.id)

@@ -27,6 +27,7 @@ from werkzeug.test import EnvironBuilder
 from werkzeug.wrappers import Request
 
 import ceto.api.routes
+from ceto.ceto.doctype.ceto_customer_reference.ceto_customer_reference import mint_customer_id
 from ceto.routing import ceto_router
 from ceto.tests.data.cart_test_data import CartTestData, make_customer_with_user
 from ceto.tests.utils import CetoTestSuite
@@ -132,6 +133,9 @@ class TestCartCompletionAPI(CetoTestSuite):
 		order = body["order"]
 		self.assertRegex(order["id"], ORDER_ID)
 		self.assertEqual(order["email"], "guest@example.com")
+		# A guest owns no contract-safe customer identity: the embedded
+		# customer serializes as null.
+		self.assertIsNone(order["customer"])
 		self.assertNotIn("locale", order)
 		self.assertEqual(len(order["items"]), 1)
 		self.assertEqual(order["status"], "pending")
@@ -170,6 +174,42 @@ class TestCartCompletionAPI(CetoTestSuite):
 		self.assertEqual(second.status_code, 200)
 		self.assertEqual(second.get_json()["type"], "order")
 		self.assertEqual(second.get_json()["order"]["id"], first.get_json()["order"]["id"])
+		self.assertEqual(frappe.db.count("Ceto Order Reference", {"cart_id": cart_id}), 1)
+
+	def test_a_claimed_order_embeds_the_owner_customer_and_replays_it(self) -> None:
+		email, customer = make_customer_with_user("api-order-customer")
+		reference = frappe.get_doc(
+			{
+				"doctype": "Ceto Customer Reference",
+				"customer_id": mint_customer_id(),
+				"customer": customer,
+				"user": email,
+			}
+		).insert(ignore_permissions=True)
+		cart_id = self._prepared_cart()
+		with self.set_conf(ceto_cart=self.configuration), self.set_user(email):
+			claimed = self._dispatch("POST", f"/ceto/store/carts/{cart_id}/customer")
+			self.assertEqual(claimed.status_code, 200)
+
+			completed = self._complete(cart_id)
+
+		self.assertEqual(completed.status_code, 200)
+		order = completed.get_json()["order"]
+		# The embedded customer is the customers contract's pinned identity:
+		# the stable cus_… id behind the claiming session's identity chain.
+		self.assertEqual(order["customer"]["id"], reference.name)
+		self.assertEqual(order["customer"]["email"], email)
+		# The recorded compatibility deviation: customer_id keeps the ERPNext
+		# Customer name the carts surface has always reported, deliberately
+		# beside the embedded cus_… id.
+		self.assertEqual(order["customer_id"], customer)
+		self.assertNotEqual(order["customer_id"], order["customer"]["id"])
+
+		# The replay re-serializes the same embedded customer.
+		with self.set_conf(ceto_cart=self.configuration), self.set_user(email):
+			replayed = self._complete(cart_id)
+		self.assertEqual(replayed.status_code, 200)
+		self.assertEqual(replayed.get_json()["order"]["customer"], order["customer"])
 		self.assertEqual(frappe.db.count("Ceto Order Reference", {"cart_id": cart_id}), 1)
 
 	def test_completed_fixture_leaves_no_address_for_addressless_carts(self) -> None:

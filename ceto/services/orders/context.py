@@ -5,7 +5,8 @@ retrieval surface serves, but a page must not pay the retrieval path's
 per-order reads: every lookup ``OrderSerializer`` makes per order — the
 completed cart's reference, the Sales Order with its item and tax rows,
 the line mappings, the addresses and their countries, the consumed credit
-holds with their wallets and the applied shipping rule — is loaded once
+holds with their wallets, the applied shipping rule and the owner's
+embedded customer identity — is loaded once
 for the whole page, so the query count stays constant as the page grows.
 
 The documents are stitched from the bulk rows through the Frappe document
@@ -25,11 +26,14 @@ import frappe
 from ceto.services.carts.addresses import render_address
 from ceto.services.carts.credits import AppliedCredit, CartCredits
 from ceto.services.carts.shipping import RULE_FIELDS, AppliedShippingCharge, CartShipping
+from ceto.services.customers.identity import find_customer_reference
+from ceto.services.customers.serialization import CustomerSerializer
 
 if TYPE_CHECKING:
 	from frappe.model.document import Document
 
 	from ceto.types.http.store.carts.entities import StoreCartAddress
+	from ceto.types.http.store.customers.entities import StoreCustomer
 
 #: The Sales Order child tables the order read model reads: the mapped
 #: item rows, the tax rows (shipping charge + credit deductions) and the
@@ -68,6 +72,7 @@ class OrderPageContext:
 			"Address", self._address_names(self._sales_orders.values()), tables=("links",)
 		)
 		self._countries = self._country_codes(self._addresses.values())
+		self._customers: "dict[str, StoreCustomer | None]" = {}
 
 	def order(self, name: str) -> "Document | None":
 		"""Return the page's order reference document by document name."""
@@ -94,6 +99,22 @@ class OrderPageContext:
 	def address(self, address_name: str | None) -> "StoreCartAddress | None":
 		"""Serialize a linked Address, documents and countries preloaded."""
 		return render_address(self._addresses.get(address_name), countries=self._countries)
+
+	def customer(self, owner_user: str | None) -> "StoreCustomer | None":
+		"""Serialize the page's owner as the embedded customer, once per user.
+
+		A page carries one customer's orders, so the strict identity
+		resolution and its serialization are paid on the first order that
+		asks and memoized for the rest: the served representation is
+		exactly what the retrieval path's ``_customer`` resolves, without
+		repeating its reads per order.
+		"""
+		if not owner_user:
+			return None
+		if owner_user not in self._customers:
+			found = find_customer_reference(owner_user)
+			self._customers[owner_user] = CustomerSerializer.serialize(*found) if found is not None else None
+		return self._customers[owner_user]
 
 	def line_references(self, cart_reference: str) -> "list[dict]":
 		"""The cart's line item reference rows, in stored order."""

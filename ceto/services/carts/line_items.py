@@ -7,15 +7,15 @@ metadata persistence. All rates, discounts and taxes are produced by ERPNext
 controllers; nothing in this module derives totals.
 """
 
-import json
 import secrets
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import frappe
 from frappe.utils import flt
 
 from ceto.routing.exceptions import RouteNotFoundError
 from ceto.services.carts.variants import resolve_item_code
+from ceto.services.common import dump_metadata, merged_metadata
 from ceto.types.http.store.carts import StoreAddCartLineItem, StoreUpdateCartLineItem
 
 if TYPE_CHECKING:
@@ -183,21 +183,3 @@ class CartLineItems:
 			if row.name == quotation_item:
 				return row
 		raise RouteNotFoundError(LINE_NOT_FOUND)
-
-
-def dump_metadata(metadata: dict[str, Any] | None) -> str | None:
-	"""Serialize metadata for storage on a reference record."""
-	return json.dumps(metadata, separators=(",", ":"), sort_keys=True) if metadata else None
-
-
-def merged_metadata(current: str | None, update: dict[str, Any] | None) -> str | None:
-	"""Merge cart/line metadata: null values remove keys, ``None`` clears all."""
-	if update is None:
-		return None
-	metadata = json.loads(current) if current else {}
-	for key, value in update.items():
-		if value is None:
-			metadata.pop(key, None)
-		else:
-			metadata[key] = value
-	return dump_metadata(metadata)

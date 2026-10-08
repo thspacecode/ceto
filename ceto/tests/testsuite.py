@@ -113,10 +113,12 @@ class CetoTestSuite(unittest.TestCase):
 		user.email = email
 		user.first_name = "Ceto Test"
 		user.send_welcome_email = 0
+		user.enabled = 1
 		user.flags.no_welcome_mail = True
 		for role in roles or []:
 			user.append("roles", {"role": role})
-		user.insert(ignore_permissions=True)
+		with bypass_user_creation_throttle():
+			user.insert(ignore_permissions=True)
 
 		with self.set_user(email):
 			yield email
@@ -151,3 +153,29 @@ def change_settings(
 		for key, value in previous_settings.items():
 			document.set(key, value)
 		document.save(ignore_permissions=True)
+
+
+@CetoTestSuite.registerAs(staticmethod)
+@contextmanager
+def bypass_user_creation_throttle() -> Iterator[None]:
+	"""Scope fixture User inserts to Frappe's official user-creation throttle bypass.
+
+	``User.before_insert`` throttles any site creating more than
+	``throttle_user_limit`` (default 60) users per hour, and a full Ceto run
+	mints more throwaway users than that within the hour.
+	``throttle_user_creation`` honours ``frappe.flags.in_import`` — the escape
+	hatch Frappe's data import uses — so each fixture insert takes it here and
+	always restores it: production behaviour stays untouched and inserts made
+	by the code under test remain throttled.
+
+	The scope carries data-import semantics: defaults are not merged into the
+	document during the bypassed insert (``User.enabled`` would default to 0).
+	Fixtures therefore state the fields they depend on, exactly like the
+	committed bootstrap does with its owned ``enabled`` fields.
+	"""
+	previous = frappe.flags.get("in_import")
+	try:
+		frappe.flags.in_import = True
+		yield
+	finally:
+		frappe.flags.in_import = previous

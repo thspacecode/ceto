@@ -405,15 +405,18 @@ class TestCartStoreCreditAPI(LoyaltyCartAPITestCase):
 
 	def test_user_without_customer_is_unauthorized(self) -> None:
 		email = f"ceto.api.nocontact.{self.masters.suffix}@example.com"
-		frappe.get_doc(
+		user = frappe.get_doc(
 			{
 				"doctype": "User",
 				"email": email,
 				"first_name": "Api No Contact",
 				"user_type": "Website User",
+				"enabled": 1,
 				"send_welcome_email": 0,
 			}
-		).insert(ignore_permissions=True)
+		)
+		with self.bypass_user_creation_throttle():
+			user.insert(ignore_permissions=True)
 		with self.set_conf(ceto_cart=self.configuration), self.set_user(email):
 			cart_id = self._commit_cart()
 			response = self._apply(cart_id, {})

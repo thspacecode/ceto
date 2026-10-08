@@ -55,8 +55,12 @@ Read paths and the schema guarantees they ride:
 ## Status
 
 In progress on `feat/orders-phase-6`. Landed: Dependabot setup (pip + GitHub
-Actions), the repository security policy, and the persistence-index schema
-test (`ceto.tests.test_persistence_indexes`).
+Actions), the repository security policy, the persistence-index schema test
+(`ceto.tests.test_persistence_indexes`), and the user-creation throttle guard
+in `ceto.tests.services.carts.test_privileged_scope` — the module now lifts
+`throttle_user_limit` in memory and restores it like its sibling suites, so
+the full suite runs on an unmodified site without editing
+`site_config.json`.
 
 Blocked: the least-privilege CI token — the branch's push credential is a
 GitHub App installation without the `workflows` permission, so it may not

@@ -7,4 +7,5 @@ import ceto.api.auth.sessions
 import ceto.api.auth.tokens
 import ceto.api.auth.verification
 import ceto.api.store.carts
+import ceto.api.store.customers
 import ceto.api.store.orders

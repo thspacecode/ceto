@@ -330,15 +330,18 @@ class TestCartCustomerClaimAPI(CetoTestSuite):
 		# Unique per test: claimed carts commit, so parties created in earlier
 		# tests survive and must not collide.
 		email = f"ceto.api.claim.{label}.{uuid.uuid4().hex[:8]}@example.com"
-		frappe.get_doc(
+		user = frappe.get_doc(
 			{
 				"doctype": "User",
 				"email": email,
 				"first_name": f"Api {label}",
 				"user_type": "Website User",
+				"enabled": 1,
 				"send_welcome_email": 0,
 			}
-		).insert(ignore_permissions=True)
+		)
+		with self.bypass_user_creation_throttle():
+			user.insert(ignore_permissions=True)
 		customer = frappe.get_doc(
 			{
 				"doctype": "Customer",

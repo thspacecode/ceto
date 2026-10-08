@@ -12,6 +12,7 @@ from ceto.services.auth.tokens import decode_customer_token
 from ceto.tests.data.bootstrap_test_master_data import TEST_CUSTOMER, TEST_CUSTOMER_PASSWORD
 from ceto.tests.utils import CetoTestSuite
 from ceto.types.http.store.carts.manifest import CART_ROUTES
+from ceto.types.http.store.customers.manifest import CUSTOMER_ROUTES
 from ceto.types.http.store.orders.manifest import ORDER_ROUTES
 
 
@@ -34,6 +35,15 @@ class TestRouter(CetoTestSuite):
 				"POST",
 				"/ceto/auth/customer/{auth_provider}/callback",
 				{"auth_provider": "google"},
+			),
+			("/ceto/store/customers", "POST", "/ceto/store/customers", {}),
+			("/ceto/store/customers/me", "GET", "/ceto/store/customers/me", {}),
+			("/ceto/store/customers/me/addresses", "GET", "/ceto/store/customers/me/addresses", {}),
+			(
+				"/ceto/store/customers/me/addresses/addr_012a",
+				"DELETE",
+				"/ceto/store/customers/me/addresses/{address_id}",
+				{"address_id": "addr_012a"},
 			),
 			(
 				"/ceto/store/orders/order_0123456789abcdef0123456789abcdef",
@@ -147,6 +157,33 @@ class TestRouter(CetoTestSuite):
 		}
 		pinned = {(route.method, f"/ceto{route.path}") for route in CART_ROUTES}
 		self.assertEqual(registered, pinned)
+
+	def test_implemented_customer_routes_match_the_phase_3_subset(self):
+		"""The registered customer surface is exactly the implemented manifest slice.
+
+		Phase 3 registers the address-book routes (manifest routes 1-8), so
+		the implemented slice now equals the full ``CUSTOMER_ROUTES``
+		surface, exactly like the carts check above: route drift in either
+		direction fails loudly.
+		"""
+		registered = {
+			(route.method, route.path) for route in ceto_router.routes if "/store/customers" in route.path
+		}
+		implemented = {(route.method, f"/ceto{route.path}") for route in CUSTOMER_ROUTES[:8]}
+		self.assertEqual(
+			implemented,
+			{
+				("POST", "/ceto/store/customers"),
+				("GET", "/ceto/store/customers/me"),
+				("POST", "/ceto/store/customers/me"),
+				("GET", "/ceto/store/customers/me/addresses"),
+				("POST", "/ceto/store/customers/me/addresses"),
+				("GET", "/ceto/store/customers/me/addresses/{address_id}"),
+				("POST", "/ceto/store/customers/me/addresses/{address_id}"),
+				("DELETE", "/ceto/store/customers/me/addresses/{address_id}"),
+			},
+		)
+		self.assertEqual(registered, implemented)
 
 	def test_implemented_order_routes_match_the_phase_2_slice(self):
 		"""The registered order surface is exactly the implemented manifest slice.

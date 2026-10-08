@@ -30,7 +30,7 @@ from ceto.services.carts.addresses import CartAddresses
 from ceto.services.carts.credits import CartCredits
 from ceto.services.carts.customers import CartCustomers
 from ceto.services.carts.line_items import CartLineItems
-from ceto.services.carts.quotation import privileged_scope
+from ceto.services.common import privileged_scope
 
 if TYPE_CHECKING:
 	from frappe.model.document import Document

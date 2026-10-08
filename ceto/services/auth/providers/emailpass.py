@@ -8,6 +8,7 @@ from frappe.utils import cint
 from frappe.utils.password import delete_login_failed_cache, update_password
 
 from ceto.services.auth.providers.base import AuthenticationResult, CustomerAuthProvider, validate_input
+from ceto.services.auth.registration import create_registration_identity
 from ceto.services.auth.tokens import (
 	create_customer_password_reset_token,
 	create_customer_registration_token,
@@ -59,10 +60,18 @@ class EmailPasswordProvider(CustomerAuthProvider):
 		"""Validate registration credentials and return a single-purpose registration token."""
 		data = validate_input(EmailPasswordInput, credentials)
 		email = str(data.email).lower()
+		password = data.password.get_secret_value()
 
 		if frappe.db.exists("User", email):
-			frappe.throw(f"Customer {email} is already registered", frappe.DuplicateEntryError)
-		_validate_password_policy(email, data.password.get_secret_value())
+			_raise_duplicate_registration(email)
+		_validate_password_policy(email, password)
+
+		try:
+			create_registration_identity(email, password)
+		except frappe.DuplicateEntryError:
+			# A concurrent registration inserted the identity after the
+			# pre-check above; converge on the identical duplicate error.
+			_raise_duplicate_registration(email)
 
 		return AuthenticationResult(token=create_customer_registration_token(email, self.identifier))
 
@@ -104,6 +113,10 @@ class EmailPasswordProvider(CustomerAuthProvider):
 		frappe.db.set_value("User", user, "reset_password_key", "")
 		delete_login_failed_cache(user)
 		return True
+
+
+def _raise_duplicate_registration(email: str) -> None:
+	frappe.throw(f"Customer {email} is already registered", frappe.DuplicateEntryError)
 
 
 def _validate_password_policy(email: str, password: str) -> None:

@@ -13,6 +13,7 @@ from ceto.tests.data.bootstrap_test_master_data import TEST_CUSTOMER, TEST_CUSTO
 from ceto.tests.utils import CetoTestSuite
 from ceto.types.http.store.carts.manifest import CART_ROUTES
 from ceto.types.http.store.customers.manifest import CUSTOMER_ROUTES
+from ceto.types.http.store.orders.manifest import ORDER_ROUTES
 
 
 def overridden_products() -> dict[str, str]:
@@ -43,6 +44,12 @@ class TestRouter(CetoTestSuite):
 				"DELETE",
 				"/ceto/store/customers/me/addresses/{address_id}",
 				{"address_id": "addr_012a"},
+			),
+			(
+				"/ceto/store/orders/order_0123456789abcdef0123456789abcdef",
+				"GET",
+				"/ceto/store/orders/{id}",
+				{"id": "order_0123456789abcdef0123456789abcdef"},
 			),
 		):
 			with self.subTest(path=path):
@@ -177,6 +184,25 @@ class TestRouter(CetoTestSuite):
 			},
 		)
 		self.assertEqual(registered, implemented)
+
+	def test_implemented_order_routes_match_the_phase_5_slice(self):
+		"""The registered order surface is exactly the pinned manifest surface.
+
+		Phase 5 completes the surface — every pinned manifest route must be
+		wired into ``ceto_router`` (with its prefix), like the carts check
+		above: retrieval guest-dispatchable per its pinned ``publishable-key``
+		auth, listing and the transfer request/cancel pair
+		customer-authenticated, and the token-authorized accept/decline pair
+		guest-dispatchable (the single-use token authorizes, no customer
+		authentication middleware).
+		"""
+		registered = [
+			(route.method, route.path) for route in ceto_router.routes if "/store/orders" in route.path
+		]
+		implemented = {(route.method, f"/ceto{route.path}") for route in ORDER_ROUTES}
+		# The registry is a list: the pinned surface is wired exactly once.
+		self.assertEqual(len(registered), len(ORDER_ROUTES))
+		self.assertEqual(set(registered), implemented)
 
 	def test_route_override_uses_external_route_key(self):
 		router = Router(prefix="/ceto")

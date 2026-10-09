@@ -291,25 +291,45 @@ class CartCredits:
 		return cls._credits(quotation_name, "Reserved")
 
 	@classmethod
-	def consumed_credits(cls, quotation_name: str) -> list[AppliedCredit]:
+	def consumed_credits(
+		cls,
+		quotation_name: str,
+		*,
+		holds: "list[dict] | None" = None,
+		wallets: "dict[str, Document | dict] | None" = None,
+	) -> list[AppliedCredit]:
 		"""Return the holds completion consumed on the cart, oldest first.
 
 		Order-credit read for the placed order's serialization: the holds
 		are keyed on the completed cart's Quotation (the payable they were
 		booked against), and only ``Consumed`` ones count — released holds
 		never became money and stay out of the order's credit totals.
+		``holds`` / ``wallets`` are preloaded rows for bulk readers; a
+		wallet missing from the map is still looked up, as on the single
+		order path.
 		"""
-		return cls._credits(quotation_name, "Consumed")
+		return cls._credits(quotation_name, "Consumed", holds=holds, wallets=wallets)
 
 	@classmethod
-	def _credits(cls, quotation_name: str, status: str) -> list[AppliedCredit]:
-		rows = frappe.get_all(
-			"Ceto Cart Credit Reservation",
-			filters={"quotation": quotation_name, "status": status},
-			fields=["credit_line_id", "wallet", "amount", "creation", "modified"],
-			order_by="creation asc, name asc",
+	def _credits(
+		cls,
+		quotation_name: str,
+		status: str,
+		*,
+		holds: "list[dict] | None" = None,
+		wallets: "dict[str, Document | dict] | None" = None,
+	) -> list[AppliedCredit]:
+		rows: list[dict] = (
+			holds
+			if holds is not None
+			else frappe.get_all(
+				"Ceto Cart Credit Reservation",
+				filters={"quotation": quotation_name, "status": status},
+				fields=["credit_line_id", "wallet", "amount", "creation", "modified"],
+				order_by="creation asc, name asc",
+			)
 		)
-		wallets: dict[str, dict] = {}
+		wallets = dict(wallets) if wallets is not None else {}
 		credits = []
 		for row in rows:
 			wallet = wallets.get(row.wallet)

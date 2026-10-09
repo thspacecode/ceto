@@ -10,7 +10,7 @@ dynamic = ["version"]
 dependencies = [
     "email-validator>=2.3,<3",
     "pydantic>=2.12,<3",
-    "PyJWT>=2.10,<3",
+    "PyJWT>=2.15.0,<3",
     # "frappe~=16.0.0" # Installed and managed by bench.
 ]
 

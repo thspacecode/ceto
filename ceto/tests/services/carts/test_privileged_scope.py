@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import frappe
 
 from ceto.services.carts.quotation import CartService
@@ -15,6 +17,17 @@ class TestPrivilegedScope(CetoTestSuite):
 	def setUp(self) -> None:
 		frappe.set_user("Administrator")
 		self.masters = CartTestData()
+		# Frappe throttles user creation per hour; the exception case creates
+		# its own user, so lift it in memory like the sibling suites.
+		self._previous_throttle = frappe.local.conf.get("throttle_user_limit")
+		frappe.local.conf["throttle_user_limit"] = 100000
+
+	def tearDown(self) -> None:
+		if self._previous_throttle is None:
+			frappe.local.conf.pop("throttle_user_limit", None)
+		else:
+			frappe.local.conf["throttle_user_limit"] = self._previous_throttle
+		super().tearDown()
 
 	def test_scope_assumes_administrator_inside_and_restores_on_success(self) -> None:
 		with self.set_user("Guest"):
@@ -87,3 +100,10 @@ class TestPrivilegedScope(CetoTestSuite):
 			quotation = frappe.get_doc("Quotation", quotation.name)
 			with self.assertRaises(frappe.PermissionError):
 				quotation.save()
+
+	def test_user_creation_survives_a_site_above_the_default_throttle(self) -> None:
+		# Late in the full suite on an unmodified site the shared
+		# creation count already rides above the default limit.
+		with patch.object(frappe.db, "get_creation_count", return_value=1000):
+			with self.set_create_user() as email:
+				self.assertTrue(frappe.db.exists("User", email))

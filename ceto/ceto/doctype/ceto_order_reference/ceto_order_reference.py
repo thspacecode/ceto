@@ -14,6 +14,23 @@ class CetoOrderReference(Document):
 	Quotation has left the draft state every cart route requires — so the
 	replay lookup by ``cart_id`` is the only way back to the order.
 
+	``owner_customer`` snapshots the effective owner (the Medusa
+	``customer_id``) at completion time: the completing transaction books it
+	from the cart's ownership, so the order's owner is fixed at birth and
+	stays independent of the immutable cart history afterwards. Guest orders
+	carry no owner. References completed before the column existed resolve
+	their effective owner from the completed cart instead (one-time
+	selection: :mod:`ceto.services.orders.ownership` and the backfill
+	patch); the Sales Order's own customer links are never ownership
+	evidence.
+
+	``email`` is the optional transfer-updated address: an accepted
+	ownership transfer with ``update_order_email`` records the requesting
+	customer's email here and the serializer serves it over the Sales
+	Order's ``contact_email``, so the ERPNext document keeps its birth
+	contact lineage (orders field-mapping Recorded Decision 12).
+	Completion-born rows carry none and keep serving the Sales Order.
+
 	Validate pins the record to a *real* completion: the referenced Sales
 	Order must be submitted and must descend from the cart's Quotation
 	(every mapped row points back at it), and the cart must actually have
@@ -23,6 +40,12 @@ class CetoOrderReference(Document):
 	def validate(self) -> None:
 		quotation = self._validate_completed_cart()
 		self._validate_sales_order(quotation)
+		self._validate_email()
+
+	def _validate_email(self) -> None:
+		"""The transfer email is an address, never free text with padding."""
+		if self.email is not None:
+			self.email = self.email.strip() or None
 
 	def _validate_completed_cart(self) -> str:
 		"""Require a cart that actually completed; return its Quotation.

@@ -30,6 +30,7 @@ import frappe
 
 from ceto.routing.exceptions import InvalidDataError
 from ceto.services.addresses import is_customer_address, resolve_country
+from ceto.types.http.store.carts.entities import StoreCartAddress
 
 if TYPE_CHECKING:
 	from frappe.model.document import Document
@@ -276,3 +277,52 @@ class CartAddresses:
 		)
 		if linked:
 			frappe.delete_doc("Address", previous, ignore_permissions=True)
+
+
+def load_address(address_name: str | None) -> "Document | None":
+	"""Load one linked ERPNext Address, or ``None`` when missing."""
+	if not address_name:
+		return None
+	try:
+		return frappe.get_doc("Address", address_name)
+	except frappe.DoesNotExistError:
+		return None
+
+
+def render_address(
+	address: "Document | None", countries: dict[str, str] | None = None
+) -> StoreCartAddress | None:
+	"""Serialize a loaded ERPNext Address into a Medusa ``StoreCartAddress``.
+
+	``countries`` maps preloaded Country names to their codes; a lookup is
+	made per address when omitted. A missing country resolves the same as a
+	missing row: no ``country_code``.
+	"""
+	if address is None:
+		return None
+	customer = next((link.link_name for link in address.links if link.link_doctype == "Customer"), None)
+	if not address.country:
+		country_code = None
+	else:
+		country_code = (
+			countries.get(address.country) if countries is not None else _country_code(address.country)
+		)
+	return StoreCartAddress(
+		id=address.name,
+		customer_id=customer,
+		first_name=None,
+		last_name=None,
+		company=None,
+		phone=address.phone or None,
+		address_1=address.address_line1 or None,
+		address_2=address.address_line2 or None,
+		city=address.city or None,
+		province=address.state or None,
+		postal_code=address.pincode or None,
+		country_code=country_code.lower() if country_code else None,
+	)
+
+
+def _country_code(country: str) -> str | None:
+	"""Return the ISO alpha-2 code of a Country master, if it carries one."""
+	return frappe.db.get_value("Country", country, "code")

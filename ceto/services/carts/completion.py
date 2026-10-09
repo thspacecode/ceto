@@ -324,6 +324,10 @@ class CartCompletion:
 					"order_id": new_order_id(),
 					"sales_order": sales_order.name,
 					"cart_id": reference.cart_id,
+					# The owner snapshot rides the same settle: the order's
+					# owner is fixed at birth, independent of the immutable
+					# cart history (orders Recorded Decision 2).
+					"owner_customer": reference.owner_customer or None,
 				}
 			).insert(ignore_permissions=True)
 			# The holds become money only once the order exists.

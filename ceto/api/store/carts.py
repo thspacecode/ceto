@@ -6,6 +6,7 @@ from ceto.services.carts.claim import CartClaim
 from ceto.services.carts.completion import CartCompletion
 from ceto.services.carts.quotation import CartService
 from ceto.services.carts.serialization import CartSerializer
+from ceto.services.serialization import select_fields
 from ceto.types.http.store.carts import (
 	StoreAddCartLineItem,
 	StoreAddCartShippingMethods,
@@ -213,5 +214,5 @@ def complete_cart(id: str, fields: str | None = None, **payload: Any) -> dict[st
 	completion = CartCompletion().complete(id, validated, guard=publishable_key.check_reference)
 	body = completion.model_dump(mode="json")
 	entity = "order" if completion.type == "order" else "cart"
-	body[entity] = CartSerializer.select_fields(body[entity], fields, entity=entity)
+	body[entity] = select_fields(body[entity], fields, entity=entity)
 	return body

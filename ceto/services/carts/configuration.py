@@ -1,8 +1,8 @@
 from dataclasses import dataclass
-from typing import Any
 
 import frappe
 
+from ceto.config.cart import cart_settings, mapped_settings
 from ceto.routing.exceptions import InvalidDataError
 
 
@@ -25,13 +25,13 @@ class CartConfiguration:
 		region_id: str | None = None,
 		sales_channel_id: str | None = None,
 	) -> "CartConfiguration":
-		settings = _as_dict(frappe.conf.get("ceto_cart"))
+		settings = cart_settings()
 		region_id = region_id or settings.get("default_region_id")
 		sales_channel_id = sales_channel_id or settings.get("default_sales_channel_id")
 
 		resolved = dict(settings)
-		resolved.update(_mapped_settings(settings, "regions", region_id, "region"))
-		resolved.update(_mapped_settings(settings, "sales_channels", sales_channel_id, "sales channel"))
+		resolved.update(mapped_settings(settings, "regions", region_id, "region"))
+		resolved.update(mapped_settings(settings, "sales_channels", sales_channel_id, "sales channel"))
 
 		guest_customer = _required(resolved, "guest_customer")
 		company = _required(resolved, "company")
@@ -53,23 +53,8 @@ class CartConfiguration:
 		)
 
 
-def _mapped_settings(
-	settings: dict[str, Any], mapping_name: str, key: str | None, label: str
-) -> dict[str, Any]:
-	mapping = _as_dict(settings.get(mapping_name))
-	if not mapping:
-		return {}
-	if not key or key not in mapping:
-		raise InvalidDataError(f"Unknown cart {label}: {key or '(not set)'}")
-	return _as_dict(mapping[key])
-
-
-def _required(settings: dict[str, Any], key: str) -> str:
+def _required(settings: dict, key: str) -> str:
 	value = settings.get(key)
 	if not value:
 		raise InvalidDataError(f"Missing ceto_cart.{key} configuration")
 	return str(value)
-
-
-def _as_dict(value: Any) -> dict[str, Any]:
-	return dict(value) if isinstance(value, dict) else {}

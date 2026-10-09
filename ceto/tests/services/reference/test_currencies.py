@@ -130,7 +130,15 @@ class TestCurrencyDirectory(CetoTestSuite):
 		}
 
 	def _make_currency(self, code: str, number_format: str) -> str:
+		fraction = 0.01 if "." in number_format else 0
 		if frappe.db.exists("Currency", code):
+			# A previous suite's fixture may have committed this shared code
+			# with different fields; converge before reading the projection.
+			frappe.db.set_value(
+				"Currency",
+				code,
+				{"number_format": number_format, "smallest_currency_fraction_value": fraction},
+			)
 			return code
 		frappe.get_doc(
 			{
@@ -139,7 +147,7 @@ class TestCurrencyDirectory(CetoTestSuite):
 				"currency_name": code,
 				"enabled": 1,
 				"symbol": "Ŧ",
-				"smallest_currency_fraction_value": 0.01 if "." in number_format else 0,
+				"smallest_currency_fraction_value": fraction,
 				"number_format": number_format,
 			}
 		).insert()

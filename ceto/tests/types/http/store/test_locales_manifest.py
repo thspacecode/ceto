@@ -23,9 +23,11 @@ class TestLocaleRouteManifest(unittest.TestCase):
 		self.assertEqual(route.response_type, "StoreLocaleListResponse")
 		self.assertEqual(route.sdk_method, "list")
 		self.assertEqual(route.auth, "publishable-key")
-		# The pinned route accepts no query parameters (sdk.store.locale.list
-		# takes headers only).
-		self.assertTrue(LOCALE_ROUTES)
+		# Upstream pins no query contract for the unpaged route (the manifest
+		# stays None, like the customers delete route); Ceto's strict-empty
+		# StoreLocaleListParams refuses every query key without being an
+		# HttpTypes name.
+		self.assertIsNone(route.query_type)
 
 	def test_pins_the_expected_sdk_surface(self):
 		self.assertEqual(set(LOCALE_SDK_METHODS), {"list"})

@@ -3,9 +3,10 @@
 Source of truth: <https://docs.medusajs.com/api/store/locales>.
 Compatibility layer: ``@medusajs/js-sdk@2.21.1``.
 
-Phase 1 slice A pins the contract only — no locale handler is implemented
-here and no route is registered on the router. The manifest is pure Python
-(no Frappe imports) so it can drive request validation codegen and be tested
+Phase 1 slice A pinned the contract; slice B registers the route on the
+router (``ceto.api.store.locales``) and serves it from
+``ceto.services.reference.locales``. The manifest is pure Python (no Frappe
+imports) so it can drive request validation codegen and be tested
 standalone.
 
 The route shape is pinned to the core ``HttpTypes`` of
@@ -18,6 +19,11 @@ deterministic default documented on the response model. That provisioning is
 Ceto-owned, and every response column the pinned type does not declare —
 exactly one, ``default_locale`` — is a **labeled Ceto extension**
 (``docs/reference-data/field-mapping.md``), not an ``HttpTypes`` member.
+
+``query_type`` stays ``None``: upstream pins no query contract for the
+unpaged route (like the customers delete route), and Ceto's strict-empty
+``StoreLocaleListParams`` refuses every query key without being an
+``HttpTypes`` name.
 """
 
 from dataclasses import dataclass
@@ -41,7 +47,11 @@ LOCALE_SDK_METHODS = ("list",)
 
 @dataclass(frozen=True, slots=True)
 class LocaleRoute:
-	"""One pinned Store Locale route contract."""
+	"""One pinned Store Locale route contract.
+
+	``query_type`` names the pinned ``HttpTypes`` query contract of the
+	route (``None`` — upstream pins no query for the unpaged locale route).
+	"""
 
 	method: str
 	path: str
@@ -49,6 +59,7 @@ class LocaleRoute:
 	response_type: str
 	auth: str
 	sdk_method: str | None
+	query_type: str | None = None
 
 
 LOCALE_ROUTES: tuple[LocaleRoute, ...] = (

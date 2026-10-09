@@ -9,6 +9,7 @@ from ceto.types.http.store.locales.manifest import (
 	LOCALE_TYPES_VERSION,
 	LocaleRoute,
 )
+from ceto.types.http.store.locales.queries import StoreLocaleListParams
 from ceto.types.http.store.locales.responses import StoreLocaleListResponse
 
 __all__ = [
@@ -21,5 +22,6 @@ __all__ = [
 	"LOCALE_TYPES_VERSION",
 	"LocaleRoute",
 	"StoreLocale",
+	"StoreLocaleListParams",
 	"StoreLocaleListResponse",
 ]

@@ -11,6 +11,10 @@ from ceto.types.http.store.currencies.manifest import (
 	CURRENCY_TYPES_VERSION,
 	CurrencyRoute,
 )
+from ceto.types.http.store.currencies.queries import (
+	StoreGetCurrencyListParams,
+	StoreGetCurrencyParams,
+)
 from ceto.types.http.store.currencies.responses import (
 	StoreCurrencyListResponse,
 	StoreCurrencyResponse,
@@ -30,4 +34,6 @@ __all__ = [
 	"StoreCurrency",
 	"StoreCurrencyListResponse",
 	"StoreCurrencyResponse",
+	"StoreGetCurrencyListParams",
+	"StoreGetCurrencyParams",
 ]

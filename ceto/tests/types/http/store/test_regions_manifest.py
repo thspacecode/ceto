@@ -19,10 +19,21 @@ EXPECTED_METHOD_PATHS = {
 }
 
 #: Route contracts verified against ``@medusajs/types@2.21.1`` (``http/region/store``)
-#: and the ``sdk.store.region`` method signatures.
+#: and the ``sdk.store.region`` method signatures; the trailing entry pins the
+#: query contract each route validates.
 EXPECTED_CONTRACTS = {
-	("GET", "/store/regions"): (None, "StoreRegionListResponse", "list"),
-	("GET", "/store/regions/{id}"): (None, "StoreRegionResponse", "retrieve"),
+	("GET", "/store/regions"): (
+		None,
+		"StoreRegionListResponse",
+		"list",
+		"StoreRegionFilters",
+	),
+	("GET", "/store/regions/{id}"): (
+		None,
+		"StoreRegionResponse",
+		"retrieve",
+		"StoreGetRegionParams",
+	),
 }
 
 
@@ -32,7 +43,7 @@ class TestRegionRouteManifest(unittest.TestCase):
 
 	def test_pins_the_expected_contracts(self):
 		for route in REGION_ROUTES:
-			contract = (route.request_type, route.response_type, route.sdk_method)
+			contract = (route.request_type, route.response_type, route.sdk_method, route.query_type)
 			self.assertEqual(contract, EXPECTED_CONTRACTS[(route.method, route.path)])
 			self.assertEqual(route.auth, "publishable-key")
 

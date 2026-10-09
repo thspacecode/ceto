@@ -3,15 +3,17 @@
 Source of truth: <https://docs.medusajs.com/api/store/regions>.
 Compatibility layer: ``@medusajs/js-sdk@2.21.1``.
 
-Phase 1 slice A pins the contract only — no region handler is implemented
-here and no route is registered on the router. The manifest is pure Python
-(no Frappe imports) so it can drive request validation codegen and be tested
+Phase 1 slice A pinned the contract; slice B registers every route on the
+router (``ceto.api.store.regions``) and serves it from
+``ceto.services.reference.regions``. The manifest is pure Python (no Frappe
+imports) so it can drive request validation codegen and be tested
 standalone.
 
-Request/response type names follow the official ``HttpTypes`` published in
-``@medusajs/types@2.21.1`` (``http/region/store``). Both list routes below
-are covered by a dedicated SDK method on ``sdk.store.region`` (verified
-against the published SDK sources), so no route needs a raw HTTP client.
+Request/response/query type names follow the official ``HttpTypes``
+published in ``@medusajs/types@2.21.1`` (``http/region/store``). Both list
+routes below are covered by a dedicated SDK method on ``sdk.store.region``
+(verified against the published SDK sources), so no route needs a raw HTTP
+client.
 
 The pinned 2.21.1 list validator defaults the page to ``offset: 0`` /
 ``limit: 20``; the list read model caps one page at
@@ -53,7 +55,11 @@ REGION_LIST_MAX_LIMIT = 100
 
 @dataclass(frozen=True, slots=True)
 class RegionRoute:
-	"""One pinned Medusa Store Region route contract."""
+	"""One pinned Medusa Store Region route contract.
+
+	``query_type`` names the pinned ``HttpTypes`` query contract of the
+	route; both region routes pin one.
+	"""
 
 	method: str
 	path: str
@@ -61,6 +67,7 @@ class RegionRoute:
 	response_type: str
 	auth: str
 	sdk_method: str | None
+	query_type: str | None = None
 
 
 REGION_ROUTES: tuple[RegionRoute, ...] = (
@@ -71,6 +78,7 @@ REGION_ROUTES: tuple[RegionRoute, ...] = (
 		response_type="StoreRegionListResponse",
 		auth="publishable-key",
 		sdk_method="list",
+		query_type="StoreRegionFilters",
 	),
 	RegionRoute(
 		method="GET",
@@ -79,5 +87,6 @@ REGION_ROUTES: tuple[RegionRoute, ...] = (
 		response_type="StoreRegionResponse",
 		auth="publishable-key",
 		sdk_method="retrieve",
+		query_type="StoreGetRegionParams",
 	),
 )

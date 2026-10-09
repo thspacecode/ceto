@@ -55,15 +55,16 @@ class CartPublishableKey:
 
 
 @dataclass(frozen=True)
-class CustomerPublishableKey:
-	"""Boundary-only publishable-key validation for the customer routes.
+class StorePublishableKey:
+	"""Boundary-only publishable-key validation for the scope-less Store routes.
 
-	Recorded decision 7 of ``docs/customers/field-mapping.md`` extends the
-	cart key policy: every customer route requires the
-	``x-publishable-api-key`` header, validated at the HTTP boundary against
-	the storefront key store and never persisted. Customers carry no
-	region/sales-channel scope, so unlike the cart key there is no per-record
-	scope to apply.
+	Every Store route requires the ``x-publishable-api-key`` header,
+	validated at the HTTP boundary against the storefront key store and
+	never persisted. Routes whose records carry no key-resolvable scope —
+	the reference-data reads (regions, currencies, locales) and the customer
+	routes — enforce exactly this boundary check: the key grants the
+	storefront surface and constrains nothing per record, unlike the cart
+	key's region / sales-channel scope.
 	"""
 
 	@classmethod
@@ -74,3 +75,16 @@ class CustomerPublishableKey:
 			if secrets.compare_digest(provided, str(key).encode()):
 				return cls()
 		raise UnauthorizedError("Invalid publishable API key")
+
+
+@dataclass(frozen=True)
+class CustomerPublishableKey(StorePublishableKey):
+	"""Boundary-only publishable-key validation for the customer routes.
+
+	Recorded decision 7 of ``docs/customers/field-mapping.md`` extends the
+	cart key policy: every customer route requires the
+	``x-publishable-api-key`` header, validated at the HTTP boundary against
+	the storefront key store and never persisted. Customers carry no
+	region/sales-channel scope, so unlike the cart key there is no per-record
+	scope to apply.
+	"""

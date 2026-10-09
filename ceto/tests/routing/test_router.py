@@ -12,8 +12,11 @@ from ceto.services.auth.tokens import decode_customer_token
 from ceto.tests.data.bootstrap_test_master_data import TEST_CUSTOMER, TEST_CUSTOMER_PASSWORD
 from ceto.tests.utils import CetoTestSuite
 from ceto.types.http.store.carts.manifest import CART_ROUTES
+from ceto.types.http.store.currencies.manifest import CURRENCY_ROUTES
 from ceto.types.http.store.customers.manifest import CUSTOMER_ROUTES
+from ceto.types.http.store.locales.manifest import LOCALE_ROUTES
 from ceto.types.http.store.orders.manifest import ORDER_ROUTES
+from ceto.types.http.store.regions.manifest import REGION_ROUTES
 
 
 def overridden_products() -> dict[str, str]:
@@ -203,6 +206,30 @@ class TestRouter(CetoTestSuite):
 		# The registry is a list: the pinned surface is wired exactly once.
 		self.assertEqual(len(registered), len(ORDER_ROUTES))
 		self.assertEqual(set(registered), implemented)
+
+	def test_implemented_reference_routes_match_the_phase_1_slice(self):
+		"""The registered reference-data surface is exactly the pinned surface.
+
+		Phase 1 slice B wires the five pinned reference-data routes into
+		``ceto_router`` (with its prefix), like the carts / customers /
+		orders checks above: route drift in either direction fails loudly.
+		Every reference read is guest-dispatchable — the publishable key is
+		the pinned auth, so no reference route may require a customer
+		session.
+		"""
+		segments = ("/store/regions", "/store/currencies", "/store/locales")
+		registered = {
+			(route.method, route.path)
+			for route in ceto_router.routes
+			if any(segment in route.path for segment in segments)
+		}
+		manifests = (REGION_ROUTES, CURRENCY_ROUTES, LOCALE_ROUTES)
+		pinned = {(route.method, f"/ceto{route.path}") for routes in manifests for route in routes}
+		self.assertEqual(registered, pinned)
+		by_key = {(route.method, route.path): route for route in ceto_router.routes}
+		for method, path in sorted(pinned):
+			with self.subTest(route=f"{method} {path}"):
+				self.assertTrue(by_key[(method, path)].allow_guest)
 
 	def test_route_override_uses_external_route_key(self):
 		router = Router(prefix="/ceto")

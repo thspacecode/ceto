@@ -12,6 +12,7 @@ from ceto.types.http.store.regions.manifest import (
 	REGION_TYPES_VERSION,
 	RegionRoute,
 )
+from ceto.types.http.store.regions.queries import StoreGetRegionParams, StoreRegionFilters
 from ceto.types.http.store.regions.responses import (
 	StoreRegionListResponse,
 	StoreRegionResponse,
@@ -29,8 +30,10 @@ __all__ = [
 	"REGION_TYPES_PACKAGE",
 	"REGION_TYPES_VERSION",
 	"RegionRoute",
+	"StoreGetRegionParams",
 	"StoreRegion",
 	"StoreRegionCountry",
+	"StoreRegionFilters",
 	"StoreRegionListResponse",
 	"StoreRegionResponse",
 ]

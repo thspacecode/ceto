@@ -19,10 +19,19 @@ EXPECTED_METHOD_PATHS = {
 
 #: Route contracts verified against ``@medusajs/types@2.21.1`` (``http/currency/store``).
 #: The pinned ``@medusajs/js-sdk@2.21.1`` ships no currency namespace at all,
-#: so both routes have ``sdk_method = None`` (raw HTTP client only).
+#: so both routes have ``sdk_method = None`` (raw HTTP client only); the
+#: trailing entry pins the query contract each route validates.
 EXPECTED_CONTRACTS = {
-	("GET", "/store/currencies"): (None, "StoreCurrencyListResponse"),
-	("GET", "/store/currencies/{code}"): (None, "StoreCurrencyResponse"),
+	("GET", "/store/currencies"): (
+		None,
+		"StoreCurrencyListResponse",
+		"StoreGetCurrencyListParams",
+	),
+	("GET", "/store/currencies/{code}"): (
+		None,
+		"StoreCurrencyResponse",
+		"StoreGetCurrencyParams",
+	),
 }
 
 
@@ -32,7 +41,7 @@ class TestCurrencyRouteManifest(unittest.TestCase):
 
 	def test_pins_the_expected_contracts(self):
 		for route in CURRENCY_ROUTES:
-			contract = (route.request_type, route.response_type)
+			contract = (route.request_type, route.response_type, route.query_type)
 			self.assertEqual(contract, EXPECTED_CONTRACTS[(route.method, route.path)])
 			self.assertEqual(route.auth, "publishable-key")
 

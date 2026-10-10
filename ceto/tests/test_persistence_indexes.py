@@ -45,3 +45,15 @@ class TestPersistenceIndexes(CetoTestSuite):
 			self.assertTrue(self._indexed(table, column, unique=True), column)
 		for column in ("owner_user", "owner_customer", "region_id", "sales_channel_id"):
 			self.assertTrue(self._indexed(table, column), column)
+
+	def test_collection_indexes(self) -> None:
+		"""The public id and the unique stored handle stay uniquely indexed."""
+		table = "tabCeto Collection"
+		for column in ("collection_id", "handle"):
+			self.assertTrue(self._indexed(table, column, unique=True), column)
+
+	def test_product_type_indexes(self) -> None:
+		"""The public id and the unique curated value stay uniquely indexed."""
+		table = "tabCeto Product Type"
+		for column in ("type_id", "value"):
+			self.assertTrue(self._indexed(table, column, unique=True), column)

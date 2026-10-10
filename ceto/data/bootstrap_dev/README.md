@@ -35,12 +35,36 @@ place; rerun the bootstrap after correcting the error.
 | Customer | `Ceto Guest` | `customer_name` field, not docname |
 | Price list | `Ceto Dev Selling` (selling, company currency) | Price List name |
 | Items | `DEV-*` catalog with Item Defaults row | Item `item_code` |
+| Item tags | `Dev New Arrival` / `Dev Summer` / `Dev Footwear` masters and their exact `Item` Tag Link rows (the tag-slice demo fixture) | Tag master name + Tag Link row; public tag ids are derived from the value at read time |
 | Item prices | Selling rates active from a fixed development date | price list + item + stock UOM + configured start date, no end date/parties/packing unit |
 | Sales taxes | `Ceto Dev Sales Taxes` template at 0% | title + company; only when exactly one leaf Tax account exists |
+| Catalog | `Dev Summer Drop` / `Dev Essentials` collections, `Dev Apparel` / `Dev Accessory` product types | collection handle; product type value; public ids are minted once at creation |
 
 Values live in `settings.py` (cross-seeder settings) and `dataset.py` (the
 fake catalog). Reports group every document under `created`, `updated`, or
 `skipped`, plus `notes` for context such as skipped prerequisites.
+
+The demo `Dev *` Item Group tree doubles as the category-slice fixture
+(Recorded Decision 7): the `Dev Graphic Tees` overlay extends it to a third
+level under `Dev Apparel > Dev T-Shirts`. It stays unservable until site
+configuration names the storefront roots — no site config is ever written by
+the bootstrap — for example:
+
+```json
+{
+  "ceto_catalog": {
+    "category_roots": ["Dev Apparel"]
+  }
+}
+```
+
+With that overlay `GET /ceto/store/product-categories` serves exactly the
+`Dev Apparel` subtree, and the unconfigured default groups (`Products`,
+`Raw Material`, …) remain invisible.
+
+The demo tags need no site configuration: `GET /ceto/store/product-tags`
+serves the deduplicated `Dev *` tag values of the tagged `DEV-*` items,
+ordered by value, as soon as the bootstrap has run.
 
 ## Deliberate exclusions
 

@@ -23,7 +23,7 @@ COMPANY = "Ceto Development Co"
 SETTINGS = BootstrapSettings()
 
 # The documented dependency order: site prerequisites first, then the masters
-# that are seeded into the resolved company.
+# that are seeded into the resolved company, then the Ceto-owned catalog.
 SEEDER_NAMES = (
 	"SetupCompany",
 	"SetupItemGroups",
@@ -32,8 +32,10 @@ SEEDER_NAMES = (
 	"SetupCustomers",
 	"SetupPriceLists",
 	"SetupItems",
+	"SetupItemTags",
 	"SetupItemPrices",
 	"SetupTaxes",
+	"SetupCatalog",
 )
 
 
@@ -58,6 +60,9 @@ SEEDER_REPORTS = {
 	"SetupCustomers": report(created={"Customer": ["Ceto Guest"]}),
 	"SetupPriceLists": report(created={"Price List": ["Ceto Dev Selling"]}),
 	"SetupItems": report(created={"Item": ["DEV-TSHIRT-001", "DEV-HOODIE-001"]}),
+	"SetupItemTags": report(
+		created={"Tag": ["Dev Summer"], "Tag Link": ["tag 'Dev Summer' on DEV-TSHIRT-001"]},
+	),
 	"SetupItemPrices": report(
 		created={"Item Price": ["DEV-TSHIRT-001"]},
 		updated={"Item Price": ["DEV-HOODIE-001"]},
@@ -65,6 +70,9 @@ SEEDER_REPORTS = {
 	"SetupTaxes": report(
 		created={"Sales Taxes and Charges Template": ["Ceto Dev Sales Taxes"]},
 		notes=["taxes note"],
+	),
+	"SetupCatalog": report(
+		created={"Ceto Collection": ["dev-summer-drop"], "Ceto Product Type": ["Dev Apparel"]},
 	),
 }
 
@@ -107,10 +115,14 @@ class TestSeederOrder(CetoTestSuite):
 				call.SetupPriceLists().make(),
 				call.SetupItems(SETTINGS, COMPANY),
 				call.SetupItems().make(),
+				call.SetupItemTags(SETTINGS),
+				call.SetupItemTags().make(),
 				call.SetupItemPrices(SETTINGS, COMPANY),
 				call.SetupItemPrices().make(),
 				call.SetupTaxes(SETTINGS, COMPANY),
 				call.SetupTaxes().make(),
+				call.SetupCatalog(SETTINGS),
+				call.SetupCatalog().make(),
 			],
 		)
 
@@ -136,8 +148,12 @@ class TestMergedReport(CetoTestSuite):
 				"Customer": ["Ceto Guest"],
 				"Price List": ["Ceto Dev Selling"],
 				"Item": ["DEV-TSHIRT-001", "DEV-HOODIE-001"],
+				"Tag": ["Dev Summer"],
+				"Tag Link": ["tag 'Dev Summer' on DEV-TSHIRT-001"],
 				"Item Price": ["DEV-TSHIRT-001"],
 				"Sales Taxes and Charges Template": ["Ceto Dev Sales Taxes"],
+				"Ceto Collection": ["dev-summer-drop"],
+				"Ceto Product Type": ["Dev Apparel"],
 			},
 			"updated": {"Item Price": ["DEV-HOODIE-001"]},
 			"skipped": {"Setup Wizard": ["already complete"], "UOM": ["Unit"]},

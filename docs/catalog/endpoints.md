@@ -4,18 +4,18 @@ Phase 2 slice 2A pinned the machine-readable contract manifests for the catalog
 taxonomy reads a storefront needs to browse the published assortment —
 **Collections list/detail, Product Categories list/detail, Product Tags
 list/detail and Product Types list/detail** — plus their query and response
-contracts, and **Phase 2 slice 2B registers the Ceto-stored halves**: the
-collections and product types list/detail pairs are served from Ceto-owned
-storage DocTypes (see [Implemented routes](#implemented-routes)) and the
-README marks exactly those four rows ✅. The category and tag manifests stay
-contract-only until their behavior slices — an `Item Group`-tree projection
-and a user-tag projection respectively — so their four README rows deliberately
-stay ⚪️. The coverage guard is the manifest drift tests
+contracts. **Phase 2 slices 2B and 2C register the served halves**: slice 2B
+serves the collections and product types from Ceto-owned storage DocTypes and
+slice 2C serves the category pair as an `Item Group`-tree projection inside
+the configured storefront roots (see [Implemented routes](#implemented-routes));
+the README marks exactly those six rows ✅. The tag manifest stays
+contract-only until its behavior slice (a user-tag projection), so its two
+README rows deliberately stay ⚪️. The coverage guard is the manifest drift tests
 (`ceto.tests.types.http.store.test_collections_manifest`,
 `test_product_categories_manifest`, `test_product_tags_manifest`,
 `test_product_types_manifest`), the contract tests beside them, the API
 boundary suites for the served halves (`ceto.tests.api.store.test_collections`,
-`test_product_types`), the router surface check in
+`test_product_categories`, `test_product_types`), the router surface check in
 `ceto.tests.routing.test_router`, and the docs↔manifest↔README inventory check
 (`ceto.tests.docs.test_catalog_endpoints`).
 
@@ -71,10 +71,39 @@ contract is the stable Medusa set:
 - `400 invalid_data` — every rejected query key (see
   [Query behavior](#query-behavior)) and every out-of-bounds pagination
   number; nothing is silently ignored or clamped.
-- `404 not_found` — an unknown id, and (once served) an unpublished one:
-  outside the configured storefront roots a category does not exist, it
-  masks as `404` exactly like an unservable reference record, never a
-  `500`.
+- `404 not_found` — an unknown id, and an unpublished one: outside the
+  configured storefront roots a category does not exist, it masks as `404`
+  exactly like an unservable reference record, never a `500`.
+
+## Storefront roots configuration
+
+The served taxonomy is a deployment decision (Recorded Decision 1): the
+storefront root `Item Group` nodes live in the `ceto_catalog.category_roots`
+site configuration, parsed once through `ceto.config.catalog` — the same
+one-config-shape, one-parser rule `ceto.config.cart` applies to the cart
+keys. The value is one root name or a list of names; blank and non-string
+entries are dropped and duplicates collapse, never an error:
+
+```json
+{
+  "ceto_catalog": {
+    "category_roots": ["Apparel", "Footwear"]
+  }
+}
+```
+
+- A category is served exactly when its `Item Group` node is a configured
+  root or descends from one; nothing outside the roots — the `All Item
+  Groups` default tree included — is ever listed, and an unknown or
+  unpublished id masks as `404 not_found`.
+- The parser never validates that a configured root exists: an unknown root
+  publishes nothing instead of failing the read, the same masked rule the
+  region anchors apply.
+- **Backward-safe default:** with no `ceto_catalog` configuration (or an
+  unusable value) the directory publishes nothing — the list answers an
+  empty page and every detail masks as `404`. The routes never fall back to
+  the ERPNext default tree.
+- The configuration is read per request and never persisted anywhere.
 
 ## Pagination
 
@@ -121,23 +150,33 @@ population decision lands.
 
 ## Implementation status
 
-Phase 2 slice 2A pinned the contract; slice 2B implements the Ceto-stored
+Phase 2 slice 2A pinned the contract; slices 2B and 2C implement the served
 halves of it. The collections and product types reads are served from the
 Ceto-owned `Ceto Collection` / `Ceto Product Type` storage DocTypes through
 the `ceto.services.catalog` directories — unique stored handles and curated
 values, minted `pcol_…` / `ptyp_…` public ids, optional `external_id` and
 canonical JSON `metadata` columns, and real record timestamps served as-is
 (Recorded Decision 8) — with the demo fixtures seeded by the bootstrap
-(`ceto.data.bootstrap_dev.seeders.setup_catalog`, Recorded Decision 7). The
-product category and product tag routes remain contract-only: no category or
-tag route is registered on `ceto_router`, no service or storage exists for
-them, and the README marks their four rows ⚪️ until their behavior slices
-land.
+(`ceto.data.bootstrap_dev.seeders.setup_catalog`, Recorded Decision 7).
+
+Slice 2C serves the category pair from the ERPNext `Item Group` tree through
+`ProductCategoryDirectory`: only the configured storefront roots
+(`ceto_catalog.category_roots`, see
+[Storefront roots configuration](#storefront-roots-configuration)) and their
+NestedSet descendants are published, the page is the tree's own `lft`
+pre-order walk (Recorded Decision 6) with the count taken over the whole
+published set before pagination, the public `pcat_…` id is derived
+deterministically from the node name (no core schema change), the handle is
+the slug of `item_group_name`, the timestamps are the real record
+`creation` / `modified` (Recorded Decision 8), and the projection stays flat
+(Recorded Decision 5). The product tag routes remain contract-only: no tag
+route is registered on `ceto_router`, no service or storage exists for them,
+and the README marks their two rows ⚪️ until their behavior slice lands.
 
 ## Implemented routes
 
-Phase 2 slice 2B registers exactly the four Ceto-stored routes; the category
-and tag pairs are inventoried as pinned, not served.
+Phase 2 slices 2B and 2C register exactly these six routes; the tag pair is
+inventoried as pinned, not served.
 
 ### `GET /store/collections` — `ceto.api.store.collections.list_collections`
 
@@ -162,6 +201,33 @@ and tag pairs are inventoried as pinned, not served.
   the collection resolves, so detail always answers with the identical
   projection the list serves.
 
+### `GET /store/product-categories` — `ceto.api.store.product_categories.list_product_categories`
+
+- Guest-dispatchable Store route requiring the `x-publishable-api-key`
+  header, validated at the boundary against the storefront key store and
+  never persisted; no customer session exists on catalog reads.
+- The pinned `StoreProductCategoryListParams` validate the page before
+  anything resolves: the upstream `q` search, `id`/`name`/`handle`/
+  `parent_category_id`/`external_id`/`is_active`/`is_internal` filters,
+  operator maps, `$and`/`$or`, `order` and `fields` keys, the
+  `include_descendants_tree` / `include_ancestors_tree` tree flags
+  (Recorded Decision 5) and out-of-bounds pagination all fail as `400
+  invalid_data`.
+- Serves only the configured storefront roots and their NestedSet
+  descendants, ordered by `lft` — the tree's own pre-order walk (Recorded
+  Decision 6) — and echoes the effective `offset` / `limit` with the count
+  taken over the whole published set before pagination.
+
+### `GET /store/product-categories/{id}` — `ceto.api.store.product_categories.retrieve_product_category`
+
+- Same publishable-key boundary; an unknown id — and an `Item Group`
+  outside the configured storefront roots, which does not exist on the
+  Store surface — is the same masked `404 not_found`, never a `500`.
+- The pinned `StoreProductCategoryParams` accepts no query at all: every
+  key — including a `fields` selector or a tree expansion flag — is refused
+  as `400 invalid_data` before the category resolves, so detail always
+  answers with the identical projection the list serves.
+
 ### `GET /store/product-types` — `ceto.api.store.product_types.list_product_types`
 
 - Same publishable-key boundary and strict query validation as the
@@ -180,10 +246,9 @@ and tag pairs are inventoried as pinned, not served.
 
 ## Deliberate omissions
 
-- **No category or tag route is served** — those two pairs stay pinned and
-  unregistered until their behavior slices (categories project the ERPNext
-  `Item Group` tree inside the configured storefront roots, tags project the
-  published items' user tags).
+- **No product-tag route is served** — the tag pair stays pinned and
+  unregistered until its behavior slice (tags project the published items'
+  user tags).
 - **No collection `products` relation** — collection-item membership is
   deferred (Recorded Decision 4,
   [field-mapping.md](./field-mapping.md)).
@@ -196,6 +261,10 @@ and tag pairs are inventoried as pinned, not served.
   entity; every such key is rejected as `400 invalid_data` (see
   [Query behavior](#query-behavior)).
 
-The demo collections and types ship with this slice, seeded by the
+The demo collections and types ship with slice 2B, seeded by the
 development bootstrap's `SetupCatalog` step (Recorded Decision 7); the demo
-`Item Group` overlays for the category slice are approved with that slice.
+`Item Group` overlays ship with slice 2C — `Dev Graphic Tees` extends the
+`Dev *` tree to a third level under `Dev Apparel > Dev T-Shirts`, seeded by
+`SetupItemGroups` and served once the deployment names its storefront roots
+in `ceto_catalog.category_roots` (see the bootstrap README for the demo
+snippet).

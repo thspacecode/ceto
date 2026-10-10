@@ -4,10 +4,11 @@ The four catalog taxonomy route manifests are drifted against their
 documented route inventory (this doc) and the README route tables, and the
 implemented surface is additionally drifted against the registered routes in
 ``ceto.tests.routing.test_router`` and the API boundary suites in
-``ceto.tests.api.store``. Phase 2 slice 2B implements the Ceto-stored halves
-— collections and product types — so the doc, the README and the
-implemented-routes section must agree on the four served routes while the
-category and tag rows stay ⚪️; any change to a manifest, the doc or the
+``ceto.tests.api.store``. Phase 2 slices 2B and 2C implement the served
+halves — collections and product types (slice 2B, Ceto-stored) and the
+category pair (slice 2C, the Item Group-tree projection) — so the doc, the
+README and the implemented-routes section must agree on the six served
+routes while the tag rows stay ⚪️; any change to a manifest, the doc or the
 README catalog sections must land in all of them or these tests fail.
 """
 
@@ -35,6 +36,8 @@ MANIFEST_ROUTES = (
 IMPLEMENTED_ROUTES = (
 	("GET", "/store/collections"),
 	("GET", "/store/collections/{id}"),
+	("GET", "/store/product-categories"),
+	("GET", "/store/product-categories/{id}"),
 	("GET", "/store/product-types"),
 	("GET", "/store/product-types/{id}"),
 )
@@ -141,11 +144,12 @@ class TestCatalogEndpointsDoc(unittest.TestCase):
 		self.assertNotIn("sdk.store.productCategory", self.text)
 		self.assertIn("no product-tag and no product-type namespace", self.text)
 
-	def test_doc_records_the_slice_2b_implementation_status(self):
+	def test_doc_records_the_implemented_slices_status(self):
 		self.assertIn("Phase 2 slice 2A pinned the contract", self.text)
-		self.assertIn("Phase 2 slice 2B registers the Ceto-stored halves", self.text)
-		# The served slice is inventoried exactly: the two category and tag
-		# route pairs stay contract-only until their behavior slices land.
+		self.assertIn("Phase 2 slices 2B and 2C register the served halves", self.text)
+		self.assertIn("slice 2C serves the category pair", self.text)
+		# The served slice is inventoried exactly: the two tag routes stay
+		# contract-only until their behavior slice lands.
 		self.assertEqual(parse_implemented_routes(self.text), list(IMPLEMENTED_ROUTES))
 
 	def test_doc_documents_every_implemented_route_handler(self):
@@ -166,8 +170,9 @@ class TestCatalogEndpointsDoc(unittest.TestCase):
 		self.assertEqual(documented, {(r.method, r.path) for r in MANIFEST_ROUTES})
 
 	def test_readme_marks_exactly_the_implemented_routes(self):
-		# Slice 2B serves the Ceto-stored halves; the category and tag rows
-		# flip to ✅ only when their behavior slices register and serve them.
+		# Slices 2B and 2C serve the collections, categories and types halves;
+		# the tag rows flip to ✅ only when their behavior slice registers and
+		# serves them.
 		rows = parse_readme_catalog_rows(README.read_text())
 		implemented = {(method, path) for method, path, status in rows if "✅" in status}
 		self.assertEqual(implemented, set(IMPLEMENTED_ROUTES))

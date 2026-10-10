@@ -80,6 +80,7 @@ class ProductTypeSeed:
 ITEM_GROUPS: tuple[ItemGroupSeed, ...] = (
 	ItemGroupSeed(item_group_name="Dev Apparel", parent=None, is_group=True),
 	ItemGroupSeed(item_group_name="Dev T-Shirts", parent="Dev Apparel"),
+	ItemGroupSeed(item_group_name="Dev Graphic Tees", parent="Dev T-Shirts"),
 	ItemGroupSeed(item_group_name="Dev Hoodies", parent="Dev Apparel"),
 	ItemGroupSeed(item_group_name="Dev Footwear"),
 	ItemGroupSeed(item_group_name="Dev Accessories"),

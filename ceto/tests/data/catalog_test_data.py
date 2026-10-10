@@ -1,9 +1,11 @@
-"""Throwaway catalog fixtures for the collections / product types suites.
+"""Throwaway catalog fixtures for the catalog taxonomy suites.
 
 The catalog storage is Ceto-owned, so the taxonomy suites mint their own
-records through the same controller path the bootstrap fixtures use. The
-factories here keep minted ids, handles and values unique per record, so no
-suite depends on table state or run order.
+records through the same controller paths the bootstrap fixtures use —
+including throwaway ``Item Group`` nodes, which the category suites publish
+through the storefront-roots site configuration. The factories here keep
+minted ids, handles and values unique per record, so no suite depends on
+table state or run order.
 """
 
 import uuid
@@ -16,7 +18,7 @@ from ceto.services.catalog.product_types import new_product_type_id
 
 
 class CatalogTestData:
-	"""Mint disposable collections and product types for one test."""
+	"""Mint disposable collections, product types and Item Groups for one test."""
 
 	def collection(self, *, title: str = "Dev Collection", handle: str | None = None, **overrides: Any):
 		doc = frappe.get_doc(
@@ -40,5 +42,21 @@ class CatalogTestData:
 				**overrides,
 			}
 		)
+		doc.insert(ignore_permissions=True)
+		return doc
+
+	def item_group(self, name: str, *, parent: str = "All Item Groups", is_group: bool = False):
+		"""Mint (or reuse) one throwaway Item Group node for one test.
+
+		The per-test transaction rollback removes the node again, so the
+		fixed demo names stay readable without ever colliding with the
+		committed baseline.
+		"""
+		if frappe.db.exists("Item Group", name):
+			return frappe.get_doc("Item Group", name)
+		doc = frappe.new_doc("Item Group")
+		doc.item_group_name = name
+		doc.parent_item_group = parent
+		doc.is_group = is_group
 		doc.insert(ignore_permissions=True)
 		return doc

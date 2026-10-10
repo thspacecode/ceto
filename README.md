@@ -141,8 +141,8 @@ Medusa API implementation status, grouped by scope. Routes follow the [Medusa St
 
 | Method | Route | Status |
 | --- | --- | --- |
-| GET | `/store/product-categories/{id}` | ⚪️ |
-| GET | `/store/product-categories` | ⚪️ |
+| GET | `/store/product-categories/{id}` | ✅️ |
+| GET | `/store/product-categories` | ✅️ |
 
 ### Product Options
 
@@ -457,6 +457,32 @@ Content-Type: application/json
 ```
 
 The callback returns the same `{"token":"..."}` Ceto JWT shape as email/password authentication. OAuth state is single-use and expires after ten minutes. Existing System Users cannot authenticate through the customer endpoint; new users follow Frappe's Social Login signup policy and are created as Website Users.
+
+## Storefront configuration
+
+The Store reads a deployment publishes are decided in site configuration;
+nothing is published by default.
+
+### Storefront catalog roots
+
+Product categories are the ERPNext `Item Group` tree. Only the configured
+root groups and their descendants are served — an `Item Group` outside them
+does not exist on the Store surface (an unknown or unpublished id is the
+masked `404`, never an error surface). Configure the roots in
+`site_config.json`:
+
+```json
+{
+  "ceto_catalog": {
+    "category_roots": ["Apparel", "Footwear"]
+  }
+}
+```
+
+With no `ceto_catalog` configuration the category routes serve an empty page
+(`{"product_categories": [], "count": 0, "offset": 0, "limit": 50}`). The
+contract is pinned in `docs/catalog/endpoints.md`; the field mapping lives
+in `docs/catalog/field-mapping.md`.
 
 ## Installation
 

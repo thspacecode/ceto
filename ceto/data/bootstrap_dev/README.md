@@ -43,6 +43,24 @@ Values live in `settings.py` (cross-seeder settings) and `dataset.py` (the
 fake catalog). Reports group every document under `created`, `updated`, or
 `skipped`, plus `notes` for context such as skipped prerequisites.
 
+The demo `Dev *` Item Group tree doubles as the category-slice fixture
+(Recorded Decision 7): the `Dev Graphic Tees` overlay extends it to a third
+level under `Dev Apparel > Dev T-Shirts`. It stays unservable until site
+configuration names the storefront roots — no site config is ever written by
+the bootstrap — for example:
+
+```json
+{
+  "ceto_catalog": {
+    "category_roots": ["Dev Apparel"]
+  }
+}
+```
+
+With that overlay `GET /ceto/store/product-categories` serves exactly the
+`Dev Apparel` subtree, and the unconfigured default groups (`Products`,
+`Raw Material`, …) remain invisible.
+
 ## Deliberate exclusions
 
 - No opening stock: no bins, stock ledger entries, or stock reconciliations.

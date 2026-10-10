@@ -19,10 +19,12 @@ Sources: pinned `@medusajs/types@2.21.1` (`http/collection/store`,
 
 1. **Categories are the ERPNext `Item Group` tree, published only inside
    the configured storefront roots.** A category is servable only when its
-   `Item Group` node descends from one of the configured storefront root
-   `Item Group` nodes; nothing outside the roots is ever visible — an
-   unpublished or unknown id masks as `404 not_found`, never a `500`. The
-   roots live in site configuration (decided per deployment), not in code.
+   `Item Group` node is a configured storefront root or descends from one;
+   nothing outside the roots is ever visible — an unpublished or unknown id
+   masks as `404 not_found`, never a `500`. The roots live in the
+   `ceto_catalog.category_roots` site configuration (decided per
+   deployment), not in code; with no configuration nothing is published —
+   the routes serve an empty page rather than the ERPNext default tree.
 2. **Collections are Ceto-stored catalog records.** No ERPNext master owns
    a collection, so Ceto owns the storage: the `Ceto Collection` DocType
    stores the unique `handle`, the `title`, the minted `pcol_…` public id
@@ -52,8 +54,13 @@ Sources: pinned `@medusajs/types@2.21.1` (`http/collection/store`,
    demo collections and product types are seeded by the development
    bootstrap's `SetupCatalog` step (`ceto.data.bootstrap_dev`), located by
    their stable business keys (collection `handle`, type `value`) with the
-   public ids minted once at creation. Demo `Item Group` overlays for the
-   category slice are approved with that slice.
+   public ids minted once at creation. The demo `Item Group` overlay ships
+   with the category slice: `Dev Graphic Tees` extends the demo `Dev *`
+   tree to a third level under `Dev Apparel > Dev T-Shirts`, seeded by
+   `SetupItemGroups`; the bootstrap never writes site configuration, so the
+   demo tree stays unservable until the deployment names its storefront
+   roots in `ceto_catalog.category_roots` (the bootstrap README records the
+   demo snippet).
 8. **Record timestamps are never fabricated.** Categories serve the real
    `Item Group` `creation` / `modified`; the Ceto-stored collections and
    types serve their record `creation` / `modified` as-is since the slice
@@ -83,7 +90,7 @@ contract while the storage serves the real record timestamps.
 
 | Medusa `StoreProductCategory` field | ERPNext `Item Group` source | Classification |
 |---|---|---|
-| `id` | stable public id of the published `Item Group` node; minting decided with the behavior slice | derived |
+| `id` | stable public id of the published `Item Group` node — `pcat_` + 32 lowercase hex derived deterministically (SHA-256 truncation) from the node name, so the id is stable and addressable with no core schema change | derived |
 | `name` | `item_group_name` | direct |
 | `handle` | slug of `item_group_name` (the node's stable URL segment) | derived |
 | `description` | none — `Item Group` carries no description; never fabricated | gap |
@@ -96,8 +103,9 @@ contract while the storage serves the real record timestamps.
 | `created_at`, `updated_at` | `creation` / `modified` of the `Item Group` record — real record timestamps (Recorded Decision 8) | direct |
 | `deleted_at` | none — ERPNext deletes `Item Group` nodes hard | gap |
 
-Publication boundary: only nodes descending from a configured storefront
-root are served (Recorded Decision 1). The pinned store type already omits
+Publication boundary: only nodes that are a configured storefront root or
+descend from one are served (Recorded Decision 1, resolved through
+`ceto.config.catalog`). The pinned store type already omits
 `is_active` / `is_internal` — publication is Ceto's projection decision,
 never a served flag — and group-ness (`is_group`) is invisible on the
 store surface: any published node is a category.

@@ -13,5 +13,6 @@ import ceto.api.store.customers
 import ceto.api.store.locales
 import ceto.api.store.orders
 import ceto.api.store.product_categories
+import ceto.api.store.product_tags
 import ceto.api.store.product_types
 import ceto.api.store.regions

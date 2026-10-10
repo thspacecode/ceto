@@ -59,6 +59,14 @@ class ItemPriceSeed:
 
 
 @dataclass(frozen=True)
+class ItemTagSeed:
+	"""The demo tags pinned on one demo item; ``tags`` are Tag master names."""
+
+	item_code: str
+	tags: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class CollectionSeed:
 	"""One demo collection; ``handle`` is the stable business key."""
 
@@ -148,6 +156,15 @@ ITEM_PRICES: tuple[ItemPriceSeed, ...] = (
 	ItemPriceSeed(item_code="DEV-SNEAKER-001", price_list_rate=Decimal("79.00")),
 	ItemPriceSeed(item_code="DEV-MUG-001", price_list_rate=Decimal("12.50")),
 	ItemPriceSeed(item_code="DEV-TOTE-001", price_list_rate=Decimal("5.00")),
+)
+
+#: Tags are item-level links, so values repeat across items on purpose: the
+#: served tag set is the deduplicated projection, and ``DEV-MUG-001`` stays
+#: untagged to prove the set is link-driven.
+ITEM_TAGS: tuple[ItemTagSeed, ...] = (
+	ItemTagSeed(item_code="DEV-TSHIRT-001", tags=("Dev New Arrival", "Dev Summer")),
+	ItemTagSeed(item_code="DEV-HOODIE-001", tags=("Dev Summer",)),
+	ItemTagSeed(item_code="DEV-SNEAKER-001", tags=("Dev Footwear", "Dev New Arrival")),
 )
 
 COLLECTIONS: tuple[CollectionSeed, ...] = (

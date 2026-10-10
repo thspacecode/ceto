@@ -4,18 +4,19 @@ Phase 2 slice 2A pinned the machine-readable contract manifests for the catalog
 taxonomy reads a storefront needs to browse the published assortment —
 **Collections list/detail, Product Categories list/detail, Product Tags
 list/detail and Product Types list/detail** — plus their query and response
-contracts. **Phase 2 slices 2B and 2C register the served halves**: slice 2B
-serves the collections and product types from Ceto-owned storage DocTypes and
+contracts. **Phase 2 slices 2B, 2C and 2D register the served halves**: slice 2B
+serves the collections and product types from Ceto-owned storage DocTypes,
 slice 2C serves the category pair as an `Item Group`-tree projection inside
-the configured storefront roots (see [Implemented routes](#implemented-routes));
-the README marks exactly those six rows ✅. The tag manifest stays
-contract-only until its behavior slice (a user-tag projection), so its two
-README rows deliberately stay ⚪️. The coverage guard is the manifest drift tests
+the configured storefront roots, and slice 2D serves the tag pair as a
+projection of the live Frappe tag masters and their exact `Item` Tag Link rows
+(see [Implemented routes](#implemented-routes)); the README marks exactly those
+eight rows ✅. The coverage guard is the manifest drift tests
 (`ceto.tests.types.http.store.test_collections_manifest`,
-`test_product_categories_manifest`, `test_product_tags_manifest`,
+`test_product_categories_manifest`,
+`test_product_tags_manifest`,
 `test_product_types_manifest`), the contract tests beside them, the API
 boundary suites for the served halves (`ceto.tests.api.store.test_collections`,
-`test_product_categories`, `test_product_types`), the router surface check in
+`test_product_categories`, `test_product_tags`, `test_product_types`), the router surface check in
 `ceto.tests.routing.test_router`, and the docs↔manifest↔README inventory check
 (`ceto.tests.docs.test_catalog_endpoints`).
 
@@ -150,8 +151,8 @@ population decision lands.
 
 ## Implementation status
 
-Phase 2 slice 2A pinned the contract; slices 2B and 2C implement the served
-halves of it. The collections and product types reads are served from the
+Phase 2 slice 2A pinned the contract; slices 2B, 2C and 2D implement the whole
+pinned inventory. The collections and product types reads are served from the
 Ceto-owned `Ceto Collection` / `Ceto Product Type` storage DocTypes through
 the `ceto.services.catalog` directories — unique stored handles and curated
 values, minted `pcol_…` / `ptyp_…` public ids, optional `external_id` and
@@ -169,14 +170,24 @@ published set before pagination, the public `pcat_…` id is derived
 deterministically from the node name (no core schema change), the handle is
 the slug of `item_group_name`, the timestamps are the real record
 `creation` / `modified` (Recorded Decision 8), and the projection stays flat
-(Recorded Decision 5). The product tag routes remain contract-only: no tag
-route is registered on `ceto_router`, no service or storage exists for them,
-and the README marks their two rows ⚪️ until their behavior slice lands.
+(Recorded Decision 5).
+
+Slice 2D serves the tag pair from the live Frappe tag masters through
+`ProductTagDirectory`: a tag serves exactly while its `Tag` master is live
+and at least one of its exact `Tag Link` rows names an `Item` that still
+exists — orphan links, links to deleted Items and masters without any live
+link never surface. The page is the value-ascending order of the distinct
+served values (Recorded Decision 6) with the count taken over the whole
+served set before pagination, the public `ptag_…` id is derived
+deterministically from the tag value (no core schema change), and the tag
+serves no timestamps of its own (Recorded Decision 8). The demo tags ship
+with the behavior slice, seeded by the bootstrap's `SetupItemTags` step
+(Recorded Decision 7).
 
 ## Implemented routes
 
-Phase 2 slices 2B and 2C register exactly these six routes; the tag pair is
-inventoried as pinned, not served.
+Phase 2 slices 2B, 2C and 2D register exactly these eight routes; the whole
+pinned taxonomy inventory is served.
 
 ### `GET /store/collections` — `ceto.api.store.collections.list_collections`
 
@@ -228,6 +239,33 @@ inventoried as pinned, not served.
   as `400 invalid_data` before the category resolves, so detail always
   answers with the identical projection the list serves.
 
+### `GET /store/product-tags` — `ceto.api.store.product_tags.list_product_tags`
+
+- Guest-dispatchable Store route requiring the `x-publishable-api-key`
+  header, validated at the boundary against the storefront key store and
+  never persisted; no customer session exists on catalog reads.
+- The pinned `StoreProductTagListParams` validate the page before anything
+  resolves: the upstream `q` search, `id`/`value`/`external_id` filters,
+  operator maps, `$and`/`$or`, `order` and `fields` keys and out-of-bounds
+  pagination all fail as `400 invalid_data`.
+- Pages the distinct served tag values value-ascending (Recorded Decision 6)
+  and echoes the effective `offset` / `limit` with the count taken over the
+  whole served set before pagination. A tag serves exactly while its `Tag`
+  master is live and one of its exact `Tag Link` rows names an `Item` that
+  still exists; a tag serves no timestamps of its own (Recorded Decision 8).
+
+### `GET /store/product-tags/{id}` — `ceto.api.store.product_tags.retrieve_product_tag`
+
+- Same publishable-key boundary; an unknown id is the masked `404
+  not_found`, never a `500`.
+- The public `ptag_…` id is derived deterministically from the tag value
+  (SHA-256 truncation, no core schema change), so a served tag keeps its id
+  for its whole lifetime without minted storage.
+- The pinned `StoreProductTagParams` accepts no query at all: every key —
+  including a `fields` selector — is refused as `400 invalid_data` before
+  the tag resolves, so detail always answers with the identical projection
+  the list serves.
+
 ### `GET /store/product-types` — `ceto.api.store.product_types.list_product_types`
 
 - Same publishable-key boundary and strict query validation as the
@@ -246,9 +284,6 @@ inventoried as pinned, not served.
 
 ## Deliberate omissions
 
-- **No product-tag route is served** — the tag pair stays pinned and
-  unregistered until its behavior slice (tags project the published items'
-  user tags).
 - **No collection `products` relation** — collection-item membership is
   deferred (Recorded Decision 4,
   [field-mapping.md](./field-mapping.md)).
@@ -267,4 +302,6 @@ development bootstrap's `SetupCatalog` step (Recorded Decision 7); the demo
 `Dev *` tree to a third level under `Dev Apparel > Dev T-Shirts`, seeded by
 `SetupItemGroups` and served once the deployment names its storefront roots
 in `ceto_catalog.category_roots` (see the bootstrap README for the demo
-snippet).
+snippet). The demo tags ship with slice 2D — `Dev New Arrival`, `Dev Summer`
+and `Dev Footwear` are pinned on the demo `DEV-*` items by `SetupItemTags`,
+and serve immediately: the tag projection needs no site configuration.

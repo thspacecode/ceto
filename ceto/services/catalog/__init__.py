@@ -11,11 +11,13 @@ mutates the catalog.
 
 from ceto.services.catalog.collections import CollectionDirectory, new_collection_id
 from ceto.services.catalog.product_categories import ProductCategoryDirectory
+from ceto.services.catalog.product_tags import ProductTagDirectory
 from ceto.services.catalog.product_types import ProductTypeDirectory, new_product_type_id
 
 __all__ = [
 	"CollectionDirectory",
 	"ProductCategoryDirectory",
+	"ProductTagDirectory",
 	"ProductTypeDirectory",
 	"new_collection_id",
 	"new_product_type_id",

@@ -18,6 +18,7 @@ from ceto.types.http.store.customers.manifest import CUSTOMER_ROUTES
 from ceto.types.http.store.locales.manifest import LOCALE_ROUTES
 from ceto.types.http.store.orders.manifest import ORDER_ROUTES
 from ceto.types.http.store.product_categories.manifest import PRODUCT_CATEGORY_ROUTES
+from ceto.types.http.store.product_tags.manifest import PRODUCT_TAG_ROUTES
 from ceto.types.http.store.product_types.manifest import PRODUCT_TYPE_ROUTES
 from ceto.types.http.store.regions.manifest import REGION_ROUTES
 
@@ -237,21 +238,26 @@ class TestRouter(CetoTestSuite):
 	def test_implemented_catalog_routes_match_the_phase_2_slice(self):
 		"""The registered catalog surface is exactly the implemented manifest slice.
 
-		Phase 2 slices 2B and 2C register the served halves of the pinned
+		Phase 2 slices 2B, 2C and 2D register the served halves of the pinned
 		catalog taxonomy — the collections and product types pairs from the
-		Ceto-stored DocTypes and the category pair from the published
-		``Item Group`` tree — while the tag manifest stays unregistered until
-		its behavior slice. Route drift in either direction fails loudly.
+		Ceto-stored DocTypes, the category pair from the published
+		``Item Group`` tree, and the tag pair from the live Frappe tag
+		masters. Route drift in either direction fails loudly.
 		Every catalog read is guest-dispatchable — the publishable key is
 		the pinned auth, so no catalog route may require a customer session.
 		"""
-		segments = ("/store/collections", "/store/product-categories", "/store/product-types")
+		segments = (
+			"/store/collections",
+			"/store/product-categories",
+			"/store/product-tags",
+			"/store/product-types",
+		)
 		registered = {
 			(route.method, route.path)
 			for route in ceto_router.routes
 			if any(segment in route.path for segment in segments)
 		}
-		manifests = (COLLECTION_ROUTES, PRODUCT_CATEGORY_ROUTES, PRODUCT_TYPE_ROUTES)
+		manifests = (COLLECTION_ROUTES, PRODUCT_CATEGORY_ROUTES, PRODUCT_TAG_ROUTES, PRODUCT_TYPE_ROUTES)
 		implemented = {(route.method, f"/ceto{route.path}") for routes in manifests for route in routes}
 		self.assertEqual(registered, implemented)
 		by_key = {(route.method, route.path): route for route in ceto_router.routes}

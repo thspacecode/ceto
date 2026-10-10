@@ -114,16 +114,19 @@ store surface: any published node is a category.
 
 | Medusa `StoreProductTag` field | Frappe source | Classification |
 |---|---|---|
-| `id` | stable public tag id; minting decided with the tags behavior slice | derived |
+| `id` | stable public id (`ptag_` + 32 lowercase hex) of the served tag — SHA-256 truncation of the tag value, derived deterministically so the id is stable and addressable with no core schema change | derived |
 | `value` | the deduplicated user-tag strings of the published catalog items | direct |
 | `external_id` | none — no external system assigns tag ids | gap |
 | `metadata` | none — tags carry no metadata surface | gap |
 | `created_at`, `updated_at` | none — a tag is a projection of other records' tags, with no timestamps of its own (Recorded Decision 8) | gap |
 | `deleted_at` | none — a tag disappears with its last reference; no tombstone | gap |
 
-The list serves each distinct value once, ordered by `value` (Recorded
-Decision 6). Tag fixtures are approved with the behavior slices (Recorded
-Decision 7).
+The served boundary is the live `Tag` masters joined to their exact live
+`Tag Link` rows (`document_type='Item'`): a value serves once, ordered by
+`value` (Recorded Decision 6), exactly while one of its links names an `Item`
+that still exists — orphan links, links to deleted Items and masters without
+any live link never surface. The demo tags ship with the tags behavior slice,
+seeded by the bootstrap's `SetupItemTags` step (Recorded Decision 7).
 
 ## Product Type → Ceto catalog storage
 

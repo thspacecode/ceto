@@ -4,12 +4,13 @@ The four catalog taxonomy route manifests are drifted against their
 documented route inventory (this doc) and the README route tables, and the
 implemented surface is additionally drifted against the registered routes in
 ``ceto.tests.routing.test_router`` and the API boundary suites in
-``ceto.tests.api.store``. Phase 2 slices 2B and 2C implement the served
-halves — collections and product types (slice 2B, Ceto-stored) and the
-category pair (slice 2C, the Item Group-tree projection) — so the doc, the
-README and the implemented-routes section must agree on the six served
-routes while the tag rows stay ⚪️; any change to a manifest, the doc or the
-README catalog sections must land in all of them or these tests fail.
+``ceto.tests.api.store``. Phase 2 slices 2B, 2C and 2D implement the whole
+pinned inventory — collections and product types (slice 2B, Ceto-stored),
+the category pair (slice 2C, the Item Group-tree projection) and the tag
+pair (slice 2D, the live Frappe tag-master projection) — so the doc, the
+README and the implemented-routes section must agree on the eight served
+routes; any change to a manifest, the doc or the README catalog sections
+must land in all of them or these tests fail.
 """
 
 import re
@@ -38,6 +39,8 @@ IMPLEMENTED_ROUTES = (
 	("GET", "/store/collections/{id}"),
 	("GET", "/store/product-categories"),
 	("GET", "/store/product-categories/{id}"),
+	("GET", "/store/product-tags"),
+	("GET", "/store/product-tags/{id}"),
 	("GET", "/store/product-types"),
 	("GET", "/store/product-types/{id}"),
 )
@@ -146,10 +149,11 @@ class TestCatalogEndpointsDoc(unittest.TestCase):
 
 	def test_doc_records_the_implemented_slices_status(self):
 		self.assertIn("Phase 2 slice 2A pinned the contract", self.text)
-		self.assertIn("Phase 2 slices 2B and 2C register the served halves", self.text)
+		self.assertIn("Phase 2 slices 2B, 2C and 2D register the served halves", self.text)
 		self.assertIn("slice 2C serves the category pair", self.text)
-		# The served slice is inventoried exactly: the two tag routes stay
-		# contract-only until their behavior slice lands.
+		self.assertIn("slice 2D serves the tag pair", self.text)
+		# The served slice is inventoried exactly: the whole pinned
+		# taxonomy inventory is served now.
 		self.assertEqual(parse_implemented_routes(self.text), list(IMPLEMENTED_ROUTES))
 
 	def test_doc_documents_every_implemented_route_handler(self):

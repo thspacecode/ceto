@@ -58,6 +58,25 @@ class ItemPriceSeed:
 	price_list_rate: Decimal
 
 
+@dataclass(frozen=True)
+class CollectionSeed:
+	"""One demo collection; ``handle`` is the stable business key."""
+
+	title: str
+	handle: str
+	external_id: str | None = None
+	metadata: dict[str, object] | None = None
+
+
+@dataclass(frozen=True)
+class ProductTypeSeed:
+	"""One demo product type; ``value`` is the stable business key."""
+
+	value: str
+	external_id: str | None = None
+	metadata: dict[str, object] | None = None
+
+
 ITEM_GROUPS: tuple[ItemGroupSeed, ...] = (
 	ItemGroupSeed(item_group_name="Dev Apparel", parent=None, is_group=True),
 	ItemGroupSeed(item_group_name="Dev T-Shirts", parent="Dev Apparel"),
@@ -128,4 +147,22 @@ ITEM_PRICES: tuple[ItemPriceSeed, ...] = (
 	ItemPriceSeed(item_code="DEV-SNEAKER-001", price_list_rate=Decimal("79.00")),
 	ItemPriceSeed(item_code="DEV-MUG-001", price_list_rate=Decimal("12.50")),
 	ItemPriceSeed(item_code="DEV-TOTE-001", price_list_rate=Decimal("5.00")),
+)
+
+COLLECTIONS: tuple[CollectionSeed, ...] = (
+	CollectionSeed(
+		title="Dev Summer Drop",
+		handle="dev-summer-drop",
+		metadata={"featured": True, "season": "summer"},
+	),
+	CollectionSeed(
+		title="Dev Essentials",
+		handle="dev-essentials",
+		external_id="dev-collection-essentials",
+	),
+)
+
+PRODUCT_TYPES: tuple[ProductTypeSeed, ...] = (
+	ProductTypeSeed(value="Dev Apparel", external_id="dev-type-apparel"),
+	ProductTypeSeed(value="Dev Accessory", metadata={"merchandising": "core"}),
 )

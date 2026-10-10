@@ -78,8 +78,8 @@ Medusa API implementation status, grouped by scope. Routes follow the [Medusa St
 
 | Method | Route | Status |
 | --- | --- | --- |
-| GET | `/store/collections/{id}` | ⚪️ |
-| GET | `/store/collections` | ⚪️ |
+| GET | `/store/collections/{id}` | ✅️ |
+| GET | `/store/collections` | ✅️ |
 
 ### Currencies
 
@@ -162,8 +162,8 @@ Medusa API implementation status, grouped by scope. Routes follow the [Medusa St
 
 | Method | Route | Status |
 | --- | --- | --- |
-| GET | `/store/product-types/{id}` | ⚪️ |
-| GET | `/store/product-types` | ⚪️ |
+| GET | `/store/product-types/{id}` | ✅️ |
+| GET | `/store/product-types` | ✅️ |
 
 ### Product Variants
 

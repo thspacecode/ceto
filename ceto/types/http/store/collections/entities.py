@@ -7,9 +7,9 @@ columns Ceto's stored collections project (``docs/catalog/field-mapping.md``):
   (Recorded Decision 2); the projection keeps the pinned required trio
   ``id`` / ``title`` / ``handle`` mandatory.
 - ``created_at`` / ``updated_at`` stay optional in the contract: the pinned
-  store list serves a field-selected subset without them, and Ceto keeps
-  every column optional until the storage slice serves the record
-  timestamps (Recorded Decision 8).
+  store list serves a field-selected subset without them, so Ceto keeps
+  every column optional while the storage slice serves the stored record's
+  real timestamps (Recorded Decision 8).
 - ``deleted_at`` mirrors the pinned nullable column but is never populated:
   the Ceto catalog layer deletes hard, there is no soft-delete tombstone.
 - ``products`` is dropped from the projection model entirely: collection-item

@@ -23,7 +23,7 @@ COMPANY = "Ceto Development Co"
 SETTINGS = BootstrapSettings()
 
 # The documented dependency order: site prerequisites first, then the masters
-# that are seeded into the resolved company.
+# that are seeded into the resolved company, then the Ceto-owned catalog.
 SEEDER_NAMES = (
 	"SetupCompany",
 	"SetupItemGroups",
@@ -34,6 +34,7 @@ SEEDER_NAMES = (
 	"SetupItems",
 	"SetupItemPrices",
 	"SetupTaxes",
+	"SetupCatalog",
 )
 
 
@@ -65,6 +66,9 @@ SEEDER_REPORTS = {
 	"SetupTaxes": report(
 		created={"Sales Taxes and Charges Template": ["Ceto Dev Sales Taxes"]},
 		notes=["taxes note"],
+	),
+	"SetupCatalog": report(
+		created={"Ceto Collection": ["dev-summer-drop"], "Ceto Product Type": ["Dev Apparel"]},
 	),
 }
 
@@ -111,6 +115,8 @@ class TestSeederOrder(CetoTestSuite):
 				call.SetupItemPrices().make(),
 				call.SetupTaxes(SETTINGS, COMPANY),
 				call.SetupTaxes().make(),
+				call.SetupCatalog(SETTINGS),
+				call.SetupCatalog().make(),
 			],
 		)
 
@@ -138,6 +144,8 @@ class TestMergedReport(CetoTestSuite):
 				"Item": ["DEV-TSHIRT-001", "DEV-HOODIE-001"],
 				"Item Price": ["DEV-TSHIRT-001"],
 				"Sales Taxes and Charges Template": ["Ceto Dev Sales Taxes"],
+				"Ceto Collection": ["dev-summer-drop"],
+				"Ceto Product Type": ["Dev Apparel"],
 			},
 			"updated": {"Item Price": ["DEV-HOODIE-001"]},
 			"skipped": {"Setup Wizard": ["already complete"], "UOM": ["Unit"]},

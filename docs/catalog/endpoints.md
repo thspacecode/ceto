@@ -1,19 +1,22 @@
 # Store Catalog Taxonomy Endpoints — Source of Truth
 
-Phase 2 slice 2A pins the machine-readable contract manifests for the catalog
+Phase 2 slice 2A pinned the machine-readable contract manifests for the catalog
 taxonomy reads a storefront needs to browse the published assortment —
 **Collections list/detail, Product Categories list/detail, Product Tags
 list/detail and Product Types list/detail** — plus their query and response
-contracts. **No route of this slice is registered yet**: a behavior slice
-registers the eight pinned routes on the router and serves them, and only
-then do the README rows flip to ✅ (they deliberately stay ⚪️ now). The
-manifests, query models and response envelopes are complete and testable
-today; the route adapters, services and storage DocTypes belong to the
-behavior slices. The coverage guard is the manifest drift tests
+contracts, and **Phase 2 slice 2B registers the Ceto-stored halves**: the
+collections and product types list/detail pairs are served from Ceto-owned
+storage DocTypes (see [Implemented routes](#implemented-routes)) and the
+README marks exactly those four rows ✅. The category and tag manifests stay
+contract-only until their behavior slices — an `Item Group`-tree projection
+and a user-tag projection respectively — so their four README rows deliberately
+stay ⚪️. The coverage guard is the manifest drift tests
 (`ceto.tests.types.http.store.test_collections_manifest`,
 `test_product_categories_manifest`, `test_product_tags_manifest`,
-`test_product_types_manifest`), the contract tests beside them, and the
-docs↔manifest↔README inventory check
+`test_product_types_manifest`), the contract tests beside them, the API
+boundary suites for the served halves (`ceto.tests.api.store.test_collections`,
+`test_product_types`), the router surface check in
+`ceto.tests.routing.test_router`, and the docs↔manifest↔README inventory check
 (`ceto.tests.docs.test_catalog_endpoints`).
 
 ## Manifests
@@ -118,13 +121,69 @@ population decision lands.
 
 ## Implementation status
 
-Phase 2 slice 2A pins the contract only. No catalog route is registered on
-`ceto_router`, no service exists, and no storage DocType ships in this
-slice; the README marks all eight routes ⚪️ and the docs drift test fails
-if any of them is marked ✅ before a behavior slice implements it.
+Phase 2 slice 2A pinned the contract; slice 2B implements the Ceto-stored
+halves of it. The collections and product types reads are served from the
+Ceto-owned `Ceto Collection` / `Ceto Product Type` storage DocTypes through
+the `ceto.services.catalog` directories — unique stored handles and curated
+values, minted `pcol_…` / `ptyp_…` public ids, optional `external_id` and
+canonical JSON `metadata` columns, and real record timestamps served as-is
+(Recorded Decision 8) — with the demo fixtures seeded by the bootstrap
+(`ceto.data.bootstrap_dev.seeders.setup_catalog`, Recorded Decision 7). The
+product category and product tag routes remain contract-only: no category or
+tag route is registered on `ceto_router`, no service or storage exists for
+them, and the README marks their four rows ⚪️ until their behavior slices
+land.
+
+## Implemented routes
+
+Phase 2 slice 2B registers exactly the four Ceto-stored routes; the category
+and tag pairs are inventoried as pinned, not served.
+
+### `GET /store/collections` — `ceto.api.store.collections.list_collections`
+
+- Guest-dispatchable Store route requiring the `x-publishable-api-key`
+  header, validated at the boundary against the storefront key store and
+  never persisted; no customer session exists on catalog reads.
+- The pinned `StoreCollectionListParams` validate the page before anything
+  resolves: the upstream `q` search, `id`/`title`/`handle`/`external_id`
+  filters, operator maps, `$and`/`$or`, `order` and `fields` keys and
+  out-of-bounds pagination all fail as `400 invalid_data`.
+- Pages the stored collections creation-descending — the upstream pinned
+  default sort — with the record id breaking ties, and echoes the effective
+  `offset` / `limit` with the count taken over the whole stored set before
+  pagination.
+
+### `GET /store/collections/{id}` — `ceto.api.store.collections.retrieve_collection`
+
+- Same publishable-key boundary; an unknown id is the masked `404
+  not_found`, never a `500`.
+- The pinned `StoreCollectionParams` accepts no query at all: every key —
+  including a `fields` selector — is refused as `400 invalid_data` before
+  the collection resolves, so detail always answers with the identical
+  projection the list serves.
+
+### `GET /store/product-types` — `ceto.api.store.product_types.list_product_types`
+
+- Same publishable-key boundary and strict query validation as the
+  collections list, against the pinned `StoreProductTypeListParams`.
+- Pages the stored curated types value-ascending (Recorded Decision 6) with
+  the record id breaking ties, and echoes the effective `offset` / `limit`
+  with the count taken over the whole stored set before pagination.
+
+### `GET /store/product-types/{id}` — `ceto.api.store.product_types.retrieve_product_type`
+
+- Same publishable-key boundary; an unknown id is the masked `404
+  not_found`, never a `500`.
+- The pinned `StoreProductTypeParams` accepts no query at all: every key is
+  refused as `400 invalid_data` before the type resolves, so detail always
+  answers with the identical projection the list serves.
 
 ## Deliberate omissions
 
+- **No category or tag route is served** — those two pairs stay pinned and
+  unregistered until their behavior slices (categories project the ERPNext
+  `Item Group` tree inside the configured storefront roots, tags project the
+  published items' user tags).
 - **No collection `products` relation** — collection-item membership is
   deferred (Recorded Decision 4,
   [field-mapping.md](./field-mapping.md)).
@@ -136,5 +195,7 @@ if any of them is marked ✅ before a behavior slice implements it.
   expose no searchable column and no selectable surface beyond the pinned
   entity; every such key is rejected as `400 invalid_data` (see
   [Query behavior](#query-behavior)).
-- **No bootstrap fixtures** — demo collections/types are approved with the
-  behavior slices that own the storage (Recorded Decision 7).
+
+The demo collections and types ship with this slice, seeded by the
+development bootstrap's `SetupCatalog` step (Recorded Decision 7); the demo
+`Item Group` overlays for the category slice are approved with that slice.

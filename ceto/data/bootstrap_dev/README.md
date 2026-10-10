@@ -37,6 +37,7 @@ place; rerun the bootstrap after correcting the error.
 | Items | `DEV-*` catalog with Item Defaults row | Item `item_code` |
 | Item prices | Selling rates active from a fixed development date | price list + item + stock UOM + configured start date, no end date/parties/packing unit |
 | Sales taxes | `Ceto Dev Sales Taxes` template at 0% | title + company; only when exactly one leaf Tax account exists |
+| Catalog | `Dev Summer Drop` / `Dev Essentials` collections, `Dev Apparel` / `Dev Accessory` product types | collection handle; product type value; public ids are minted once at creation |
 
 Values live in `settings.py` (cross-seeder settings) and `dataset.py` (the
 fake catalog). Reports group every document under `created`, `updated`, or

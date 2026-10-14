@@ -1,10 +1,9 @@
 """Contract tests for the pinned Store shipping-option routes manifest.
 
-Phase 4 slice 1 pins the contract only; a behavior slice registers the
+Phase 4 slice 1 pinned the contract; the behavior slice registers the
 routes and serves them. The tests fail loudly on manifest drift against the
-verified upstream contracts, on drift against the routes the README
-advertises, and on any route registration or README status flip before that
-slice lands. They are pure Python (no Frappe imports), like the manifest
+verified upstream contracts and on drift against the routes the README
+advertises. They are pure Python (no Frappe imports), like the manifest
 itself.
 """
 
@@ -127,13 +126,14 @@ class TestShippingOptionRouteManifest(unittest.TestCase):
 		self.assertEqual(len(advertised), 2)
 		self.assertEqual(advertised, {(route.method, route.path) for route in SHIPPING_OPTION_ROUTES})
 
-	def test_no_shipping_option_route_is_registered_yet(self):
-		"""Phase 4 slice 1 boundary: the manifest is pinned, the surface is
-		not served. ``ceto/api/store/shipping_options.py`` must not exist,
-		``routes.py`` must not wire a shipping-option module, and both README
-		rows must stay ⚪️ To implement — the behavior slice flips them."""
-		self.assertFalse((PACKAGE_ROOT / "api" / "store" / "shipping_options.py").is_file())
-		self.assertNotIn("shipping_options", (PACKAGE_ROOT / "api" / "routes.py").read_text())
+	def test_the_behavior_slice_registers_the_pinned_routes(self):
+		"""Phase 4 slice 2 boundary: the routes are served. The adapter
+		module exists and ``routes.py`` wires it, while the README rows stay
+		⚪️ until the docs slice flips them."""
+		self.assertTrue((PACKAGE_ROOT / "api" / "store" / "shipping_options.py").is_file())
+		self.assertIn(
+			"import ceto.api.store.shipping_options", (PACKAGE_ROOT / "api" / "routes.py").read_text()
+		)
 		statuses = {(method, path): status for method, path, status in readme_shipping_option_rows()}
 		self.assertEqual(len(statuses), 2)
 		for (method, path), status in statuses.items():

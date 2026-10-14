@@ -15,10 +15,12 @@ The components the pinned contract reserves for the behavior slice:
   ``Shipping Rule`` read adapter (eligibility and calculation).
 - :mod:`ceto.services.shipping.providers` — the provider protocol and the
   built-in provider.
+- :mod:`ceto.services.shipping.service` — the store orchestration that
+  resolves the open cart, applies the publishable-key scope and projects
+  the registry's quotes onto the pinned entities (the HTTP adapters in
+  :mod:`ceto.api.store.shipping_options` stay thin over it).
 
-No route ships in this slice: the API layer composes the registry with
-the cart read models when the shipping-option routes land, and the cart
-apply keeps accepting the legacy raw rule names.
+The cart apply keeps accepting the legacy raw rule names.
 """
 
 from ceto.services.shipping.context import ShippingQuoteContext
@@ -49,6 +51,7 @@ from ceto.services.shipping.providers import (
 	ShippingProvider,
 )
 from ceto.services.shipping.registry import SHIPPING_PROVIDERS_HOOK, ShippingProviderRegistry
+from ceto.services.shipping.service import ShippingOptionsService
 
 __all__ = [
 	"FIXED",
@@ -64,6 +67,7 @@ __all__ = [
 	"OptionScanningProvider",
 	"ShippingOptionError",
 	"ShippingOptionQuote",
+	"ShippingOptionsService",
 	"ShippingProvider",
 	"ShippingProviderRegistry",
 	"ShippingQuoteContext",

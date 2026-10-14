@@ -26,6 +26,7 @@ from ceto.types.http.store.products.manifest import (
 	PRODUCT_VARIANT_ROUTES,
 )
 from ceto.types.http.store.regions.manifest import REGION_ROUTES
+from ceto.types.http.store.shipping_options.manifest import SHIPPING_OPTION_ROUTES
 
 
 def overridden_products() -> dict[str, str]:
@@ -292,6 +293,29 @@ class TestRouter(CetoTestSuite):
 		self.assertEqual(set(registered), implemented)
 		by_key = {(route.method, route.path): route for route in ceto_router.routes}
 		for method, path in sorted(implemented):
+			with self.subTest(route=f"{method} {path}"):
+				self.assertTrue(by_key[(method, path)].allow_guest)
+
+	def test_implemented_shipping_option_routes_match_the_phase_4_slice(self):
+		"""The registered shipping-option surface is exactly the pinned surface.
+
+		Phase 4 wires both pinned shipping-option routes into
+		``ceto_router`` (with its prefix), like the carts / orders /
+		reference-data checks above: route drift in either direction fails
+		loudly. Both reads are guest-dispatchable — the publishable key is
+		the pinned auth, so neither route may require a customer session.
+		"""
+		registered = {
+			(route.method, route.path)
+			for route in ceto_router.routes
+			if "/store/shipping-options" in route.path
+		}
+		pinned = {(route.method, f"/ceto{route.path}") for route in SHIPPING_OPTION_ROUTES}
+		# The registry is a list: the pinned surface is wired exactly once.
+		self.assertEqual(len(registered), len(SHIPPING_OPTION_ROUTES))
+		self.assertEqual(registered, pinned)
+		by_key = {(route.method, route.path): route for route in ceto_router.routes}
+		for method, path in sorted(pinned):
 			with self.subTest(route=f"{method} {path}"):
 				self.assertTrue(by_key[(method, path)].allow_guest)
 

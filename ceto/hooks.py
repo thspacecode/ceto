@@ -263,6 +263,17 @@ auth_hooks = ["ceto.services.auth.tokens.authenticate_bearer_token"]
 # ceto_auth_verification_requested = ["my_app.auth.deliver_verification_code"]
 # ceto_auth_verification_confirmed = ["my_app.auth.on_identity_verified"]
 
+# Downstream apps extend the store shipping-option providers through this hook:
+# ceto_shipping_providers = ["my_app.shipping.CustomShippingProvider"]
+#
+# Each path resolves to a provider class (instantiated with no arguments), a
+# zero-argument factory or a ready instance exposing a nonblank ``id`` and a
+# ``list_options`` method. The built-in ``erpnext`` provider always registers
+# first and the first provider claiming an id wins; a path that cannot resolve,
+# an object without the provider shape and a provider failing mid-listing are
+# logged and skipped, so one broken provider can only contribute nothing, never
+# fail the option read.
+
 # Automatically update python controller files with type annotations for this app.
 # export_python_type_annotations = True
 

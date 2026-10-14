@@ -113,7 +113,9 @@ class CatalogTestData:
 		doc.insert(ignore_permissions=True)
 		return doc
 
-	def variant_item(self, template: Any, *, attribute_value: str = "Black", item_code: str | None = None, **overrides: Any):
+	def variant_item(
+		self, template: Any, *, attribute_value: str = "Black", item_code: str | None = None, **overrides: Any
+	):
 		"""Mint one sellable variant of ``template`` with a valid attribute value."""
 		suffix = uuid.uuid4().hex[:12].upper()
 		doc = frappe.get_doc(

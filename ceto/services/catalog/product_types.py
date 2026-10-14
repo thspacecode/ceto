@@ -86,7 +86,9 @@ class ProductTypeDirectory:
 		ids = sorted({type_id for type_id in type_ids if type_id})
 		if not ids:
 			return {}
-		rows = frappe.get_all("Ceto Product Type", filters={"type_id": ("in", ids)}, fields=PRODUCT_TYPE_FIELDS)
+		rows = frappe.get_all(
+			"Ceto Product Type", filters={"type_id": ("in", ids)}, fields=PRODUCT_TYPE_FIELDS
+		)
 		return {row.type_id: self._projection(row) for row in rows}
 
 	def _rows(self, *, offset: int, limit: int) -> list[Any]:

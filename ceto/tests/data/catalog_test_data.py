@@ -79,9 +79,16 @@ class CatalogTestData:
 		doc.insert(ignore_permissions=True)
 		return doc
 
-	def item_attribute(self, *values: str) -> str:
-		"""Mint one throwaway Item Attribute master with the given allowed values."""
-		name = f"Dev Colour {uuid.uuid4().hex[:8]}"
+	def item_attribute(self, *values: str, name: str | None = None) -> str:
+		"""Mint one throwaway Item Attribute master with the given allowed values.
+
+		``name`` pins the master's name instead of minting one — the golden
+		fixture suites pin the attribute into derived option titles and ids,
+		so their assortment must name it deterministically. Fixed names are
+		safe the way fixed Item Group names are: the per-test rollback
+		removes the master again.
+		"""
+		name = name or f"Dev Colour {uuid.uuid4().hex[:8]}"
 		frappe.get_doc(
 			{
 				"doctype": "Item Attribute",

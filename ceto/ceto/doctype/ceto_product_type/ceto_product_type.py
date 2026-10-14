@@ -5,6 +5,8 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
+from ceto.services.catalog.merchandising import detach_deleted_master
+
 _TYPE_ID_PATTERN = re.compile(r"ptyp_[0-9a-f]{32}")
 
 
@@ -29,9 +31,10 @@ class CetoProductType(Document):
 	The record is Store-read-only: the Store surface projects it through
 	``ceto.services.catalog.product_types``, and writes belong to the
 	operators and the bootstrap fixtures. There is no soft-delete column and
-	no product back-reference: how a published ``Item`` references its type
-	is a products-slice decision (Recorded Decision 3), and Ceto deletes
-	types hard.
+	no product back-reference on the type itself: how a published ``Item``
+	references its type is the Ceto-owned ``Ceto Product Merchandising``
+	record (Recorded Decision 3), detached by ``on_trash`` when the type is
+	deleted, and Ceto deletes types hard.
 	"""
 
 	def validate(self) -> None:
@@ -39,6 +42,10 @@ class CetoProductType(Document):
 		self._validate_value()
 		self._validate_external_id()
 		self._validate_metadata()
+
+	def on_trash(self) -> None:
+		"""Detach the deleted type from every merchandising record naming it."""
+		detach_deleted_master("product_type", self.name)
 
 	def _validate_type_id(self) -> None:
 		"""Pin the public id to its minted shape; an id is never normalized."""

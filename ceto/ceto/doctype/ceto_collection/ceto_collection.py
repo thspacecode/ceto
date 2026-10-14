@@ -5,6 +5,8 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
+from ceto.services.catalog.merchandising import detach_deleted_master
+
 _COLLECTION_ID_PATTERN = re.compile(r"pcol_[0-9a-f]{32}")
 _HANDLE_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 
@@ -28,9 +30,12 @@ class CetoCollection(Document):
 
 	The record is Store-read-only: the Store surface projects it through
 	``ceto.services.catalog.collections``, and writes belong to the operators
-	and the bootstrap fixtures. There is deliberately no membership column —
-	collection-item membership is deferred with the products slice (Recorded
-	Decision 4) — and no soft-delete column: Ceto deletes collections hard.
+	and the bootstrap fixtures. There is deliberately no membership column on
+	the collection itself — product membership is the Ceto-owned
+	``Ceto Product Merchandising`` record, which names the collection
+	(Recorded Decision 4) and is detached by ``on_trash`` when the
+	collection is deleted — and no soft-delete column: Ceto deletes
+	collections hard.
 	"""
 
 	def validate(self) -> None:
@@ -39,6 +44,10 @@ class CetoCollection(Document):
 		self._validate_handle()
 		self._validate_external_id()
 		self._validate_metadata()
+
+	def on_trash(self) -> None:
+		"""Detach the deleted collection from every merchandising record naming it."""
+		detach_deleted_master("collection", self.name)
 
 	def _validate_collection_id(self) -> None:
 		"""Pin the public id to its minted shape; an id is never normalized."""

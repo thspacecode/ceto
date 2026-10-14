@@ -19,7 +19,8 @@ class TestCatalogConfigParser(CetoTestSuite):
 			self.assertEqual(catalog_settings(), settings)
 
 	def test_absent_or_non_mapping_configuration_reads_as_empty(self):
-		self.assertEqual(catalog_settings(), {})
+		with self.set_conf(ceto_catalog=None):
+			self.assertEqual(catalog_settings(), {})
 		with self.set_conf(ceto_catalog="not-a-mapping"):
 			self.assertEqual(catalog_settings(), {})
 

@@ -2,19 +2,20 @@
 
 Categories are the ERPNext ``Item Group`` NestedSet tree, published only
 inside the configured storefront roots (Recorded Decision 1): a node is
-servable exactly when it is a configured root or descends from one, parsed
-once through :mod:`ceto.config.catalog` — nothing outside the roots (the
-``All Item Groups`` default tree included) is ever visible, and an unknown
-or unpublished id masks as ``404`` like everywhere else on the Store
-surface. The page is the tree's own order — ``lft`` ascending, the NestedSet
-pre-order walk, with the node name breaking ties (Recorded Decision 6) —
-and the count runs over the whole published set before pagination. The
-projection is flat (Recorded Decision 5): ``parent_category_id`` names the
-published ``parent_item_group`` when the parent is itself published, while
-the embedded ``parent_category`` / ``category_children`` stay empty and the
-tree expansion flags stay refused query keys. ``rank`` stays ``None`` — no
-sibling-ranking source exists — and the timestamps are the real record
-``creation`` / ``modified`` (Recorded Decision 8), never fabricated.
+servable exactly when it is a configured root or descends from one, resolved
+once through the publication authority ``ceto.services.catalog.publication``
+— nothing outside the roots (the ``All Item Groups`` default tree included)
+is ever visible, and an unknown or unpublished id masks as ``404`` like
+everywhere else on the Store surface. The page is the tree's own order —
+``lft`` ascending, the NestedSet pre-order walk, with the node name breaking
+ties (Recorded Decision 6) — and the count runs over the whole published set
+before pagination. The projection is flat (Recorded Decision 5):
+``parent_category_id`` names the published ``parent_item_group`` when the
+parent is itself published, while the embedded ``parent_category`` /
+``category_children`` stay empty and the tree expansion flags stay refused
+query keys. ``rank`` stays ``None`` — no sibling-ranking source exists — and
+the timestamps are the real record ``creation`` / ``modified`` (Recorded
+Decision 8), never fabricated.
 
 The public ``id`` is derived, not stored: ``pcat_`` + a SHA-256 truncation
 of the ``Item Group`` node name, so the id is stable and addressable with no
@@ -27,10 +28,9 @@ import re
 from typing import Any
 
 import frappe
-from frappe.utils.nestedset import get_descendants_of
 
-from ceto.config.catalog import catalog_settings, category_roots
 from ceto.routing.exceptions import RouteNotFoundError
+from ceto.services.catalog.publication import published_item_group_names
 from ceto.types.http.store.product_categories import (
 	PRODUCT_CATEGORY_LIST_DEFAULT_LIMIT,
 	PRODUCT_CATEGORY_LIST_DEFAULT_OFFSET,
@@ -98,18 +98,12 @@ class ProductCategoryDirectory:
 	def published(self) -> list[StoreProductCategory]:
 		"""Return every published category in ``lft`` order — the servable set.
 
-		The configured roots resolve through ``ceto.config.catalog``; an
-		unknown root publishes nothing instead of failing the read. Store
-		reads dispatch as Guest, so the tree walk reads Item Groups
-		permission-free exactly like the row fetch itself.
+		The boundary is the single publication authority
+		(``ceto.services.catalog.publication``); an unknown root publishes
+		nothing instead of failing the read. Store reads dispatch as Guest,
+		so the row fetch reads Item Groups permission-free.
 		"""
-		roots = category_roots(catalog_settings())
-		if not roots:
-			return []
-		names = set()
-		for root in frappe.get_all("Item Group", filters={"name": ("in", list(roots))}, pluck="name"):
-			names.add(root)
-			names.update(get_descendants_of("Item Group", root, order_by="lft", ignore_permissions=True))
+		names = published_item_group_names()
 		if not names:
 			return []
 		rows = frappe.get_all(

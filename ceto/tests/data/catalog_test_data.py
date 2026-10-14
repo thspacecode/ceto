@@ -20,7 +20,7 @@ from ceto.services.catalog.product_types import new_product_type_id
 
 
 class CatalogTestData:
-	"""Mint disposable collections, product types and Item Groups for one test."""
+	"""Mint disposable collections, product types, Item Groups and Items for one test."""
 
 	def collection(self, *, title: str = "Dev Collection", handle: str | None = None, **overrides: Any):
 		doc = frappe.get_doc(
@@ -73,6 +73,55 @@ class CatalogTestData:
 				"item_name": f"Dev Tagged Item {suffix}",
 				"item_group": "All Item Groups",
 				"stock_uom": "Unit",
+				**overrides,
+			}
+		)
+		doc.insert(ignore_permissions=True)
+		return doc
+
+	def item_attribute(self) -> str:
+		"""Mint one throwaway Item Attribute master with one allowed value."""
+		name = f"Dev Colour {uuid.uuid4().hex[:8]}"
+		frappe.get_doc(
+			{
+				"doctype": "Item Attribute",
+				"attribute_name": name,
+				"numeric_values": 0,
+				"item_attribute_values": [{"attribute_value": "Black", "abbr": "BLK"}],
+			}
+		).insert(ignore_permissions=True)
+		return name
+
+	def template_item(self, *, item_code: str | None = None, **overrides: Any):
+		"""Mint one throwaway variant-family template Item for one test."""
+		suffix = uuid.uuid4().hex[:12].upper()
+		doc = frappe.get_doc(
+			{
+				"doctype": "Item",
+				"item_code": item_code or f"DEV-TMPL-{suffix}",
+				"item_name": f"Dev Template Item {suffix}",
+				"item_group": "All Item Groups",
+				"stock_uom": "Unit",
+				"has_variants": 1,
+				"attributes": [{"attribute": self.item_attribute()}],
+				**overrides,
+			}
+		)
+		doc.insert(ignore_permissions=True)
+		return doc
+
+	def variant_item(self, template: Any, *, item_code: str | None = None, **overrides: Any):
+		"""Mint one sellable variant of ``template`` with a valid attribute value."""
+		suffix = uuid.uuid4().hex[:12].upper()
+		doc = frappe.get_doc(
+			{
+				"doctype": "Item",
+				"item_code": item_code or f"DEV-VAR-{suffix}",
+				"item_name": f"Dev Variant Item {suffix}",
+				"item_group": template.item_group,
+				"stock_uom": "Unit",
+				"variant_of": template.name,
+				"attributes": [{"attribute": template.attributes[0].attribute, "attribute_value": "Black"}],
 				**overrides,
 			}
 		)

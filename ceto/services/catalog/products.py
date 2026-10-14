@@ -54,6 +54,9 @@ from ceto.types.http.store.products import (
 	PRODUCT_LIST_DEFAULT_LIMIT,
 	PRODUCT_LIST_DEFAULT_OFFSET,
 	PRODUCT_LIST_MAX_LIMIT,
+	PRODUCT_OPTION_LIST_DEFAULT_LIMIT,
+	PRODUCT_OPTION_LIST_DEFAULT_OFFSET,
+	PRODUCT_OPTION_LIST_MAX_LIMIT,
 	PRODUCT_VARIANT_LIST_DEFAULT_LIMIT,
 	PRODUCT_VARIANT_LIST_DEFAULT_OFFSET,
 	PRODUCT_VARIANT_LIST_MAX_LIMIT,
@@ -62,6 +65,8 @@ from ceto.types.http.store.products import (
 	StoreProductImage,
 	StoreProductListResponse,
 	StoreProductOption,
+	StoreProductOptionListResponse,
+	StoreProductOptionResponse,
 	StoreProductOptionValue,
 	StoreProductResponse,
 	StoreProductVariant,
@@ -224,6 +229,36 @@ class ProductCatalog:
 			limit=limit,
 		)
 
+	def option_page(
+		self,
+		*,
+		limit: int = PRODUCT_OPTION_LIST_DEFAULT_LIMIT,
+		offset: int = PRODUCT_OPTION_LIST_DEFAULT_OFFSET,
+	) -> StoreProductOptionListResponse:
+		"""Return the pinned ``{product_options, count, offset, limit}`` envelope.
+
+		The global option surface serves every family option of the served
+		assortment — a standalone item carries none — title-then-id ordered,
+		and the count runs over the whole servable set before pagination.
+		"""
+		offset = max(0, int(offset))
+		limit = min(max(0, int(limit)), PRODUCT_OPTION_LIST_MAX_LIMIT)
+		options = self._option_surface()
+		return StoreProductOptionListResponse(
+			product_options=options[offset : offset + limit],
+			count=len(options),
+			offset=offset,
+			limit=limit,
+		)
+
+	def get_option(self, option_id: str) -> StoreProductOptionResponse:
+		"""Return one served option by its public id; unknown ids mask as 404."""
+		by_id = {option.id: option for option in self._option_surface()}
+		option = by_id.get(option_id)
+		if option is None:
+			raise RouteNotFoundError(f"Product option {option_id or '(not set)'} not found")
+		return StoreProductOptionResponse(product_option=option)
+
 	def _product_projections(self, region_id: str | None) -> list[StoreProduct]:
 		"""Serialize the served assortment, enriched and priced in one pass."""
 		assortment = assemble()
@@ -239,6 +274,19 @@ class ProductCatalog:
 			return []
 		enrichment = self._enrich(assortment, resolve_pricing_authority(region_id))
 		return [self._variant_projection(variant, enrichment) for variant in assortment.variants]
+
+	def _option_surface(self) -> list[StoreProductOption]:
+		"""Project every family option onto the global surface, title-then-id ordered.
+
+		The options are the per-product projections (values embedded, the
+		owning item's timestamps served) re-sorted across the whole served
+		assortment, so a family's options never inherit its product order.
+		"""
+		options: list[StoreProductOption] = []
+		for served in assemble().products:
+			options.extend(self._option_projections(served))
+		options.sort(key=lambda option: (option.title, option.id))
+		return options
 
 	@staticmethod
 	def _enrich(assortment: Assortment, authority: PricingAuthority | None) -> _Enrichment:

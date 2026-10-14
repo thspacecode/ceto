@@ -8,8 +8,8 @@ projections, the barcodes and the region-aware prices each load in one
 bulk query for the whole served set. The tests pin the served shapes and
 the derived identities (products field-mapping decision 7), the page
 echo over the whole assortment, the masked unknown id, the canonical
-variants surface and the fixed query budget a page costs no matter how
-large the assortment grows.
+variants surface, the global option surface and the fixed query budget a
+page costs no matter how large the assortment grows.
 """
 
 from collections.abc import Iterator
@@ -32,7 +32,11 @@ from ceto.services.catalog.products import (
 )
 from ceto.tests.data.catalog_test_data import CatalogTestData
 from ceto.tests.utils import CetoTestSuite, boot_strap_test_master_data
-from ceto.types.http.store.products import PRODUCT_LIST_MAX_LIMIT
+from ceto.types.http.store.products import (
+	PRODUCT_LIST_MAX_LIMIT,
+	PRODUCT_OPTION_LIST_DEFAULT_LIMIT,
+	PRODUCT_OPTION_LIST_MAX_LIMIT,
+)
 
 ROOT = "Products Root"
 IN_ROOT = "Products Apparel"
@@ -318,6 +322,159 @@ class TestProductSurfaces(ProductsTestSuite):
 		self.assertEqual(by_sku["DEV-SURF-SOLO"].product_id, product_public_id(standalone.name))
 		for unsellable in (template.name, orphan.name, orphan_head.name):
 			self.assertNotIn(unsellable, by_sku)
+
+
+class TestProductOptionSurfaces(ProductsTestSuite):
+	"""The global option surface over the served assortment's family options."""
+
+	def family(self, head_code: str, attributes: list[str], members: list[list[tuple[str, str]]]):
+		"""Mint one published family: ``attributes`` in head order, ``members``
+		carrying each variant's attribute-value pairs."""
+		head = self.fixtures.template_item(
+			item_code=head_code,
+			item_group=IN_ROOT,
+			attributes=[{"attribute": attribute} for attribute in attributes],
+		)
+		for index, pairs in enumerate(members):
+			self.fixtures.variant_item(
+				head,
+				item_code=f"{head_code}-V{index + 1}",
+				attributes=[{"attribute": attribute, "attribute_value": value} for attribute, value in pairs],
+			)
+		return head
+
+	def test_an_empty_assortment_serves_an_empty_option_surface(self) -> None:
+		with self.publish(roots=()):
+			page = ProductCatalog().option_page()
+		self.assertEqual((page.product_options, page.count, page.offset), ([], 0, 0))
+		self.assertEqual(page.limit, PRODUCT_OPTION_LIST_DEFAULT_LIMIT)
+
+		# A standalone item is sellable but option-less: still an empty surface.
+		self.published_item(item_code="DEV-OPT-SOLO", item_name="Dev Opt Solo")
+		with self.publish():
+			self.assertEqual(ProductCatalog().option_page().count, 0)
+
+	def test_the_option_surface_serves_every_family_option_title_then_id(self) -> None:
+		colour = self.fixtures.item_attribute("Black", "Red")
+		size = self.fixtures.item_attribute("Small", "Large")
+		material = self.fixtures.item_attribute("Cotton")
+		first = self.family(
+			"DEV-OPT-A",
+			[colour, size],
+			[
+				[(colour, "Black"), (size, "Small")],
+				[(colour, "Red"), (size, "Large")],
+			],
+		)
+		second = self.family("DEV-OPT-B", [material, colour], [[(material, "Cotton"), (colour, "Red")]])
+
+		with self.publish():
+			page = ProductCatalog().option_page(limit=PRODUCT_OPTION_LIST_MAX_LIMIT)
+
+		# Every family option serves exactly once, ordered by its own title
+		# with the derived id breaking the shared-title tie — never the
+		# families' product order.
+		expected = sorted(
+			[
+				(first.name, colour),
+				(first.name, size),
+				(second.name, material),
+				(second.name, colour),
+			],
+			key=lambda pair: (pair[1], option_public_id(pair[0], pair[1])),
+		)
+		self.assertEqual(
+			[(option.title, option.id) for option in page.product_options],
+			[(attribute, option_public_id(code, attribute)) for code, attribute in expected],
+		)
+
+	def test_a_title_two_families_share_serves_two_distinct_options(self) -> None:
+		colour = self.fixtures.item_attribute("Black", "Red")
+		first = self.family("DEV-OPT-C", [colour], [[(colour, "Black")], [(colour, "Red")]])
+		second = self.family("DEV-OPT-D", [colour], [[(colour, "Red")]])
+
+		with self.publish():
+			page = ProductCatalog().option_page(limit=PRODUCT_OPTION_LIST_MAX_LIMIT)
+
+		self.assertEqual(page.count, 2)
+		by_id = {option.id: option for option in page.product_options}
+		self.assertEqual(len(by_id), 2)
+		# The shared title breaks on the derived id.
+		self.assertEqual([option.id for option in page.product_options], sorted(by_id))
+		# Each family serves its own observed values, bound back to it.
+		self.assertEqual(
+			[value.value for value in by_id[option_public_id(first.name, colour)].values], ["Black", "Red"]
+		)
+		self.assertEqual(
+			[value.value for value in by_id[option_public_id(second.name, colour)].values], ["Red"]
+		)
+		for option in by_id.values():
+			self.assertEqual({value.option_id for value in option.values}, {option.id})
+
+	def test_the_option_page_echoes_the_page_over_the_whole_surface(self) -> None:
+		colour = self.fixtures.item_attribute("Black")
+		size = self.fixtures.item_attribute("Small")
+		material = self.fixtures.item_attribute("Cotton")
+		self.family("DEV-OPT-E", [colour], [[(colour, "Black")]])
+		self.family("DEV-OPT-F", [size], [[(size, "Small")]])
+		self.family("DEV-OPT-G", [material], [[(material, "Cotton")]])
+
+		with self.publish():
+			whole = ProductCatalog().option_page(limit=PRODUCT_OPTION_LIST_MAX_LIMIT)
+			page = ProductCatalog().option_page(limit=2, offset=1)
+			beyond = ProductCatalog().option_page(offset=10)
+			clamped = ProductCatalog().option_page(limit=10_000)
+
+		self.assertEqual(whole.count, 3)
+		self.assertEqual(
+			[option.id for option in page.product_options],
+			[option.id for option in whole.product_options][1:3],
+		)
+		self.assertEqual((page.count, page.offset, page.limit), (3, 1, 2))
+		self.assertEqual((beyond.product_options, beyond.count), ([], 3))
+		self.assertEqual(clamped.limit, PRODUCT_OPTION_LIST_MAX_LIMIT)
+
+	def test_the_option_detail_serves_the_projection_the_list_serves(self) -> None:
+		colour = self.fixtures.item_attribute("Black", "Red")
+		head = self.family("DEV-OPT-H", [colour], [[(colour, "Black")], [(colour, "Red")]])
+
+		with self.publish():
+			page = ProductCatalog().option_page(limit=PRODUCT_OPTION_LIST_MAX_LIMIT)
+			response = ProductCatalog().get_option(page.product_options[0].id)
+
+		self.assertEqual(response.product_option, page.product_options[0])
+		option = response.product_option
+		self.assertEqual(option.title, colour)
+		self.assertEqual(
+			[(value.id, value.value, value.option_id) for value in option.values],
+			[
+				(option_value_public_id(head.name, colour, "Black"), "Black", option.id),
+				(option_value_public_id(head.name, colour, "Red"), "Red", option.id),
+			],
+		)
+		# The owning item's timestamps serve as-is; the back-reference stays unset.
+		self.assertEqual(option.created_at, get_datetime(head.creation))
+		self.assertEqual(option.updated_at, get_datetime(head.modified))
+		self.assertIsNone(option.product)
+
+	def test_an_unknown_or_unpublished_option_id_masks_as_a_404(self) -> None:
+		colour = self.fixtures.item_attribute("Black", "Red")
+		hidden = self.fixtures.template_item(
+			item_code="DEV-OPT-HIDDEN",
+			item_group=OUTSIDE,
+			attributes=[{"attribute": colour}],
+		)
+
+		with self.publish():
+			for option_id in (
+				"",
+				"opt_does_not_exist",
+				option_public_id(hidden.name, colour),
+				option_value_public_id(hidden.name, colour, "Black"),
+			):
+				with self.subTest(option_id=option_id):
+					with self.assertRaises(RouteNotFoundError):
+						ProductCatalog().get_option(option_id)
 
 
 class TestQueryBudget(ProductsTestSuite):

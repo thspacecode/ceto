@@ -126,10 +126,13 @@ class TestShippingOptionRouteManifest(unittest.TestCase):
 		self.assertEqual(len(advertised), 2)
 		self.assertEqual(advertised, {(route.method, route.path) for route in SHIPPING_OPTION_ROUTES})
 
-	def test_the_behavior_slice_registers_the_pinned_routes(self):
-		"""Phase 4 slice 2 boundary: the routes are served. The adapter
-		module exists and ``routes.py`` wires it, while the README rows stay
-		⚪️ until the docs slice flips them."""
+	def test_the_docs_slice_marks_the_served_routes(self):
+		"""The behavior slice serves the routes and the docs slice marks them.
+
+		The adapter module exists, ``routes.py`` wires it, and the README
+		rows are ✅ — flipped exactly when the served surface was
+		documented, so a status row can never drift from a served route.
+		"""
 		self.assertTrue((PACKAGE_ROOT / "api" / "store" / "shipping_options.py").is_file())
 		self.assertIn(
 			"import ceto.api.store.shipping_options", (PACKAGE_ROOT / "api" / "routes.py").read_text()
@@ -138,7 +141,7 @@ class TestShippingOptionRouteManifest(unittest.TestCase):
 		self.assertEqual(len(statuses), 2)
 		for (method, path), status in statuses.items():
 			with self.subTest(route=(method, path)):
-				self.assertIn("⚪", status)
+				self.assertIn("✅", status)
 
 
 if __name__ == "__main__":

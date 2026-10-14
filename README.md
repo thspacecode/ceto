@@ -202,8 +202,8 @@ Medusa API implementation status, grouped by scope. Routes follow the [Medusa St
 
 | Method | Route | Status |
 | --- | --- | --- |
-| GET | `/store/shipping-options` | ⚪️ |
-| POST | `/store/shipping-options/{id}/calculate` | ⚪️ |
+| GET | `/store/shipping-options` | ✅️ |
+| POST | `/store/shipping-options/{id}/calculate` | ✅️ |
 
 ### Store Credit Accounts
 

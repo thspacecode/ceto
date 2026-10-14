@@ -8,7 +8,13 @@ Two enforcements the small-scale suites cannot make:
   100 variants plus one standalone sellable unit). A per-item read — the
   N+1 regression the serializer's batching exists to prevent — multiplies
   its query count by the assortment size and fails the equality here at a
-  size where the multiplier is unmistakable.
+  size where the multiplier is unmistakable. The counts are taken on the
+  second read of each surface: an uncounted warm-up pass first absorbs
+  Frappe's one-time metadata queries (doctype caches, single defaults),
+  which otherwise land on whichever assortment is read first in a cold
+  process and would make the comparison order-dependent, not
+  scale-dependent. The warm-up cannot hide an N+1: per-item queries are
+  paid on every read, so the counted pass still multiplies with size.
 - **The reads stay fast at that scale.** One read of the benchmark
   assortment must complete inside the pinned wall-clock budget below.
   The budget is recorded, not discovered per run: the baseline measured at
@@ -186,15 +192,21 @@ class ProductsScaleSuite(CetoTestSuite):
 		}
 
 	def counted_reads(self, ids: dict[str, str], expected: dict[str, int], root: str) -> dict[str, int]:
-		"""Read every surface once under ``root``, serving ``expected`` sizes.
+		"""Read every surface twice under ``root`` — once uncounted, once counted.
 
-		Returns the ``frappe.db.sql`` call count per surface. Each read must
-		serve its expected set — a count over an empty or partial read says
-		nothing about the real one.
+		The uncounted first pass pays Frappe's one-time metadata warm-up
+		(doctype caches, single defaults): in a cold process those queries
+		land on whichever assortment is read first, so counting them makes
+		the budget order-dependent. The counted second pass measures the
+		read's own cost and returns the ``frappe.db.sql`` call count per
+		surface. Each counted read must serve its expected set — a count
+		over an empty or partial read says nothing about the real one.
 		"""
 		counts: dict[str, int] = {}
 		with self.set_conf(ceto_catalog={"category_roots": [root]}):
 			catalog = ProductCatalog()
+			for surface in SURFACES:
+				self.read_surface(catalog, surface, ids)
 			for surface in SURFACES:
 				with self.counted_queries() as spy:
 					result = self.read_surface(catalog, surface, ids)

@@ -106,7 +106,7 @@ the claiming Customer stay attached unchanged.
 
 | Medusa `StoreCartShippingMethod` field | ERPNext target | Classification |
 |---|---|---|
-| `shipping_option_id` | `shipping_rule` on the Quotation (the option id **is** the Shipping Rule name; enabled, `Selling`, cart company) | derived |
+| `shipping_option_id` | `shipping_rule` on the Quotation (the apply keeps accepting the legacy raw Shipping Rule name; the shipping-options surface serves the opaque `so_` ids; enabled, `Selling`, cart company) | derived |
 | `name` | Shipping Rule label (stamped into the charge row description) | direct |
 | `amount` | `tax_amount` of the `Actual` charge row the controller wrote | direct |
 | `subtotal`, `total` | the same row amount (no tax-on-shipping is produced) | derived |
@@ -115,11 +115,16 @@ the claiming Customer stay attached unchanged.
 | `created_at` / `updated_at` | `creation` / `modified` of the `Actual` charge row (the row is the method identity) | direct |
 | `data` (request payload) | accepted but not persisted — no compatibility field exists on the rule link | gap |
 
-The Phase 4 rate source is ERPNext `Shipping Rule` masters, priced and
-applied by ERPNext's own controllers. **Shipgi** — the shipment-gateway app
-that owns provider integrations — is currently a skeleton with no rate API;
-it is the future seam for dynamic provider rates and a shipping-options
-listing route (deliberately not built in Phase 4).
+The rate source is ERPNext `Shipping Rule` masters, priced and applied by
+ERPNext's own controllers. **Shipgi** — the shipment-gateway app that owns
+provider integrations — is currently a skeleton with no rate API; it is the
+future seam for dynamic provider rates, plugging in through the
+`ceto_shipping_providers` hook without touching either contract. The
+shipping-options surface (`GET /store/shipping-options`,
+`POST /store/shipping-options/{id}/calculate`) serves the eligible rules
+under opaque `so_` ids — the contract lives in
+`docs/shipping/endpoints.md` — and the apply above accepts those ids beside
+the legacy raw rule name.
 
 ## Cart Credit (gift card / store credit) → Ceto Credit Wallet + Quotation tax row
 

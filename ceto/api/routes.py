@@ -17,3 +17,4 @@ import ceto.api.store.product_tags
 import ceto.api.store.product_types
 import ceto.api.store.products
 import ceto.api.store.regions
+import ceto.api.store.shipping_options

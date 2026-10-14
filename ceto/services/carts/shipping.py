@@ -137,10 +137,11 @@ class CartShippingMethods:
 	def _resolve_rule(option_id: str, company: str) -> "Document":
 		"""Return the enabled ``Selling`` rule ``option_id`` names.
 
-		The public option id **is** the ``Shipping Rule`` name (there is no
-		shipping-options listing yet). Unknown, disabled, buying-side or
-		foreign-company options are ``invalid_data``: the master exists but
-		cannot be applied to this cart.
+		The apply keeps accepting the legacy raw ``Shipping Rule`` name:
+		the shipping-options contract serves the opaque ``so_`` option ids
+		and the behavior slice will resolve them there. Unknown, disabled,
+		buying-side or foreign-company options are ``invalid_data``: the
+		master exists but cannot be applied to this cart.
 		"""
 		try:
 			rule = frappe.get_doc("Shipping Rule", option_id)

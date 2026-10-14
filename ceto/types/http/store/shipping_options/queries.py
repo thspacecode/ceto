@@ -11,11 +11,13 @@ Ceto's read models are stricter than the pinned upstream validators, whose
 unknown keys are stripped: both models are ``extra="forbid"``, so every
 unsupported key fails as ``400 invalid_data`` instead of being dropped.
 The list accepts exactly ``cart_id`` — the one scoping key the route
-resolves — and refuses the dead ``FindParams`` pagination (the pinned route
-ignores ``limit``/``offset`` and its non-paginated envelope cannot carry
-them), the ``fields`` selector, the ``order`` sort, the ``$and``/``$or``
-combinators and ``is_return``: ERPNext ``Selling`` rules have no return-rate
-source, so no return option can ever be served.
+resolves — plus the optional ``is_return`` flag the pinned validator
+carries beside it: ERPNext ``Selling`` rules have no return-rate source,
+so ``is_return=true`` later serves the empty option set instead of an
+error. Everything else is refused: the dead ``FindParams`` pagination (the
+pinned route ignores ``limit``/``offset`` and its non-paginated envelope
+cannot carry them), the ``fields`` selector, the ``order`` sort and the
+``$and``/``$or`` combinators.
 """
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -25,16 +27,19 @@ class StoreGetShippingOptionList(BaseModel):
 	"""Query of ``GET /store/shipping-options``.
 
 	Mirrors the pinned ``StoreGetShippingOptionList`` of
-	``@medusajs/types@2.21.1`` reduced to the required ``cart_id`` scope.
-	Unknown keys are rejected like on every core payload — including the
-	pinned validator's dead pagination defaults (0/20, recorded in the
-	manifest), ``is_return``, ``fields``, ``order`` and the
-	``$and``/``$or`` combinators.
+	``@medusajs/types@2.21.1`` reduced to the required ``cart_id`` scope
+	plus the optional ``is_return`` flag. Unknown keys are rejected like on
+	every core payload — including the pinned validator's dead pagination
+	defaults (0/20, recorded in the manifest), ``fields``, ``order`` and
+	the ``$and``/``$or`` combinators. ``is_return=true`` serves the empty
+	option set: ERPNext ``Selling`` rules have no return-rate source, so no
+	return option can ever be listed.
 	"""
 
 	model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 	cart_id: str = Field(min_length=1)
+	is_return: bool | None = None
 
 
 class StoreShippingOptionCalculateParams(BaseModel):

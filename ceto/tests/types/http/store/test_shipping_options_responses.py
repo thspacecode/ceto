@@ -17,13 +17,18 @@ from ceto.types.http.store.shipping_options import (
 	StoreShippingOptionResponse,
 )
 
-OPTION = StoreCartShippingOption(id="Dev Flat Rate", name="Dev Flat Rate", price_type="flat")
+OPTION = StoreCartShippingOption(
+	id="so_ZXJwbmV4dDpEZXZfRmxhdF9SYXRl",
+	name="Dev Flat Rate",
+	price_type="flat",
+	provider={"id": "erpnext", "is_enabled": True},
+)
 
 
 class TestStoreShippingOptionListResponse(unittest.TestCase):
 	def test_envelope_is_the_non_paginated_pinned_body(self):
 		response = StoreShippingOptionListResponse.model_validate({"shipping_options": [OPTION.model_dump()]})
-		self.assertEqual([entry.id for entry in response.shipping_options], ["Dev Flat Rate"])
+		self.assertEqual([entry.id for entry in response.shipping_options], [OPTION.id])
 		self.assertEqual(set(StoreShippingOptionListResponse.model_fields), {"shipping_options"})
 
 	def test_no_pagination_may_grow_on_the_list_envelope(self):
@@ -44,16 +49,32 @@ class TestStoreShippingOptionListResponse(unittest.TestCase):
 class TestStoreShippingOptionResponse(unittest.TestCase):
 	def test_carries_the_option(self):
 		response = StoreShippingOptionResponse(shipping_option=OPTION)
-		self.assertEqual(response.shipping_option.id, "Dev Flat Rate")
+		self.assertEqual(response.shipping_option.id, OPTION.id)
 		self.assertEqual(set(StoreShippingOptionResponse.model_fields), {"shipping_option"})
 
 	def test_validates_the_nested_option(self):
 		response = StoreShippingOptionResponse.model_validate(
-			{"shipping_option": {"id": "so_1", "name": "Flat", "price_type": "calculated"}}
+			{
+				"shipping_option": {
+					"id": "so_ZXJwbmV4dDpGbGF0",
+					"name": "Flat",
+					"price_type": "calculated",
+					"provider": {"id": "erpnext", "is_enabled": True},
+				}
+			}
 		)
 		self.assertEqual(response.shipping_option.price_type, "calculated")
+		self.assertEqual(response.shipping_option.provider.id, "erpnext")
 		with self.assertRaises(ValidationError):
-			StoreShippingOptionResponse.model_validate({"shipping_option": {"id": "so_1"}})
+			StoreShippingOptionResponse.model_validate(
+				{
+					"shipping_option": {
+						"id": "so_ZXJwbmV4dDpGbGF0",
+						"name": "Flat",
+						"price_type": "calculated",
+					}
+				}
+			)
 		with self.assertRaises(ValidationError):
 			StoreShippingOptionResponse.model_validate({})
 

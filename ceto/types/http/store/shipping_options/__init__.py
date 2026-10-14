@@ -1,4 +1,8 @@
-from ceto.types.http.store.shipping_options.entities import StoreCartShippingOption
+from ceto.types.http.store.shipping_options.entities import (
+	StoreCartShippingOption,
+	StoreShippingOptionCalculatedPrice,
+	StoreShippingOptionProvider,
+)
 from ceto.types.http.store.shipping_options.manifest import (
 	SHIPPING_OPTION_API_SOURCE_URL,
 	SHIPPING_OPTION_LIST_DEFAULT_LIMIT,
@@ -40,6 +44,8 @@ __all__ = [
 	"StoreCartShippingOption",
 	"StoreGetShippingOptionList",
 	"StoreShippingOptionCalculateParams",
+	"StoreShippingOptionCalculatedPrice",
 	"StoreShippingOptionListResponse",
+	"StoreShippingOptionProvider",
 	"StoreShippingOptionResponse",
 ]

@@ -38,7 +38,11 @@ class TestStoreCalculateShippingOptionPricePayload(unittest.TestCase):
 			StoreCalculateShippingOptionPrice(cart_id="cart_123", data=["dhl"])
 
 	def test_rejects_extra_fields(self):
-		for extra in ({"option_id": "Dev Flat Rate"}, {"is_return": False}, {"id": "cart_1"}):
+		for extra in (
+			{"option_id": "so_ZXJwbmV4dDpEZXZfRmxhdF9SYXRl"},
+			{"is_return": False},
+			{"id": "cart_1"},
+		):
 			with self.subTest(extra=extra), self.assertRaises(ValidationError):
 				StoreCalculateShippingOptionPrice(cart_id="cart_123", **extra)
 

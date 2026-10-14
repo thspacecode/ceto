@@ -106,7 +106,7 @@ the claiming Customer stay attached unchanged.
 
 | Medusa `StoreCartShippingMethod` field | ERPNext target | Classification |
 |---|---|---|
-| `shipping_option_id` | `shipping_rule` on the Quotation (the option id **is** the Shipping Rule name; enabled, `Selling`, cart company) | derived |
+| `shipping_option_id` | `shipping_rule` on the Quotation (the apply keeps accepting the legacy raw Shipping Rule name; the shipping-options surface serves the opaque `so_` ids; enabled, `Selling`, cart company) | derived |
 | `name` | Shipping Rule label (stamped into the charge row description) | direct |
 | `amount` | `tax_amount` of the `Actual` charge row the controller wrote | direct |
 | `subtotal`, `total` | the same row amount (no tax-on-shipping is produced) | derived |

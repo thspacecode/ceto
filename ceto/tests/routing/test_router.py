@@ -20,6 +20,11 @@ from ceto.types.http.store.orders.manifest import ORDER_ROUTES
 from ceto.types.http.store.product_categories.manifest import PRODUCT_CATEGORY_ROUTES
 from ceto.types.http.store.product_tags.manifest import PRODUCT_TAG_ROUTES
 from ceto.types.http.store.product_types.manifest import PRODUCT_TYPE_ROUTES
+from ceto.types.http.store.products.manifest import (
+	PRODUCT_OPTION_ROUTES,
+	PRODUCT_ROUTES,
+	PRODUCT_VARIANT_ROUTES,
+)
 from ceto.types.http.store.regions.manifest import REGION_ROUTES
 
 
@@ -260,6 +265,31 @@ class TestRouter(CetoTestSuite):
 		manifests = (COLLECTION_ROUTES, PRODUCT_CATEGORY_ROUTES, PRODUCT_TAG_ROUTES, PRODUCT_TYPE_ROUTES)
 		implemented = {(route.method, f"/ceto{route.path}") for routes in manifests for route in routes}
 		self.assertEqual(registered, implemented)
+		by_key = {(route.method, route.path): route for route in ceto_router.routes}
+		for method, path in sorted(implemented):
+			with self.subTest(route=f"{method} {path}"):
+				self.assertTrue(by_key[(method, path)].allow_guest)
+
+	def test_implemented_product_routes_match_the_phase_3_slice(self):
+		"""The registered product surface is exactly the pinned manifest surface.
+
+		The products slice wires the five pinned GET routes into
+		``ceto_router`` (with its prefix), like the carts / orders / catalog
+		checks above: route drift in either direction fails loudly. Every
+		product read is guest-dispatchable — the publishable key is the
+		pinned auth, so no product route may require a customer session.
+		"""
+		segments = ("/store/products", "/store/product-variants", "/store/product-options")
+		registered = [
+			(route.method, route.path)
+			for route in ceto_router.routes
+			if any(segment in route.path for segment in segments)
+		]
+		manifests = (PRODUCT_ROUTES, PRODUCT_VARIANT_ROUTES, PRODUCT_OPTION_ROUTES)
+		implemented = {(route.method, f"/ceto{route.path}") for routes in manifests for route in routes}
+		# The registry is a list: the pinned surface is wired exactly once.
+		self.assertEqual(len(registered), 5)
+		self.assertEqual(set(registered), implemented)
 		by_key = {(route.method, route.path): route for route in ceto_router.routes}
 		for method, path in sorted(implemented):
 			with self.subTest(route=f"{method} {path}"):

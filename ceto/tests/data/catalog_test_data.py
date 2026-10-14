@@ -20,7 +20,7 @@ from ceto.services.catalog.product_types import new_product_type_id
 
 
 class CatalogTestData:
-	"""Mint disposable collections, product types and Item Groups for one test."""
+	"""Mint disposable collections, product types, Item Groups and Items for one test."""
 
 	def collection(self, *, title: str = "Dev Collection", handle: str | None = None, **overrides: Any):
 		doc = frappe.get_doc(
@@ -74,6 +74,122 @@ class CatalogTestData:
 				"item_group": "All Item Groups",
 				"stock_uom": "Unit",
 				**overrides,
+			}
+		)
+		doc.insert(ignore_permissions=True)
+		return doc
+
+	def item_attribute(self, *values: str, name: str | None = None) -> str:
+		"""Mint one throwaway Item Attribute master with the given allowed values.
+
+		``name`` pins the master's name instead of minting one — the golden
+		fixture suites pin the attribute into derived option titles and ids,
+		so their assortment must name it deterministically. Fixed names are
+		safe the way fixed Item Group names are: the per-test rollback
+		removes the master again.
+		"""
+		name = name or f"Dev Colour {uuid.uuid4().hex[:8]}"
+		frappe.get_doc(
+			{
+				"doctype": "Item Attribute",
+				"attribute_name": name,
+				"numeric_values": 0,
+				"item_attribute_values": [
+					{"attribute_value": value or "Black", "abbr": (value or "Black")[:3].upper()}
+					for value in (values or ("Black",))
+				],
+			}
+		).insert(ignore_permissions=True)
+		return name
+
+	def template_item(self, *, item_code: str | None = None, **overrides: Any):
+		"""Mint one throwaway variant-family template Item for one test."""
+		suffix = uuid.uuid4().hex[:12].upper()
+		doc = frappe.get_doc(
+			{
+				"doctype": "Item",
+				"item_code": item_code or f"DEV-TMPL-{suffix}",
+				"item_name": f"Dev Template Item {suffix}",
+				"item_group": "All Item Groups",
+				"stock_uom": "Unit",
+				"has_variants": 1,
+				"attributes": [{"attribute": self.item_attribute()}],
+				**overrides,
+			}
+		)
+		doc.insert(ignore_permissions=True)
+		return doc
+
+	def variant_item(
+		self, template: Any, *, attribute_value: str = "Black", item_code: str | None = None, **overrides: Any
+	):
+		"""Mint one sellable variant of ``template`` with a valid attribute value."""
+		suffix = uuid.uuid4().hex[:12].upper()
+		doc = frappe.get_doc(
+			{
+				"doctype": "Item",
+				"item_code": item_code or f"DEV-VAR-{suffix}",
+				"item_name": f"Dev Variant Item {suffix}",
+				"item_group": template.item_group,
+				"stock_uom": "Unit",
+				"variant_of": template.name,
+				"attributes": [
+					{"attribute": template.attributes[0].attribute, "attribute_value": attribute_value}
+				],
+				**overrides,
+			}
+		)
+		doc.insert(ignore_permissions=True)
+		return doc
+
+	def item_price(
+		self,
+		item: Any,
+		rate: float | str,
+		*,
+		price_list: str,
+		uom: str | None = None,
+		valid_from: str | None = None,
+		valid_upto: str | None = None,
+		**overrides: Any,
+	):
+		"""Seed one throwaway selling Item Price row for an item.
+
+		``valid_from`` pins the bootstrap convention so the row's identity is
+		stable instead of defaulting to Today during insert.
+		"""
+		item_code = item if isinstance(item, str) else item.name
+		doc = frappe.get_doc(
+			{
+				"doctype": "Item Price",
+				"item_code": item_code,
+				"price_list": price_list,
+				"uom": uom,
+				"price_list_rate": rate,
+				"valid_from": valid_from or "2000-01-01",
+				"valid_upto": valid_upto,
+				**overrides,
+			}
+		)
+		doc.insert(ignore_permissions=True)
+		return doc
+
+	def barcode(self, item: Any, barcode: str | None = None, *, barcode_type: str | None = None) -> str:
+		"""Attach one barcode row to an Item and return the exact value."""
+		value = barcode or f"DEV-{uuid.uuid4().hex[:12]}"
+		doc = item if not isinstance(item, str) else frappe.get_doc("Item", item)
+		doc.append("barcodes", {"barcode": value, "barcode_type": barcode_type})
+		doc.save(ignore_permissions=True)
+		return value
+
+	def merchandising(self, item: Any, *, collection: Any = None, product_type: Any = None):
+		"""Link an Item to a stored collection and/or product type."""
+		doc = frappe.get_doc(
+			{
+				"doctype": "Ceto Product Merchandising",
+				"item": item if isinstance(item, str) else item.name,
+				"collection": collection.collection_id if collection else None,
+				"product_type": product_type.type_id if product_type else None,
 			}
 		)
 		doc.insert(ignore_permissions=True)

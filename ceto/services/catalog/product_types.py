@@ -14,6 +14,7 @@ the Store surface.
 
 import json
 import secrets
+from collections.abc import Sequence
 from typing import Any
 
 import frappe
@@ -74,6 +75,21 @@ class ProductTypeDirectory:
 		if not rows:
 			raise RouteNotFoundError(f"Product type {type_id or '(not set)'} not found")
 		return StoreProductTypeResponse(product_type=self._projection(rows[0]))
+
+	def projections(self, type_ids: Sequence[str]) -> dict[str, StoreProductType]:
+		"""Batch-load the stored projections for the given public ids.
+
+		The products projection embeds these verbatim (products field-mapping
+		decision 4); unknown ids are simply absent — an embedded link can
+		only ever name a stored product type.
+		"""
+		ids = sorted({type_id for type_id in type_ids if type_id})
+		if not ids:
+			return {}
+		rows = frappe.get_all(
+			"Ceto Product Type", filters={"type_id": ("in", ids)}, fields=PRODUCT_TYPE_FIELDS
+		)
+		return {row.type_id: self._projection(row) for row in rows}
 
 	def _rows(self, *, offset: int, limit: int) -> list[Any]:
 		"""Load one deterministic page: value ascending, record id breaking ties."""

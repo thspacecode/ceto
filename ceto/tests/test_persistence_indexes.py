@@ -1,14 +1,17 @@
-"""Release hardening: the schema indexes behind the order read paths.
+"""Release hardening: the schema indexes behind the catalog and order read paths.
 
 The order list and the transfer lifecycle are the orders epic's read
 paths, and their guarantees live in the database as much as in code:
 owner scoping, publishable-key scope filters, the page joins and the
 digest-only transfer credential all ride secondary or unique indexes
 declared on the Ceto reference DocTypes (audited in
-``docs/orders/phase-6.md``). This suite pins those indexes at the schema
-level, so a dropped ``search_index`` / ``unique`` flag fails here instead
-of in production. Uniqueness *behavior* is proven by the doctype suites;
-this is the index-level net beneath them.
+``docs/orders/phase-6.md``). The catalog storage joins them: the
+merchandising reference rides its per-product unique key and the
+reverse-lookup link columns its detach and future collection listings
+filter on. This suite pins those indexes at the schema level, so a
+dropped ``search_index`` / ``unique`` flag fails here instead of in
+production. Uniqueness *behavior* is proven by the doctype suites; this
+is the index-level net beneath them.
 """
 
 import frappe
@@ -57,3 +60,10 @@ class TestPersistenceIndexes(CetoTestSuite):
 		table = "tabCeto Product Type"
 		for column in ("type_id", "value"):
 			self.assertTrue(self._indexed(table, column, unique=True), column)
+
+	def test_product_merchandising_indexes(self) -> None:
+		"""The per-product key stays uniquely indexed and both links indexed."""
+		table = "tabCeto Product Merchandising"
+		self.assertTrue(self._indexed(table, "item", unique=True), "item")
+		for column in ("collection", "product_type"):
+			self.assertTrue(self._indexed(table, column), column)

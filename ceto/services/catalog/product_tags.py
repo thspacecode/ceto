@@ -19,6 +19,7 @@ change — the same derivation pattern the published ``pcat_…`` ids use.
 """
 
 import hashlib
+from collections.abc import Sequence
 
 import frappe
 from frappe.desk.doctype.tag.tag import DocTags
@@ -133,6 +134,35 @@ class ProductTagDirectory:
 			.orderby(tag.name, order=Order.asc)
 			.run(pluck=True)
 		)
+
+	def item_tag_projections(self, item_names: Sequence[str]) -> dict[str, list[StoreProductTag]]:
+		"""Batch-load the served tag projections per exact ``Item`` code.
+
+		The same live-link rule as the directory: a tag serves an item only
+		while both the ``Tag`` master and the exact ``Tag Link`` row survive.
+		"""
+		names = sorted({name for name in item_names if name})
+		if not names:
+			return {}
+		tag = frappe.qb.DocType("Tag")
+		link = frappe.qb.DocType("Tag Link")
+		item = frappe.qb.DocType("Item")
+		rows = (
+			frappe.qb.from_(tag)
+			.inner_join(link)
+			.on(link.tag == tag.name)
+			.inner_join(item)
+			.on(item.name == link.document_name)
+			.where((link.document_type == "Item") & (link.document_name.isin(names)))
+			.select(link.document_name.as_("item_code"), tag.name.as_("value"))
+			.orderby(link.document_name, order=Order.asc)
+			.orderby(tag.name, order=Order.asc)
+			.run(as_dict=True)
+		)
+		tagged: dict[str, list[StoreProductTag]] = {}
+		for row in rows:
+			tagged.setdefault(row.item_code, []).append(self._projection(row.value))
+		return tagged
 
 	@staticmethod
 	def _projection(value: str) -> StoreProductTag:

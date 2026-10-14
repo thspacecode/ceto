@@ -148,8 +148,8 @@ Medusa API implementation status, grouped by scope. Routes follow the [Medusa St
 
 | Method | Route | Status |
 | --- | --- | --- |
-| GET | `/store/product-options/{id}` | ⚪️ |
-| GET | `/store/product-options` | ⚪️ |
+| GET | `/store/product-options/{id}` | ✅️ |
+| GET | `/store/product-options` | ✅️ |
 
 ### Product Tags
 
@@ -169,14 +169,14 @@ Medusa API implementation status, grouped by scope. Routes follow the [Medusa St
 
 | Method | Route | Status |
 | --- | --- | --- |
-| GET | `/store/product-variants` | ⚪️ |
+| GET | `/store/product-variants` | ✅️ |
 
 ### Products
 
 | Method | Route | Status |
 | --- | --- | --- |
-| GET | `/store/products/{id}` | ⚪️ |
-| GET | `/store/products` | ⚪️ |
+| GET | `/store/products/{id}` | ✅️ |
+| GET | `/store/products` | ✅️ |
 
 ### Regions
 

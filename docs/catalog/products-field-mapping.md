@@ -176,7 +176,7 @@ ids are derived hashes, never stored (decision 7).
 | `id` | `opt_` + a hash of the family code and the attribute title (decision 7) | derived |
 | `title` | the option label (e.g. `Color`) | direct |
 | `is_exclusive` | none — the exclusive/global option semantics are a Ceto decision | gap |
-| `product` | the owning product projection | derived |
+| `product` | none — intentionally omitted back-reference: the option is already embedded in its owning product, so re-embedding it would recurse; stays `None` | gap |
 | `values` | the option's value projections (below) — published variants' values only | derived |
 | `metadata` | none — no option metadata surface | gap |
 | `created_at`, `updated_at` | the owning `Item` record's `creation` / `modified` (Recorded Decision 8) | direct |

@@ -158,6 +158,7 @@ class StoreProduct(BaseModel):
 	discountable: bool | None = None
 	status: str | None = None
 	thumbnail: str | None = None
+	origin_country: str | None = None
 	collection_id: str | None = None
 	collection: StoreCollection | None = None
 	type_id: str | None = None

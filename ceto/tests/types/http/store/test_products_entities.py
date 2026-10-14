@@ -109,6 +109,13 @@ class TestStoreProductEntity(unittest.TestCase):
 		self.assertIsNone(entry.deleted_at)
 		self.assertEqual(product(created_at=TIMESTAMP).created_at, TIMESTAMP)
 
+	def test_origin_country_is_a_kept_optional_column(self):
+		# The one direct ERPNext commerce attribute — Item country_of_origin —
+		# must survive the boundary as a declared column, never be dropped as
+		# an undeclared extra.
+		self.assertEqual(product(origin_country="Thailand").origin_country, "Thailand")
+		self.assertIsNone(product().origin_country)
+
 	def test_the_taxonomy_relations_reuse_the_pinned_entities(self):
 		# Decision 3: category ids are the existing derived category ids.
 		category = StoreProductCategory(id="pcat_" + "0" * 32, name="Dev T-Shirts", handle="dev-t-shirts")

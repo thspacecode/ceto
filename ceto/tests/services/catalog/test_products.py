@@ -94,6 +94,7 @@ class TestProductSurfaces(ProductsTestSuite):
 			item_name="Dev Project Sock",
 			description="Dev description",
 			image="/files/dev-sock.png",
+			country_of_origin="Thailand",
 		)
 
 		with self.publish():
@@ -105,6 +106,8 @@ class TestProductSurfaces(ProductsTestSuite):
 		self.assertEqual(product.handle, "dev-project-sock")
 		self.assertEqual(product.description, "Dev description")
 		self.assertEqual(product.thumbnail, "/files/dev-sock.png")
+		# The one direct ERPNext commerce attribute is served, never dropped.
+		self.assertEqual(product.origin_country, "Thailand")
 		self.assertEqual(
 			[(image.id, image.url) for image in product.images],
 			[(image_public_id(item.name), "/files/dev-sock.png")],

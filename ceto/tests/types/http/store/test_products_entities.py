@@ -10,6 +10,7 @@ from ceto.types.http.store.product_categories import StoreProductCategory
 from ceto.types.http.store.product_tags import StoreProductTag
 from ceto.types.http.store.product_types import StoreProductType
 from ceto.types.http.store.products import (
+	StoreCalculatedPrice,
 	StoreProduct,
 	StoreProductImage,
 	StoreProductListResponse,
@@ -155,11 +156,44 @@ class TestStoreProductVariantEntity(unittest.TestCase):
 		self.assertIsNone(entry.weight)
 		self.assertIsNone(entry.created_at)
 
-	def test_the_pricing_and_inventory_columns_are_dropped_entirely(self):
-		# Pricing and inventory are behavior-slice decisions; Ceto does not
-		# stub contracts that do not exist yet.
-		self.assertFalse(hasattr(variant(), "calculated_price"))
+	def test_the_pricing_context_arrives_through_the_pinned_calculated_price(self):
+		# Decision 6 as landed: calculated_price carries the region-aware
+		# pricing projection; inventory stays dropped entirely.
+		entry = variant(calculated_price=StoreCalculatedPrice(calculated_amount=10.0, currency_code="thb"))
+		self.assertEqual(entry.calculated_price.calculated_amount, 10.0)
+		self.assertEqual(entry.calculated_price.currency_code, "thb")
 		self.assertFalse(hasattr(variant(), "inventory_quantity"))
+		self.assertIsNone(variant().calculated_price)
+
+	def test_the_calculated_price_raw_and_minor_unit_surfaces_stay_dropped(self):
+		# The money convention is plain floats and the nested price-list
+		# detail objects carry no served source, so the upstream raw
+		# columns and pricing-module ids never enter the contract.
+		self.assertEqual(
+			set(StoreCalculatedPrice.model_fields),
+			{
+				"is_calculated_price_price_list",
+				"is_calculated_price_tax_inclusive",
+				"calculated_amount",
+				"is_original_price_price_list",
+				"is_original_price_tax_inclusive",
+				"original_amount",
+				"currency_code",
+				"is_calculated_price_promotion",
+			},
+		)
+
+	def test_every_calculated_price_column_stays_optional_and_defaults_to_none(self):
+		# A partially resolved price must never fail a read at the boundary.
+		entry = StoreCalculatedPrice()
+		self.assertIsNone(entry.calculated_amount)
+		self.assertIsNone(entry.original_amount)
+		self.assertIsNone(entry.currency_code)
+		self.assertIsNone(entry.is_calculated_price_price_list)
+		self.assertIsNone(entry.is_calculated_price_tax_inclusive)
+		self.assertIsNone(entry.is_original_price_price_list)
+		self.assertIsNone(entry.is_original_price_tax_inclusive)
+		self.assertIsNone(entry.is_calculated_price_promotion)
 
 	def test_the_option_values_carry_the_pinned_recursive_shape(self):
 		value = option_value()

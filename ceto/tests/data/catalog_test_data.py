@@ -79,15 +79,18 @@ class CatalogTestData:
 		doc.insert(ignore_permissions=True)
 		return doc
 
-	def item_attribute(self) -> str:
-		"""Mint one throwaway Item Attribute master with one allowed value."""
+	def item_attribute(self, *values: str) -> str:
+		"""Mint one throwaway Item Attribute master with the given allowed values."""
 		name = f"Dev Colour {uuid.uuid4().hex[:8]}"
 		frappe.get_doc(
 			{
 				"doctype": "Item Attribute",
 				"attribute_name": name,
 				"numeric_values": 0,
-				"item_attribute_values": [{"attribute_value": "Black", "abbr": "BLK"}],
+				"item_attribute_values": [
+					{"attribute_value": value or "Black", "abbr": (value or "Black")[:3].upper()}
+					for value in (values or ("Black",))
+				],
 			}
 		).insert(ignore_permissions=True)
 		return name
@@ -110,7 +113,7 @@ class CatalogTestData:
 		doc.insert(ignore_permissions=True)
 		return doc
 
-	def variant_item(self, template: Any, *, item_code: str | None = None, **overrides: Any):
+	def variant_item(self, template: Any, *, attribute_value: str = "Black", item_code: str | None = None, **overrides: Any):
 		"""Mint one sellable variant of ``template`` with a valid attribute value."""
 		suffix = uuid.uuid4().hex[:12].upper()
 		doc = frappe.get_doc(
@@ -121,8 +124,63 @@ class CatalogTestData:
 				"item_group": template.item_group,
 				"stock_uom": "Unit",
 				"variant_of": template.name,
-				"attributes": [{"attribute": template.attributes[0].attribute, "attribute_value": "Black"}],
+				"attributes": [
+					{"attribute": template.attributes[0].attribute, "attribute_value": attribute_value}
+				],
 				**overrides,
+			}
+		)
+		doc.insert(ignore_permissions=True)
+		return doc
+
+	def item_price(
+		self,
+		item: Any,
+		rate: float | str,
+		*,
+		price_list: str,
+		uom: str | None = None,
+		valid_from: str | None = None,
+		valid_upto: str | None = None,
+		**overrides: Any,
+	):
+		"""Seed one throwaway selling Item Price row for an item.
+
+		``valid_from`` pins the bootstrap convention so the row's identity is
+		stable instead of defaulting to Today during insert.
+		"""
+		item_code = item if isinstance(item, str) else item.name
+		doc = frappe.get_doc(
+			{
+				"doctype": "Item Price",
+				"item_code": item_code,
+				"price_list": price_list,
+				"uom": uom,
+				"price_list_rate": rate,
+				"valid_from": valid_from or "2000-01-01",
+				"valid_upto": valid_upto,
+				**overrides,
+			}
+		)
+		doc.insert(ignore_permissions=True)
+		return doc
+
+	def barcode(self, item: Any, barcode: str | None = None, *, barcode_type: str | None = None) -> str:
+		"""Attach one barcode row to an Item and return the exact value."""
+		value = barcode or f"DEV-{uuid.uuid4().hex[:12]}"
+		doc = item if not isinstance(item, str) else frappe.get_doc("Item", item)
+		doc.append("barcodes", {"barcode": value, "barcode_type": barcode_type})
+		doc.save(ignore_permissions=True)
+		return value
+
+	def merchandising(self, item: Any, *, collection: Any = None, product_type: Any = None):
+		"""Link an Item to a stored collection and/or product type."""
+		doc = frappe.get_doc(
+			{
+				"doctype": "Ceto Product Merchandising",
+				"item": item if isinstance(item, str) else item.name,
+				"collection": collection.collection_id if collection else None,
+				"product_type": product_type.type_id if product_type else None,
 			}
 		)
 		doc.insert(ignore_permissions=True)

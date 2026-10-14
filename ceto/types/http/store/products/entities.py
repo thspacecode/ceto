@@ -22,9 +22,13 @@ Ceto projects from the published assortment
   carries no fabricated commerce flags: ``is_giftcard``, ``discountable``,
   ``manage_inventory``, ``allow_backorder``, dimensions, weights and the
   codes ERPNext does not carry stay ``None`` until a real source exists.
-- ``calculated_price`` and ``inventory_quantity`` are dropped from the
-  projection models entirely: pricing and inventory are behavior-slice
-  decisions and Ceto does not stub contracts that do not exist yet.
+- ``calculated_price`` carries the region-aware price projection of the
+  pricing foundation (products slice decision 6): a
+  :class:`StoreCalculatedPrice` resolved through the cart price-list
+  authority when the caller presents a ``region_id``, ``None`` otherwise.
+  ``inventory_quantity`` stays dropped from the projection model entirely:
+  inventory is out of scope and Ceto does not stub contracts that do not
+  exist yet.
 - ``StoreProduct.status`` mirrors the pinned ``ProductStatus`` union
   (``draft`` / ``proposed`` / ``published`` / ``rejected``) but stays
   optional: the store routes pin ``status: published`` server-side
@@ -74,6 +78,28 @@ class StoreProductOptionValue(BaseModel):
 	deleted_at: datetime | None = None
 
 
+class StoreCalculatedPrice(BaseModel):
+	"""Medusa ``CalculatedPriceSet`` shape (Ceto pricing subset).
+
+	Mirrors the pinned calculated-price object of ``@medusajs/types@2.21.1``
+	for the columns the region-aware pricing foundation can derive from the
+	cart price-list authority. ``raw_calculated_amount`` /
+	``raw_original_amount`` and the pricing-module ``id`` are dropped like
+	every other money field (plain floats, no minor units — the repository
+	money convention), and the nested price-list detail objects carry no
+	served source, so they stay out of the contract instead of stubbed.
+	"""
+
+	is_calculated_price_price_list: bool | None = None
+	is_calculated_price_tax_inclusive: bool | None = None
+	calculated_amount: float | None = None
+	is_original_price_price_list: bool | None = None
+	is_original_price_tax_inclusive: bool | None = None
+	original_amount: float | None = None
+	currency_code: str | None = None
+	is_calculated_price_promotion: bool | None = None
+
+
 class StoreProductVariant(BaseModel):
 	"""Medusa ``StoreProductVariant`` shape (Phase 3 subset)."""
 
@@ -91,6 +117,7 @@ class StoreProductVariant(BaseModel):
 	product_id: str | None = None
 	product: StoreProduct | None = None
 	options: list[StoreProductOptionValue] = []
+	calculated_price: StoreCalculatedPrice | None = None
 	hs_code: str | None = None
 	origin_country: str | None = None
 	mid_code: str | None = None

@@ -4,14 +4,20 @@ Phase 3 pins the machine-readable contract manifests for the product reads
 a storefront needs to merchandise the published assortment — **Products
 list/detail, Product Variants list and Product Options list/detail** — plus
 their query and response contracts (`ceto/types/http/store/products`). The
-slice is contract-only: **no route is registered on the router, no API
-module ships and every README row for the five routes stays ⚪️** until the
-products behavior slice lands. The coverage guard is the manifest drift
-tests (`ceto.tests.types.http.store.test_products_manifest`), the contract
-tests beside them (`test_products_entities`, `test_products_queries`) and
-the docs↔manifest↔README inventory check
+served projection behind the contracts has landed as the service
+foundation — the family assembly (`ceto/services/catalog/families.py`), the
+batched serializer (`ceto/services/catalog/products.py`) and the
+region-aware pricing authority (`ceto/services/catalog/pricing.py`) — while
+**no route is registered** on the router, no API module ships and every
+README row for the five routes stays ⚪️ until the products routes slice
+lands. The coverage guard is the manifest drift tests
+(`ceto.tests.types.http.store.test_products_manifest`), the contract tests
+beside them (`test_products_entities`, `test_products_queries`), the
+service suites over the published assortment
+(`ceto.tests.services.catalog.test_families`, `test_pricing`,
+`test_products`) and the docs↔manifest↔README inventory check
 (`ceto.tests.docs.test_products_endpoints`), which also fails if a README
-product row flips to ✅ before the behavior slice registers the route.
+product row flips to ✅ before the routes slice registers the route.
 
 ## Manifest
 
@@ -83,9 +89,10 @@ the whole servable set before pagination.
 
 ## Ordering
 
-Deterministic everywhere (the taxonomy Recorded Decision 6 convention) —
-the exact per-surface order is a behavior-slice decision; upstream pins no
-default sort on these three routes.
+Deterministic everywhere (the taxonomy Recorded Decision 6 convention):
+products order by item title then item code, the variants surface by item
+code, options by title then id and option values value-ascending — upstream
+pins no default sort on these three routes.
 
 ## Query behavior
 
@@ -103,18 +110,26 @@ surfaces are refused as `400 invalid_data` instead of silently ignored or
 clamped — the projections expose no searchable column and no selectable
 surface beyond the pinned entities.
 
-The pricing-context keys are refused deliberately (products slice decision
-6): `region_id`, `country_code`, `province` and `cart_id` drive upstream's
-variant price calculation, and cart publication enforcement is out of
-scope until the pricing slice decides it. The detail routes accept no
-query at all, so every detail answer is the identical projection the list
-serves.
+The pricing context is the one accepted exception (products slice decision
+6): `region_id` is accepted on the priced surfaces — the products list, the
+product detail and the variants list — and resolves through the cart
+price-list authority into the served `calculated_price`; a blank or absent
+value serves the projection unpriced instead of guessing a default. The
+remaining upstream pricing-context keys — `country_code`, `province` and
+`cart_id` — stay refused as unknown fields, and the option routes accept
+no pricing context at all. The option detail route accepts no query, so
+its answer is the identical fixed projection everywhere it is served.
 
 ## Implementation status
 
-Phase 3 pins the contract; the behavior slice registers the five routes on
-the router and serves the published assortment from the configured
-storefront roots (products slice decision 1). Until that slice lands:
+The contract and its service foundation are complete: the published
+assortment assembles from the configured storefront roots (products slice
+decision 1), the projection serializes every pinned column — merchandising
+links, embedded taxonomy projections, barcodes and the region-aware
+`calculated_price` — in a fixed set of bulk reads, and the read models are
+covered end to end by the service suites. The routes slice remains: it
+registers the five routes on the router and wires the service to the
+publishable-key boundary. Until that slice lands:
 
 - no route handler exists under `ceto.api.store` for the five paths;
 - the router surface is unchanged (`ceto.tests.routing.test_router` keeps
@@ -127,15 +142,19 @@ storefront roots (products slice decision 1). Until that slice lands:
 ## Deliberate omissions
 
 - **No variants detail route** — the canonical variants surface is the
-  list (decision 5); the upstream detail route stays out of the pinned
-  inventory.
-- **No `calculated_price` / `inventory_quantity` columns** — pricing and
-  inventory are behavior-slice decisions; the projection models drop both
-  entirely instead of stubbing them.
-- **No collection/type link population** — the Ceto-owned links land with
-  the behavior slice (decision 4); `collection_id`, `collection`, `type_id`
-  and `type` stay optional and unpopulated.
+  list (decision 5); the upstream detail route stays deliberately out of
+  the pinned inventory.
+- **No `inventory_quantity` column** — inventory is out of scope; the
+  projection model drops it entirely instead of stubbing it.
+  `calculated_price`, by contrast, is served: a `StoreCalculatedPrice`
+  resolved through the cart price-list authority when the caller presents
+  `region_id`, absent otherwise — never a fabricated zero.
+- **No collection/type stubbing** — `collection_id`, `collection`,
+  `type_id` and `type` serve the `Ceto Product Merchandising` link's
+  stored projections verbatim (decision 4); an unlinked product serves all
+  four as `None`.
 - **No `q` search, filters, operator maps, `$and`/`$or` combinators,
-  `order` sort expressions, `fields` selectors, `locale` or pricing
-  context** — every such key is rejected as `400 invalid_data` (see
-  [Query behavior](#query-behavior)).
+  `order` sort expressions, `fields` selectors or `locale`** — every such
+  key is rejected as `400 invalid_data` (see
+  [Query behavior](#query-behavior)); the pricing context is exactly the
+  accepted `region_id` on the priced surfaces.

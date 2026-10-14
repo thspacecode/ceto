@@ -14,6 +14,7 @@ never an error surface that leaks catalog state.
 
 import json
 import secrets
+from collections.abc import Sequence
 from typing import Any
 
 import frappe
@@ -75,6 +76,21 @@ class CollectionDirectory:
 		if not rows:
 			raise RouteNotFoundError(f"Collection {collection_id or '(not set)'} not found")
 		return StoreCollectionResponse(collection=self._projection(rows[0]))
+
+	def projections(self, collection_ids: Sequence[str]) -> dict[str, StoreCollection]:
+		"""Batch-load the stored projections for the given public ids.
+
+		The products projection embeds these verbatim (products field-mapping
+		decision 4); unknown ids are simply absent — an embedded link can
+		only ever name a stored collection.
+		"""
+		ids = sorted({collection_id for collection_id in collection_ids if collection_id})
+		if not ids:
+			return {}
+		rows = frappe.get_all(
+			"Ceto Collection", filters={"collection_id": ("in", ids)}, fields=COLLECTION_FIELDS
+		)
+		return {row.collection_id: self._projection(row) for row in rows}
 
 	def _rows(self, *, offset: int, limit: int) -> list[Any]:
 		"""Load one deterministic page: creation descending, record id breaking ties."""

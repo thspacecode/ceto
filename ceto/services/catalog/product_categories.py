@@ -25,6 +25,7 @@ node's stable public URL segment.
 
 import hashlib
 import re
+from collections.abc import Sequence
 from typing import Any
 
 import frappe
@@ -114,6 +115,26 @@ class ProductCategoryDirectory:
 		)
 		published_names = {row.name for row in rows}
 		return [self._projection(row, published_names) for row in rows]
+
+	def projections(self, item_groups: Sequence[str]) -> dict[str, StoreProductCategory]:
+		"""Batch-load the published category projections for the given nodes.
+
+		The products projection embeds the node an ``Item`` group lives in
+		(decisions 1 and 3); an unknown or unpublished node is simply absent
+		— an embedded category is always resolvable against the published
+		tree the category directory serves.
+		"""
+		published_names = published_item_group_names()
+		names = sorted({group for group in item_groups if group and group in published_names})
+		if not names:
+			return {}
+		rows = frappe.get_all(
+			"Item Group",
+			filters={"name": ("in", names)},
+			fields=ITEM_GROUP_FIELDS,
+			order_by="lft asc, name asc",
+		)
+		return {row.name: self._projection(row, published_names) for row in rows}
 
 	@staticmethod
 	def _projection(row: Any, published_names: set[str]) -> StoreProductCategory:

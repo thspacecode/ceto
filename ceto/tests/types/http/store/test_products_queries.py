@@ -4,7 +4,10 @@ Pins the ``FindParams`` pagination of the three list params (the upstream
 validators default ``offset: 0`` with ``limit: 50`` for products and
 options and ``limit: 20`` for variants), the Ceto read-model page bounds
 and the unknown-parameter strictness of ``@medusajs/types@2.21.1``
-(``http/product/store``) — including the refused pricing-context keys.
+(``http/product/store``) — including the strict pricing boundary: exactly
+one pricing-context key (``region_id``) is accepted on the priced
+surfaces, while ``country_code`` / ``province`` / ``cart_id`` stay refused
+everywhere.
 """
 
 import unittest
@@ -50,8 +53,7 @@ REJECTED_PRODUCT_LIST_KEYS = (
 	{"fields": "id,*variants"},
 	{"$and": [{"handle": "dev-t-shirt"}]},
 	{"$or": [{"id": "prod_1"}]},
-	# Pricing context — cart publication enforcement is out of scope.
-	{"region_id": "reg_1"},
+	# Pricing context — only region_id is accepted; the rest stay refused.
 	{"country_code": "th"},
 	{"province": "10"},
 	{"cart_id": "cart_1"},
@@ -72,7 +74,8 @@ REJECTED_VARIANT_LIST_KEYS = (
 	{"fields": "id,sku"},
 	{"$and": [{"sku": "DEV-TSHIRT-RED"}]},
 	{"$or": [{"id": "variant_1"}]},
-	{"region_id": "reg_1"},
+	{"country_code": "th"},
+	{"province": "10"},
 	{"cart_id": "cart_1"},
 )
 
@@ -106,6 +109,12 @@ class TestStoreProductListParams(unittest.TestCase):
 		with self.assertRaises(ValidationError):
 			StoreProductListParams(offset=-1)
 
+	def test_region_id_is_the_one_accepted_pricing_context(self):
+		self.assertIsNone(StoreProductListParams().region_id)
+		self.assertEqual(StoreProductListParams(region_id="reg_1").region_id, "reg_1")
+		with self.assertRaises(ValidationError):
+			StoreProductListParams(region_id=7)
+
 	def test_rejects_the_upstream_search_filter_sort_and_pricing_surfaces(self):
 		for query in REJECTED_PRODUCT_LIST_KEYS:
 			with self.subTest(query=query):
@@ -114,16 +123,17 @@ class TestStoreProductListParams(unittest.TestCase):
 
 
 class TestStoreProductParams(unittest.TestCase):
-	def test_accepts_an_empty_query(self):
-		self.assertEqual(StoreProductParams().model_dump(), {})
+	def test_an_empty_query_serves_the_unpriced_default(self):
+		self.assertEqual(StoreProductParams().model_dump(), {"region_id": None})
 
-	def test_carries_no_field_at_all(self):
-		self.assertEqual(StoreProductParams.model_fields, {})
+	def test_carries_only_the_region_pricing_context(self):
+		self.assertEqual(set(StoreProductParams.model_fields), {"region_id"})
+		self.assertIsNone(StoreProductParams().region_id)
+		self.assertEqual(StoreProductParams(region_id="reg_1").model_dump(), {"region_id": "reg_1"})
 
-	def test_rejects_every_parameter_including_the_pricing_context(self):
+	def test_rejects_every_other_parameter_including_the_pricing_context(self):
 		for query in (
 			{"fields": "id,*variants"},
-			{"region_id": "reg_1"},
 			{"country_code": "th"},
 			{"province": "10"},
 			{"cart_id": "cart_1"},
@@ -151,6 +161,10 @@ class TestStoreProductVariantListParams(unittest.TestCase):
 			StoreProductVariantListParams(limit=-1)
 		with self.assertRaises(ValidationError):
 			StoreProductVariantListParams(offset=-1)
+
+	def test_region_id_is_the_one_accepted_pricing_context(self):
+		self.assertIsNone(StoreProductVariantListParams().region_id)
+		self.assertEqual(StoreProductVariantListParams(region_id="reg_1").region_id, "reg_1")
 
 	def test_rejects_the_upstream_search_filter_sort_and_pricing_surfaces(self):
 		for query in REJECTED_VARIANT_LIST_KEYS:

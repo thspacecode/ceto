@@ -278,6 +278,14 @@ class CartService:
 				CartShippingMethods.apply(quotation, payload.option_id)
 				# The shipping charge moves the totals; holds are re-capped.
 				CartCredits.reconcile(quotation)
+				# Record the supplied option id so the cart echoes it back:
+				# an opaque id keeps its identity on the cart (list →
+				# calculate → add-to-cart), a legacy raw name keeps echoing
+				# the raw name. An idempotent re-apply stores the same value
+				# and skips the write.
+				if reference.get("shipping_option_id") != payload.option_id:
+					reference.shipping_option_id = payload.option_id
+					reference.save(ignore_permissions=True)
 				return reference, quotation
 
 	def add_gift_card(

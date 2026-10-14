@@ -163,11 +163,12 @@ class CartSerializer:
 
 		``None`` charge means no shipping to report: no rule, a rule deleted
 		after applying, or no charge row (an itemless cart). The option
-		reference is the rule the Quotation links, the method identity is the
-		applied charge row, and the money fields are the ERPNext-calculated
-		row amount — no amount or tax is derived here (see
-		:cmod:`ceto.services.carts.shipping` for the row's limitations), and
-		the row also timestamps the method.
+		reference echoes the id the apply was given — the opaque ``so_``
+		token while it still names the linked rule, else the raw rule name —
+		the method identity is the applied charge row, and the money fields
+		are the ERPNext-calculated row amount — no amount or tax is derived
+		here (see :mod:`ceto.services.carts.shipping` for the row's
+		limitations), and the row also timestamps the method.
 		"""
 		if charge is None:
 			return []
@@ -176,7 +177,7 @@ class CartSerializer:
 			StoreCartShippingMethod(
 				id=charge.tax_row.name,
 				cart_id=reference.cart_id,
-				shipping_option_id=charge.rule,
+				shipping_option_id=CartShipping.applied_option_id(charge, reference),
 				name=charge.label,
 				amount=amount,
 				subtotal=amount,

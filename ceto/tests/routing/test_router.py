@@ -14,6 +14,7 @@ from ceto.tests.utils import CetoTestSuite
 from ceto.types.http.store.carts.manifest import CART_ROUTES
 from ceto.types.http.store.customers.manifest import CUSTOMER_ROUTES
 from ceto.types.http.store.orders.manifest import ORDER_ROUTES
+from ceto.types.http.store.payments.manifest import PAYMENT_ROUTES
 
 
 def overridden_products() -> dict[str, str]:
@@ -203,6 +204,27 @@ class TestRouter(CetoTestSuite):
 		# The registry is a list: the pinned surface is wired exactly once.
 		self.assertEqual(len(registered), len(ORDER_ROUTES))
 		self.assertEqual(set(registered), implemented)
+
+	def test_implemented_payment_routes_match_the_phase_5_slice(self):
+		"""The registered payment surface is exactly the pinned manifest surface.
+
+		Phase 5 (slices 5C/5D) completes the surface — the three pinned
+		routes wired into ``ceto_router`` (with its prefix), all
+		guest-dispatchable per their pinned ``publishable-key(+optional-
+		session)`` auth: the provider list, the collection create and the
+		session creation. Route drift in either direction fails loudly.
+		"""
+		registered = [
+			(route.method, route.path) for route in ceto_router.routes if "/store/payment" in route.path
+		]
+		implemented = {(route.method, f"/ceto{route.path}") for route in PAYMENT_ROUTES}
+		# The registry is a list: the pinned surface is wired exactly once.
+		self.assertEqual(len(registered), len(PAYMENT_ROUTES))
+		self.assertEqual(set(registered), implemented)
+		for route in ceto_router.routes:
+			if "/store/payment" in route.path:
+				with self.subTest(route=route.key):
+					self.assertTrue(route.allow_guest)
 
 	def test_route_override_uses_external_route_key(self):
 		router = Router(prefix="/ceto")

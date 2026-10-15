@@ -150,21 +150,27 @@ refunded | canceled | requires_action`, `FulfillmentStatus` =
 placed order is **not** pinned — Medusa leaves status transitions
 server-defined.
 
-**Ceto decision:** until payment/fulfillment provider surfaces exist, Ceto
-orders always report the pinned defaults `status: "pending"`,
-`payment_status: "not_paid"`, `fulfillment_status: "not_fulfilled"` (the
-`StoreOrder` model defaults in `ceto/types/http/store/orders/entities.py`).
-ERPNext's own `Sales Order` status / `docstatus` (Draft → To Deliver and Bill
-→ Completed on submission) is deliberately **not** projected onto them: the
-ERPNext lifecycle answers fulfilment questions Ceto has not yet exposed, and
-projecting it would invent transitions the pinned unions' semantics do not
-license. The `list` `status` filter matches against this single reported
-value, so filtering by any other `OrderStatus` member yields an empty page.
+**Ceto decision:** Ceto reports the pinned `status: "pending"` and
+`fulfillment_status: "not_fulfilled"` defaults — there is no order-status or
+fulfillment transition engine yet — while `payment_status` is the
+**authoritative projection** of the cart's payment collection (Phase 5, see
+[the payments mapping](../payments/field-mapping.md)): `captured` or
+`authorized` exactly when the collection's *current* payment session proves
+that money, and the pinned `not_paid` default for every other state — no
+collection, a stale or absent session, a pending/error/canceled attempt. No
+in-between union member (`awaiting`, `partially_*`, `requires_action`) is
+ever invented. ERPNext's own `Sales Order` status / `docstatus` (Draft → To
+Deliver and Bill → Completed on submission) is deliberately **not** projected
+onto any of the three: the ERPNext lifecycle answers fulfilment questions
+Ceto has not yet exposed, and projecting it would invent transitions the
+pinned unions' semantics do not license. The `list` `status` filter matches
+against the single reported `status` value, so filtering by any other
+`OrderStatus` member yields an empty page.
 
 | Medusa order status | ERPNext / Ceto source | Classification |
 |---|---|---|
 | `status` | fixed `pending` (pinned model default; no transition engine yet) | gap |
-| `payment_status` | fixed `not_paid` (payment provider surface deliberately absent) | gap |
+| `payment_status` | projected from the cart's current `Ceto Payment Session` — `captured` / `authorized` when proven, else `not_paid`; no fabricated in-between state | derived |
 | `fulfillment_status` | fixed `not_fulfilled` (fulfillment provider surface deliberately absent) | gap |
 | ERPNext `Sales Order.status` / `docstatus` | no Medusa equivalent served — Ceto keeps the ERPNext lifecycle internal | gap |
 
@@ -521,10 +527,12 @@ the orders surface:
 5. **Publishable-key scope** — every orders route requires the key; scope is
    inherited from the completed cart and a wrong-scoped key is masked as
    `404 not_found`, never `403` (read-only surface, nothing to refuse).
-6. **Status defaults** — orders report the pinned `pending` / `not_paid` /
-   `not_fulfilled` defaults until payment and fulfillment provider surfaces
-   exist; ERPNext's own status lifecycle is not projected onto the Medusa
-   unions.
+6. **Status defaults** — orders report the pinned `pending` /
+   `not_fulfilled` defaults, and `payment_status` the `not_paid` default
+   unless the cart's current payment session proves `authorized`/`captured`
+   (the Phase 5 projection, decisions 13/14 of
+   `docs/payments/field-mapping.md`); ERPNext's own status lifecycle is not
+   projected onto the Medusa unions.
 7. **Stable list ordering** — Ceto lists orders `creation DESC, order_id ASC`
    (newest first, deterministic tiebreak); upstream pins no default sort, so
    this is a Ceto choice clients may rely on.

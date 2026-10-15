@@ -45,3 +45,18 @@ class TestPersistenceIndexes(CetoTestSuite):
 			self.assertTrue(self._indexed(table, column, unique=True), column)
 		for column in ("owner_user", "owner_customer", "region_id", "sales_channel_id"):
 			self.assertTrue(self._indexed(table, column), column)
+
+	def test_payment_collection_indexes(self) -> None:
+		"""The public id and the unique per-cart link stay indexed."""
+		table = "tabCeto Payment Collection"
+		for column in ("payment_collection_id", "cart_reference"):
+			self.assertTrue(self._indexed(table, column, unique=True), column)
+		for column in ("currency_code", "status"):
+			self.assertTrue(self._indexed(table, column), column)
+
+	def test_payment_session_indexes(self) -> None:
+		"""The public id, collection join and idempotency scan columns stay indexed."""
+		table = "tabCeto Payment Session"
+		self.assertTrue(self._indexed(table, "payment_session_id", unique=True), "payment_session_id")
+		for column in ("payment_collection", "provider_id", "currency_code", "status", "is_current"):
+			self.assertTrue(self._indexed(table, column), column)

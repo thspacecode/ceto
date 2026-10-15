@@ -1,0 +1,92 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:payment_session_id",
+ "creation": "2026-10-14 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "payment_session_id",
+  "payment_collection",
+  "provider_id",
+  "amount",
+  "currency_code",
+  "status",
+  "is_current",
+  "provider_data"
+ ],
+ "fields": [
+  {
+   "fieldname": "payment_session_id",
+   "fieldtype": "Data",
+   "label": "Payment Session ID",
+   "reqd": 1,
+   "search_index": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "payment_collection",
+   "fieldtype": "Link",
+   "label": "Payment Collection",
+   "options": "Ceto Payment Collection",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "provider_id",
+   "fieldtype": "Data",
+   "label": "Provider ID",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "Amount",
+   "options": "currency_code",
+   "reqd": 1
+  },
+  {
+   "fieldname": "currency_code",
+   "fieldtype": "Data",
+   "label": "Currency Code",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "default": "pending",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "pending\npending_authorization\nauthorized\ncaptured\nrequires_more\nerror\ncanceled",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "default": "0",
+   "description": "The collection's live session; a changed amount, currency or provider makes an old session stale (is_current 0)",
+   "fieldname": "is_current",
+   "fieldtype": "Check",
+   "label": "Is Current",
+   "search_index": 1
+  },
+  {
+   "description": "The provider's own session data payload (JSON object)",
+   "fieldname": "provider_data",
+   "fieldtype": "Long Text",
+   "label": "Provider Data"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-14 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Ceto",
+ "name": "Ceto Payment Session",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -1,0 +1,70 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:payment_collection_id",
+ "creation": "2026-10-14 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "payment_collection_id",
+  "cart_reference",
+  "currency_code",
+  "amount",
+  "status"
+ ],
+ "fields": [
+  {
+   "fieldname": "payment_collection_id",
+   "fieldtype": "Data",
+   "label": "Payment Collection ID",
+   "reqd": 1,
+   "search_index": 1,
+   "unique": 1
+  },
+  {
+   "description": "The cart this collection collects for; one collection per cart lifetime",
+   "fieldname": "cart_reference",
+   "fieldtype": "Link",
+   "label": "Cart Reference",
+   "options": "Ceto Cart Reference",
+   "reqd": 1,
+   "search_index": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "currency_code",
+   "fieldtype": "Data",
+   "label": "Currency Code",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "Amount",
+   "options": "currency_code",
+   "reqd": 1
+  },
+  {
+   "default": "not_paid",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "not_paid\nawaiting\nauthorized\npartially_authorized\ncanceled\ncompleted\nfailed",
+   "reqd": 1,
+   "search_index": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-14 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Ceto",
+ "name": "Ceto Payment Collection",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

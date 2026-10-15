@@ -28,12 +28,14 @@ from ceto.services.carts.credits import AppliedCredit, CartCredits
 from ceto.services.carts.shipping import RULE_FIELDS, AppliedShippingCharge, CartShipping
 from ceto.services.customers.identity import find_customer_reference
 from ceto.services.customers.serialization import CustomerSerializer
+from ceto.services.payments.serialization import PaymentSerializer
 
 if TYPE_CHECKING:
 	from frappe.model.document import Document
 
 	from ceto.types.http.store.carts.entities import StoreCartAddress
 	from ceto.types.http.store.customers.entities import StoreCustomer
+	from ceto.types.http.store.payments import StorePaymentCollection
 
 #: The Sales Order child tables the order read model reads: the mapped
 #: item rows, the tax rows (shipping charge + credit deductions) and the
@@ -73,6 +75,12 @@ class OrderPageContext:
 		)
 		self._countries = self._country_codes(self._addresses.values())
 		self._customers: "dict[str, StoreCustomer | None]" = {}
+		# The page's payment state, bulk-loaded like everything else: the
+		# carts' collections (serialized models) and their payment-status
+		# projections — two queries each for the whole page.
+		cart_ids = {row.cart_id for row in orders}
+		self._payments = PaymentSerializer.for_carts(cart_ids)
+		self._payment_statuses = PaymentSerializer.payment_statuses(cart_ids)
 
 	def order(self, name: str) -> "Document | None":
 		"""Return the page's order reference document by document name."""
@@ -119,6 +127,14 @@ class OrderPageContext:
 	def line_references(self, cart_reference: str) -> "list[dict]":
 		"""The cart's line item reference rows, in stored order."""
 		return self._line_references.get(cart_reference, [])
+
+	def payment_collection(self, cart_id: str) -> "StorePaymentCollection | None":
+		"""The completed cart's payment collection, page-preloaded."""
+		return self._payments.get(cart_id)
+
+	def payment_status(self, cart_id: str) -> str:
+		"""The completed cart's projected payment status, page-preloaded."""
+		return self._payment_statuses.get(cart_id, "not_paid")
 
 	@staticmethod
 	def _grouped(

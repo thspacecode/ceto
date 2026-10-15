@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from ceto.types.http.store.carts.entities import StoreCartAddress
 from ceto.types.http.store.customers.entities import StoreCustomer
+from ceto.types.http.store.payments.entities import StorePaymentCollection
 
 #: Pinned ``OrderStatus`` union of ``@medusajs/types@2.21.1``.
 OrderStatus = Literal["pending", "completed", "draft", "archived", "canceled", "requires_action"]
@@ -117,15 +118,22 @@ class StoreOrder(BaseModel):
 	Deliberately omitted (Recorded Decision, Phase 6): ``display_id`` and
 	``custom_display_id`` — Medusa's sequential display numbers have no
 	ERPNext equivalent and the public order id is Ceto's own ``order_…``
-	id — plus ``version``, ``summary``, ``transactions``,
-	``payment_collections`` and ``fulfillments``, which stay omitted until
-	the matching provider (payments, fulfillment) exists. The pinned
-	``item_discount_total`` / ``shipping_discount_total`` split is omitted
-	too: ERPNext carries a single order-level ``discount_amount`` (per-row
-	discounts ride the item rows) and gives the Shipping Rule charge no
-	discount bucket, so the Medusa item/shipping discount split cannot be
-	derived without inventing numbers — ``discount_total`` keeps the
-	order-level amount.
+	id — plus ``version``, ``summary``, ``transactions`` and
+	``fulfillments``, which stay omitted until the matching fulfillment
+	provider exists. The pinned ``item_discount_total`` /
+	``shipping_discount_total`` split is omitted too: ERPNext carries a
+	single order-level ``discount_amount`` (per-row discounts ride the item
+	rows) and gives the Shipping Rule charge no discount bucket, so the
+	Medusa item/shipping discount split cannot be derived without inventing
+	numbers — ``discount_total`` keeps the order-level amount.
+
+	``payment_collections`` carries the Phase 5 payments contract (pinned
+	``StorePaymentCollection`` list): the completed cart's collection with
+	its sessions, or the empty default when the cart never created one.
+	Beside it ``payment_status`` is the authoritative projection of the
+	collection's current session (see ``docs/payments/field-mapping.md``):
+	``captured`` / ``authorized`` when the session proves money, and
+	``not_paid`` in every other case — no in-between state is invented.
 
 	The pinned order's optional ``customer`` relation embeds the same pinned
 	``StoreCustomer`` the customers contract serves (verified against the
@@ -158,6 +166,7 @@ class StoreOrder(BaseModel):
 	updated_at: datetime | None = None
 	items: list[StoreOrderLineItem] = Field(default_factory=list)
 	shipping_methods: list[StoreOrderShippingMethod] = Field(default_factory=list)
+	payment_collections: list[StorePaymentCollection] = Field(default_factory=list)
 	original_item_total: float = 0
 	original_item_subtotal: float = 0
 	original_item_tax_total: float = 0

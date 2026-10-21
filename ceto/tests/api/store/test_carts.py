@@ -224,14 +224,18 @@ class TestCartLineItemAPI(CetoTestSuite):
 	def test_unknown_and_foreign_lines_are_masked(self) -> None:
 		with self.set_conf(ceto_cart=self.configuration), self.set_user("Guest"):
 			for case in ("unknown", "foreign"):
-				for method, payload in (("POST", {"quantity": 1}), ("DELETE", None)):
-					with self.subTest(case=case, method=method):
+				for method, path, payload in (
+					("POST", "/ceto/store/carts/{cart_id}/line-items/{line_id}", {"quantity": 1}),
+					("DELETE", "/ceto/store/carts/{cart_id}/line-items/{line_id}", None),
+					("POST", "/ceto/store/carts/{cart_id}/line-items/{line_id}/delete", None),
+				):
+					with self.subTest(case=case, method=method, path=path):
 						cart_id = self._create_cart()
 						line_id = (
 							self._add_line(self._create_cart()) if case == "foreign" else "li_" + "0" * 32
 						)
 						response = self._dispatch(
-							method, f"/ceto/store/carts/{cart_id}/line-items/{line_id}", payload
+							method, path.format(cart_id=cart_id, line_id=line_id), payload
 						)
 						self.assertEqual(response.status_code, 404)
 						self.assertEqual(response.get_json()["type"], "not_found")
@@ -250,6 +254,7 @@ class TestCartLineItemAPI(CetoTestSuite):
 				),
 				("POST", "/ceto/store/carts/{cart_id}/line-items/{line_id}", {"quantity": 9}),
 				("DELETE", "/ceto/store/carts/{cart_id}/line-items/{line_id}", None),
+				("POST", "/ceto/store/carts/{cart_id}/line-items/{line_id}/delete", None),
 				("POST", "/ceto/store/carts/{cart_id}", {"email": "attacker@example.com"}),
 			):
 				with self.subTest(method=method, path=path):
@@ -276,6 +281,32 @@ class TestCartLineItemAPI(CetoTestSuite):
 				{"id": line_id, "object": "line-item", "deleted": True, "parent": cart_id},
 			)
 			repeat = self._dispatch("DELETE", f"/ceto/store/carts/{cart_id}/line-items/{line_id}")
+			self.assertEqual(repeat.status_code, 404)
+			self.assertEqual(repeat.get_json()["type"], "not_found")
+
+	def test_post_delete_twin_matches_the_delete_contract(self) -> None:
+		"""The Frappe-compatible ``POST …/delete`` twin behaves like the DELETE.
+
+		Same response body, same repeat-404 masking, and the cart really loses
+		the line — the twin exists because Frappe's application never forwards
+		a DELETE to the Ceto page renderer (see the Frappe boundary suite).
+		"""
+		with self.set_conf(ceto_cart=self.configuration), self.set_user("Guest"):
+			cart_id = self._create_cart()
+			line_id = self._add_line(cart_id)
+
+			deleted = self._dispatch("POST", f"/ceto/store/carts/{cart_id}/line-items/{line_id}/delete")
+			self.assertEqual(deleted.status_code, 200)
+			self.assertEqual(
+				deleted.get_json(),
+				{"id": line_id, "object": "line-item", "deleted": True, "parent": cart_id},
+			)
+
+			retrieved = self._dispatch("GET", f"/ceto/store/carts/{cart_id}?fields=id,items")
+			self.assertEqual(retrieved.status_code, 200)
+			self.assertEqual(retrieved.get_json()["cart"]["items"], [])
+
+			repeat = self._dispatch("POST", f"/ceto/store/carts/{cart_id}/line-items/{line_id}/delete")
 			self.assertEqual(repeat.status_code, 404)
 			self.assertEqual(repeat.get_json()["type"], "not_found")
 

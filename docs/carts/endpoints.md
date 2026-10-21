@@ -8,7 +8,9 @@ methods, promotions and taxes), **Phase 5 implemented routes 10–12**
 (the loyalty gift-card and store-credit routes, on the Ceto-owned credit
 ledger) and **Phase 6 implemented route 15** (completion). The cart surface
 is complete: every pinned manifest route is registered, and
-`ceto.tests.routing.test_router` fails loudly on any drift between the two.
+`ceto.tests.routing.test_router` fails loudly on any drift between the two
+(the Ceto-owned Frappe compatibility twin documented below is drift-checked
+the same way).
 
 ## Manifest
 
@@ -211,6 +213,38 @@ and require the `x-publishable-api-key` header.
   update; delete ignores it (fixed response shape).
 - Errors use the shared Medusa translation (`invalid_data`, `unauthorized`,
   `not_allowed`, `not_found`).
+
+### Frappe compatibility twin: `POST …/delete` (Ceto-owned)
+
+`frappe.app.application` forwards only GET/HEAD/POST to the website page
+renderers and answers every other method with a 404 before any renderer
+runs, so the pinned `DELETE` above cannot be reached through a Frappe front
+door while it stays registered (raw HTTP clients and any future non-Frappe
+front door keep the pinned contract). Ceto therefore registers one
+compatibility twin:
+
+- **Route**: `POST /store/carts/{id}/line-items/{line_id}/delete`, below the
+  `/ceto` prefix like every Ceto route. It is **not** part of the Medusa
+  contract: it lives in `CETO_CART_COMPAT_ROUTES` next to the pinned
+  manifest, mirrors the pinned DELETE's request/response/auth contract and
+  has no SDK method, so it must be called with a raw HTTP client.
+- **Behavior**: the twin registers the pinned DELETE's own handler, keeping
+  the publishable-key scope guard, cart locking, deletion, `404` masking and
+  the `{id, object: "line-item", deleted: true, parent}` response identical
+  (`ceto.tests.api.store.test_carts` pins the parity).
+- **Boundary proof**: `ceto.tests.routing.test_frappe_boundary` drives
+  `frappe.app.application` itself and pins both halves of the boundary —
+  the `DELETE` is refused with `404` before any renderer runs, the twin is
+  delivered to the Ceto page renderer. The same suite replays the
+  storefront's exact removal wire — the Medusa JS SDK raw client pins
+  `content-type: application/json` on every call and stringifies its body,
+  so the store app POSTs the twin with the explicit empty JSON object `{}`
+  as the body — end-to-end through the real application and expects the
+  `200` delete response against a real cart.
+- **Overrides**: `ceto_route_overrides` entries are keyed by
+  `<METHOD> <path>`, so replacing the deletion behavior must override both
+  the pinned `DELETE /store/carts/{id}/line-items/{line_id}` key and the
+  twin's `POST …/delete` key.
 
 ### Loyalty routes: gift cards and store credits (Phase 5)
 

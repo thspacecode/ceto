@@ -11,7 +11,7 @@ from ceto.routing import Router, ceto_router
 from ceto.services.auth.tokens import decode_customer_token
 from ceto.tests.data.bootstrap_test_master_data import TEST_CUSTOMER, TEST_CUSTOMER_PASSWORD
 from ceto.tests.utils import CetoTestSuite
-from ceto.types.http.store.carts.manifest import CART_ROUTES
+from ceto.types.http.store.carts.manifest import CART_ROUTES, CETO_CART_COMPAT_ROUTES
 from ceto.types.http.store.collections.manifest import COLLECTION_ROUTES
 from ceto.types.http.store.currencies.manifest import CURRENCY_ROUTES
 from ceto.types.http.store.customers.manifest import CUSTOMER_ROUTES
@@ -63,6 +63,12 @@ class TestRouter(CetoTestSuite):
 				"GET",
 				"/ceto/store/orders/{id}",
 				{"id": "order_0123456789abcdef0123456789abcdef"},
+			),
+			(
+				"/ceto/store/carts/cart_0123456789abcdef/line-items/li_0123456789abcdef/delete",
+				"POST",
+				"/ceto/store/carts/{id}/line-items/{line_id}/delete",
+				{"id": "cart_0123456789abcdef", "line_id": "li_0123456789abcdef"},
 			),
 		):
 			with self.subTest(path=path):
@@ -163,12 +169,14 @@ class TestRouter(CetoTestSuite):
 
 		Phase 6 completed the surface — every pinned manifest route must be
 		wired into ``ceto_router`` (with its prefix), and Ceto must not serve
-		any cart route the manifest does not pin.
+		any cart route the manifest does not pin. The pinned Medusa routes and
+		the Frappe compatibility twins together describe the full registered
+		cart surface.
 		"""
 		registered = {
 			(route.method, route.path) for route in ceto_router.routes if "/store/carts" in route.path
 		}
-		pinned = {(route.method, f"/ceto{route.path}") for route in CART_ROUTES}
+		pinned = {(route.method, f"/ceto{route.path}") for route in (*CART_ROUTES, *CETO_CART_COMPAT_ROUTES)}
 		self.assertEqual(registered, pinned)
 
 	def test_implemented_customer_routes_match_the_phase_3_subset(self):

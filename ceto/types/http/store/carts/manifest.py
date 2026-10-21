@@ -202,3 +202,23 @@ CART_ROUTES: tuple[CartRoute, ...] = (
 		sdk_method="complete",
 	),
 )
+
+#: Ceto compatibility twins of pinned routes whose HTTP method Frappe cannot
+#: deliver to a page renderer. ``frappe.app.application`` only forwards
+#: GET/HEAD/POST to the website renderers (any other method is answered with
+#: 404 before a renderer runs), and Ceto dispatches below ``/ceto`` through a
+#: page renderer, so the pinned ``DELETE`` line-item contract is unreachable
+#: through a Frappe front door. Each twin registers the pinned route's own
+#: handler, keeping auth, scope guard, locking, mutation and response
+#: identical. Twins are Ceto-owned additions: they are not part of the Medusa
+#: contract, have no SDK method and must be called with a raw HTTP client.
+CETO_CART_COMPAT_ROUTES: tuple[CartRoute, ...] = (
+	CartRoute(
+		method="POST",
+		path="/store/carts/{id}/line-items/{line_id}/delete",
+		request_type=None,
+		response_type="StoreLineItemDeleteResponse",
+		auth="publishable-key+optional-session",
+		sdk_method=None,
+	),
+)

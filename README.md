@@ -74,6 +74,13 @@ Medusa API implementation status, grouped by scope. Routes follow the [Medusa St
 | DELETE | `/store/carts/{id}/line-items/{line_id}` | ✅️ |
 | DELETE | `/store/carts/{id}/promotions` | ✅️ |
 
+Ceto additionally exposes the Ceto-owned compatibility route
+`POST /store/carts/{id}/line-items/{line_id}/delete`: Frappe's web front door
+forwards only GET/HEAD/POST to Ceto, so the pinned `DELETE` line-item route —
+which stays registered — cannot be reached through it. The twin runs the same
+handler with the same response and has no SDK method; see
+[docs/carts/endpoints.md](docs/carts/endpoints.md).
+
 ### Collections
 
 | Method | Route | Status |

@@ -10,6 +10,7 @@ from ceto.types.http.store.carts.manifest import (
 	CART_SDK_VERSION,
 	CART_TYPES_PACKAGE,
 	CART_TYPES_VERSION,
+	CETO_CART_COMPAT_ROUTES,
 )
 
 EXPECTED_METHOD_PATHS = {
@@ -126,6 +127,31 @@ class TestCartRouteManifest(unittest.TestCase):
 			route = next(r for r in CART_ROUTES if (r.method, r.path) == (method, path))
 			with self.subTest(route=route):
 				self.assertEqual((route.request_type, route.response_type, route.sdk_method), contract)
+
+	def test_compatibility_twin_mirrors_the_pinned_delete_route(self):
+		"""The Frappe POST twin carries the pinned DELETE contract unchanged.
+
+		Frappe's application never forwards a DELETE to a page renderer, so
+		the twin exists to keep the deletion reachable; it must mirror the
+		pinned route's request/response/auth contract and stay off the SDK
+		surface (no Medusa method exists for it).
+		"""
+		self.assertEqual(len(CETO_CART_COMPAT_ROUTES), 1)
+		twin = CETO_CART_COMPAT_ROUTES[0]
+		pinned_delete = next(
+			r
+			for r in CART_ROUTES
+			if (r.method, r.path) == ("DELETE", "/store/carts/{id}/line-items/{line_id}")
+		)
+		self.assertEqual(
+			(twin.method, twin.path),
+			("POST", "/store/carts/{id}/line-items/{line_id}/delete"),
+		)
+		self.assertEqual(twin.request_type, pinned_delete.request_type)
+		self.assertEqual(twin.response_type, pinned_delete.response_type)
+		self.assertEqual(twin.auth, pinned_delete.auth)
+		self.assertIsNone(twin.sdk_method)
+		self.assertNotIn((twin.method, twin.path), {(r.method, r.path) for r in CART_ROUTES})
 
 	def test_delete_promotions_carries_request_body(self):
 		route = next(

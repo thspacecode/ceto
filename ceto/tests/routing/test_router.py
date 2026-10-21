@@ -110,6 +110,36 @@ class TestRouter(CetoTestSuite):
 		self.assertEqual(response.status_code, 200)
 		self.assertEqual(decode_customer_token(response.get_json()["token"])["sub"], TEST_CUSTOMER)
 
+	def test_bodyless_get_with_json_content_type_is_treated_as_absent(self):
+		"""@medusajs/js-sdk sends Content-Type: application/json even on bodyless GETs.
+
+		An empty (or whitespace-only) JSON body must be treated as absent
+		instead of failing to decode, while a non-empty malformed body
+		still fails as invalid data.
+		"""
+		for body in (b"", b"   "):
+			with self.subTest(body=body):
+				request = self._request(
+					"/ceto/auth/customer/providers",
+					"GET",
+					data=body,
+					headers={"Content-Type": "application/json"},
+				)
+				response = ceto_router.dispatch(request)
+				self.assertEqual(response.status_code, 200)
+				self.assertIn("providers", response.get_json())
+
+		malformed = self._request(
+			"/ceto/auth/customer/providers",
+			"GET",
+			data=b"{broken",
+			headers={"Content-Type": "application/json"},
+		)
+		response = ceto_router.dispatch(malformed)
+		self.assertEqual(response.status_code, 400)
+		self.assertEqual(response.get_json()["type"], "invalid_data")
+		self.assertIn("Failed to decode JSON object", response.get_json()["message"])
+
 	def test_wrong_method_returns_medusa_405(self):
 		response = ceto_router.dispatch(self._request("/ceto/auth/customer/emailpass", "GET"))
 		self.assertEqual(response.status_code, 405)

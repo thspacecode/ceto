@@ -135,8 +135,13 @@ and require the `x-publishable-api-key` header.
   applied and priced by ERPNext's own controllers. **Shipgi** — the
   shipment-gateway app that owns provider integrations — is currently a
   skeleton with **no rate API**; it is the future seam for dynamic provider
-  rates and, with it, a shipping-options listing route. Phase 4 therefore
-  has no listing route: the public option id is the `Shipping Rule` name.
+  rates, plugging in through the `ceto_shipping_providers` hook without
+  touching either contract. The option ids this route accepts come from the
+  served shipping-options surface: `GET /store/shipping-options` lists the
+  cart's eligible rules under opaque `so_` ids and
+  `POST /store/shipping-options/{id}/calculate` prices one of them — the
+  apply accepts those ids beside the legacy raw rule name, and the
+  shipping-option contract lives in `docs/shipping/endpoints.md`.
 
 ### Cart taxes (Phase 4)
 

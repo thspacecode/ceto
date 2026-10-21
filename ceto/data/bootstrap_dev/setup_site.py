@@ -9,10 +9,12 @@ from dataclasses import replace
 from typing import Any
 
 from ceto.data.base_importer import BaseImporter, Report
+from ceto.data.bootstrap_dev.seeders.setup_catalog import SetupCatalog
 from ceto.data.bootstrap_dev.seeders.setup_company import SetupCompany, resolve_company
 from ceto.data.bootstrap_dev.seeders.setup_customers import SetupCustomers
 from ceto.data.bootstrap_dev.seeders.setup_item_groups import SetupItemGroups
 from ceto.data.bootstrap_dev.seeders.setup_item_prices import SetupItemPrices
+from ceto.data.bootstrap_dev.seeders.setup_item_tags import SetupItemTags
 from ceto.data.bootstrap_dev.seeders.setup_items import SetupItems
 from ceto.data.bootstrap_dev.seeders.setup_price_lists import SetupPriceLists
 from ceto.data.bootstrap_dev.seeders.setup_taxes import SetupTaxes
@@ -47,8 +49,10 @@ class SetupSite(BaseImporter):
 		self.merge_report(SetupCustomers(self.settings).make())
 		self.merge_report(SetupPriceLists(self.settings, company).make())
 		self.merge_report(SetupItems(self.settings, company).make())
+		self.merge_report(SetupItemTags(self.settings).make())
 		self.merge_report(SetupItemPrices(self.settings, company).make())
 		self.merge_report(SetupTaxes(self.settings, company).make())
+		self.merge_report(SetupCatalog(self.settings).make())
 		return self.report
 
 

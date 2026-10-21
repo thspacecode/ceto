@@ -1,0 +1,53 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:item",
+ "creation": "2026-10-19 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "item",
+  "collection",
+  "product_type"
+ ],
+ "fields": [
+  {
+   "description": "The exact ERPNext Item code the record is named by — one merchandising record per Item",
+   "fieldname": "item",
+   "fieldtype": "Link",
+   "label": "Item",
+   "options": "Item",
+   "reqd": 1,
+   "search_index": 1,
+   "unique": 1
+  },
+  {
+   "description": "The Ceto-stored collection the storefront merchandising groups the product into",
+   "fieldname": "collection",
+   "fieldtype": "Link",
+   "label": "Collection",
+   "options": "Ceto Collection",
+   "search_index": 1
+  },
+  {
+   "description": "The curated Ceto product type assigned to the product",
+   "fieldname": "product_type",
+   "fieldtype": "Link",
+   "label": "Product Type",
+   "options": "Ceto Product Type",
+   "search_index": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-19 01:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Ceto",
+ "name": "Ceto Product Merchandising",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

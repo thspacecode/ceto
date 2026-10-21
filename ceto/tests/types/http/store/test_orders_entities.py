@@ -105,15 +105,28 @@ class TestStoreOrderEntity(unittest.TestCase):
 		self.assertIn("discount_total", StoreOrder.model_fields)
 
 	def test_provider_surfaces_stay_omitted(self):
+		# payment_collections left this list in Phase 5: the pinned
+		# StorePaymentCollection contract is exposed (defaulting to an
+		# empty list) and populated from the completed cart's collection
+		# since the 5C/5D wiring (test_payments_entities pins the model
+		# default; the serializer suites pin the populated shape).
 		for field in (
 			"version",
 			"summary",
 			"transactions",
-			"payment_collections",
 			"fulfillments",
 		):
 			with self.subTest(field=field):
 				self.assertNotIn(field, StoreOrder.model_fields)
+
+	def test_payment_collections_are_exposed_with_an_empty_default(self):
+		# Phase 5 exposes the pinned payment surface: the field exists and
+		# defaults to an empty list — an order whose cart never created a
+		# collection keeps serving it.
+		self.assertIn("payment_collections", StoreOrder.model_fields)
+		order = StoreOrder(id="order_1", currency_code="usd")
+		self.assertEqual(order.payment_collections, [])
+		self.assertEqual(order.model_dump()["payment_collections"], [])
 
 	def test_customer_is_a_nullable_pinned_column(self):
 		# The pinned StoreOrder of @medusajs/types@2.21.1 carries the

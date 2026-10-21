@@ -128,14 +128,14 @@ Medusa API implementation status, grouped by scope. Routes follow the [Medusa St
 
 | Method | Route | Status |
 | --- | --- | --- |
-| POST | `/store/payment-collections` | ⚪️ |
-| POST | `/store/payment-collections/{id}/payment-sessions` | ⚪️ |
+| POST | `/store/payment-collections` | ✅️ |
+| POST | `/store/payment-collections/{id}/payment-sessions` | ✅️ |
 
 ### Payment Providers
 
 | Method | Route | Status |
 | --- | --- | --- |
-| GET | `/store/payment-providers` | ⚪️ |
+| GET | `/store/payment-providers` | ✅️ |
 
 ### Product Categories
 

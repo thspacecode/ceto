@@ -7,6 +7,7 @@ from frappe.utils import flt, get_datetime
 from ceto.services.addresses import serialize_address
 from ceto.services.carts.credits import AppliedCredit, CartCredits
 from ceto.services.carts.shipping import AppliedShippingCharge, CartShipping
+from ceto.services.payments.serialization import PaymentSerializer
 from ceto.services.serialization import select_fields
 from ceto.types.http.store.carts import (
 	StoreCart,
@@ -64,6 +65,10 @@ class CartSerializer:
 			currency_code=quotation.currency.lower(),
 			metadata=json.loads(reference.metadata) if reference.metadata else None,
 			locale=reference.locale or None,
+			# The cart's payment collection rides every cart answer: null
+			# without one, the collection with its sessions and provider
+			# identity once checkout created it (Phase 5 payments).
+			payment_collection=PaymentSerializer.for_cart(reference.cart_id),
 			billing_address=serialize_address(quotation.customer_address),
 			shipping_address=serialize_address(quotation.shipping_address_name),
 			created_at=min(get_datetime(reference.creation), get_datetime(quotation.creation)),

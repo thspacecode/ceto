@@ -145,6 +145,18 @@ doc_events = {
 	}
 }
 
+# Payments
+# --------
+# Cart completion consults the payment readiness gate (the enforced/off
+# ceto_cart.payment_policy decides the verdict; the default `off` answers
+# "no opinion" and keeps completion open):
+ceto_cart_payment_readiness = ["ceto.services.payments.readiness.cart_payment_ready"]
+
+# paygi announces verified captures through its success hook; Ceto syncs
+# the session it references (only attempts referencing a Ceto Payment
+# Session are Ceto's money):
+paygi_payment_succeeded = ["ceto.services.payments.synchronization.on_paygi_payment_succeeded"]
+
 # Scheduled Tasks
 # ---------------
 

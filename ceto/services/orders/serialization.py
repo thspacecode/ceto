@@ -61,6 +61,7 @@ from ceto.services.carts.shipping import AppliedShippingCharge, CartShipping
 from ceto.services.customers.identity import find_customer_reference
 from ceto.services.customers.serialization import CustomerSerializer
 from ceto.services.orders.ownership import OrderOwnership
+from ceto.services.payments.serialization import PaymentSerializer
 from ceto.types.http.store.customers.entities import StoreCustomer
 from ceto.types.http.store.orders import (
 	StoreOrder,
@@ -74,6 +75,7 @@ if TYPE_CHECKING:
 
 	from ceto.services.carts.credits import AppliedCredit
 	from ceto.services.orders.context import OrderPageContext
+	from ceto.types.http.store.payments import StorePaymentCollection
 
 
 class OrderSerializer:
@@ -109,6 +111,7 @@ class OrderSerializer:
 	) -> StoreOrder:
 		shipping_charge = OrderSerializer._shipping_charge(sales_order, context)
 		shipping_total = flt(shipping_charge.amount) if shipping_charge else 0.0
+		payment_collection = OrderSerializer._payment_collection(reference, context)
 		deduction_rows = CartCredits.deduction_rows(sales_order)
 		deduction_total = flt(sum(flt(row.tax_amount) for row in deduction_rows))
 		# Same carve-out as the cart: the Shipping Rule charge and the
@@ -138,6 +141,14 @@ class OrderSerializer:
 			# contact email.
 			email=order_reference.get("email") or sales_order.contact_email or None,
 			currency_code=sales_order.currency.lower(),
+			# The authoritative payment projection: the completed cart's
+			# collection with its sessions, and the pinned payment_status
+			# derived from the collection's current session alone (captured
+			# and authorized are proven money; everything else — pending,
+			# error, canceled, stale or absent — reports the honest
+			# `not_paid` instead of a fabricated in-between state).
+			payment_status=OrderSerializer._payment_status(reference, context),
+			payment_collections=[payment_collection] if payment_collection is not None else [],
 			metadata=json.loads(reference.metadata) if reference.metadata else None,
 			billing_address=OrderSerializer._order_address(sales_order.customer_address, context),
 			shipping_address=OrderSerializer._order_address(sales_order.shipping_address_name, context),
@@ -184,6 +195,31 @@ class OrderSerializer:
 		if context is not None:
 			return context.shipping_charge(sales_order)
 		return CartShipping.applied_charge(sales_order)
+
+	@staticmethod
+	def _payment_collection(
+		reference: "Document", context: "OrderPageContext | None"
+	) -> "StorePaymentCollection | None":
+		"""Resolve the completed cart's payment collection, context aware."""
+		if context is not None:
+			return context.payment_collection(reference.cart_id)
+		return PaymentSerializer.for_cart(reference.cart_id)
+
+	@staticmethod
+	def _payment_status(
+		reference: "Document",
+		context: "OrderPageContext | None",
+	) -> str:
+		"""Project the pinned ``payment_status`` from the current session.
+
+		The projection never invents a state: a session marked ``captured``
+		or ``authorized`` reports exactly that, and every other state
+		reports ``not_paid``. Without a collection there is nothing proven,
+		so the pinned default stands.
+		"""
+		if context is not None:
+			return context.payment_status(reference.cart_id)
+		return PaymentSerializer.payment_status(reference.cart_id)
 
 	@staticmethod
 	def _consumed_credits(reference: "Document", context: "OrderPageContext | None") -> "list[AppliedCredit]":

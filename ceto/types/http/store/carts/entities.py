@@ -3,6 +3,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from ceto.types.http.store.payments.entities import StorePaymentCollection
+
 
 class StoreCartAddress(BaseModel):
 	"""Medusa ``StoreCartAddress`` entity (pinned baseline fields)."""
@@ -138,6 +140,7 @@ class StoreCart(BaseModel):
 	currency_code: str
 	metadata: dict[str, Any] | None = None
 	locale: str | None = None
+	payment_collection: StorePaymentCollection | None = None
 	billing_address: StoreCartAddress | None = None
 	shipping_address: StoreCartAddress | None = None
 	created_at: datetime | None = None

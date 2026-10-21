@@ -235,7 +235,12 @@ compatibility twin:
 - **Boundary proof**: `ceto.tests.routing.test_frappe_boundary` drives
   `frappe.app.application` itself and pins both halves of the boundary —
   the `DELETE` is refused with `404` before any renderer runs, the twin is
-  delivered to the Ceto page renderer.
+  delivered to the Ceto page renderer. The same suite replays the
+  storefront's exact removal wire — the Medusa JS SDK raw client pins
+  `content-type: application/json` on every call and stringifies its body,
+  so the store app POSTs the twin with the explicit empty JSON object `{}`
+  as the body — end-to-end through the real application and expects the
+  `200` delete response against a real cart.
 - **Overrides**: `ceto_route_overrides` entries are keyed by
   `<METHOD> <path>`, so replacing the deletion behavior must override both
   the pinned `DELETE /store/carts/{id}/line-items/{line_id}` key and the

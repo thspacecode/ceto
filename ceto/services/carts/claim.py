@@ -98,7 +98,7 @@ class CartClaim:
 		quotation.contact_person = None
 		quotation.contact_display = None
 		quotation.contact_email = user
-		self._reset_item_pricing(quotation)
+		CartLineItems.reset_pricing(quotation)
 		# Controller save re-runs pricing (pricing rules for the new
 		# customer), taxes and every document total. The sales-channel price
 		# list is part of the cart's configuration, never of its party
@@ -125,17 +125,3 @@ class CartClaim:
 		reference.owner_user = user
 		reference.owner_customer = customer
 		reference.save(ignore_permissions=True)
-
-	@staticmethod
-	def _reset_item_pricing(quotation: "Document") -> None:
-		"""Clear stored guest rates so ERPNext re-fetches them for the customer.
-
-		``set_missing_item_details`` only refills missing values, so the guest
-		party's ``price_list_rate`` / ``rate`` / discount fields are reset to
-		``None`` before the save; nothing is ever derived by Ceto itself.
-		"""
-		for row in quotation.items:
-			row.price_list_rate = None
-			row.rate = None
-			row.discount_percentage = None
-			row.discount_amount = None

@@ -150,6 +150,10 @@ class Router:
 		arguments.update(request.form.to_dict(flat=True))
 
 		if request.mimetype == "application/json":
+			# Some clients (e.g. @medusajs/js-sdk) send Content-Type: application/json
+			# even on bodyless requests; treat an empty body as absent.
+			if not request.get_data().strip():
+				return arguments
 			payload = request.get_json(silent=False)
 			if payload is None:
 				return arguments

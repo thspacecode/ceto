@@ -73,8 +73,21 @@ def update_cart_line_item(id: str, line_id: str, fields: str | None = None, **pa
 	return {"cart": CartSerializer().serialize(reference, quotation, fields=fields)}
 
 
+@ceto_router.post("/store/carts/{id}/line-items/{line_id}/delete", allow_guest=True)
 @ceto_router.delete("/store/carts/{id}/line-items/{line_id}", allow_guest=True)
 def delete_cart_line_item(id: str, line_id: str) -> dict[str, Any]:
+	"""Remove one cart line through either the pinned or the Frappe-compatible route.
+
+	Frappe's WSGI application only forwards GET/HEAD/POST to the website page
+	renderers (``frappe.app.application`` answers every other method with 404
+	before a renderer runs), so the pinned ``DELETE`` contract is unreachable
+	through a Frappe front door. The Ceto-specific ``POST …/delete`` twin
+	registers this exact handler, keeping auth, publishable-key scope guard,
+	cart locking, deletion and response identical; it is not part of the
+	Medusa contract (see ``CETO_CART_COMPAT_ROUTES``) and a
+	``ceto_route_overrides`` entry must override both route keys to replace
+	the deletion behavior.
+	"""
 	publishable_key = CartPublishableKey.from_request()
 	reference, _quotation, mapping = CartService().delete_line_item(
 		id, line_id, guard=publishable_key.check_reference

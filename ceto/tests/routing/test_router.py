@@ -11,7 +11,7 @@ from ceto.routing import Router, ceto_router
 from ceto.services.auth.tokens import decode_customer_token
 from ceto.tests.data.bootstrap_test_master_data import TEST_CUSTOMER, TEST_CUSTOMER_PASSWORD
 from ceto.tests.utils import CetoTestSuite
-from ceto.types.http.store.carts.manifest import CART_ROUTES
+from ceto.types.http.store.carts.manifest import CART_ROUTES, CETO_CART_COMPAT_ROUTES
 from ceto.types.http.store.collections.manifest import COLLECTION_ROUTES
 from ceto.types.http.store.currencies.manifest import CURRENCY_ROUTES
 from ceto.types.http.store.customers.manifest import CUSTOMER_ROUTES
@@ -64,6 +64,12 @@ class TestRouter(CetoTestSuite):
 				"/ceto/store/orders/{id}",
 				{"id": "order_0123456789abcdef0123456789abcdef"},
 			),
+			(
+				"/ceto/store/carts/cart_0123456789abcdef/line-items/li_0123456789abcdef/delete",
+				"POST",
+				"/ceto/store/carts/{id}/line-items/{line_id}/delete",
+				{"id": "cart_0123456789abcdef", "line_id": "li_0123456789abcdef"},
+			),
 		):
 			with self.subTest(path=path):
 				route, matched_arguments = ceto_router.match(self._request(path, method))
@@ -109,6 +115,36 @@ class TestRouter(CetoTestSuite):
 
 		self.assertEqual(response.status_code, 200)
 		self.assertEqual(decode_customer_token(response.get_json()["token"])["sub"], TEST_CUSTOMER)
+
+	def test_bodyless_get_with_json_content_type_is_treated_as_absent(self):
+		"""@medusajs/js-sdk sends Content-Type: application/json even on bodyless GETs.
+
+		An empty (or whitespace-only) JSON body must be treated as absent
+		instead of failing to decode, while a non-empty malformed body
+		still fails as invalid data.
+		"""
+		for body in (b"", b"   "):
+			with self.subTest(body=body):
+				request = self._request(
+					"/ceto/auth/customer/providers",
+					"GET",
+					data=body,
+					headers={"Content-Type": "application/json"},
+				)
+				response = ceto_router.dispatch(request)
+				self.assertEqual(response.status_code, 200)
+				self.assertIn("providers", response.get_json())
+
+		malformed = self._request(
+			"/ceto/auth/customer/providers",
+			"GET",
+			data=b"{broken",
+			headers={"Content-Type": "application/json"},
+		)
+		response = ceto_router.dispatch(malformed)
+		self.assertEqual(response.status_code, 400)
+		self.assertEqual(response.get_json()["type"], "invalid_data")
+		self.assertIn("Failed to decode JSON object", response.get_json()["message"])
 
 	def test_wrong_method_returns_medusa_405(self):
 		response = ceto_router.dispatch(self._request("/ceto/auth/customer/emailpass", "GET"))
@@ -163,12 +199,14 @@ class TestRouter(CetoTestSuite):
 
 		Phase 6 completed the surface — every pinned manifest route must be
 		wired into ``ceto_router`` (with its prefix), and Ceto must not serve
-		any cart route the manifest does not pin.
+		any cart route the manifest does not pin. The pinned Medusa routes and
+		the Frappe compatibility twins together describe the full registered
+		cart surface.
 		"""
 		registered = {
 			(route.method, route.path) for route in ceto_router.routes if "/store/carts" in route.path
 		}
-		pinned = {(route.method, f"/ceto{route.path}") for route in CART_ROUTES}
+		pinned = {(route.method, f"/ceto{route.path}") for route in (*CART_ROUTES, *CETO_CART_COMPAT_ROUTES)}
 		self.assertEqual(registered, pinned)
 
 	def test_implemented_customer_routes_match_the_phase_3_subset(self):

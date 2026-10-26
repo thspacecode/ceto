@@ -142,6 +142,22 @@ class CartLineItems:
 		return mapping
 
 	@staticmethod
+	def reset_pricing(quotation: "Document") -> None:
+		"""Clear stored line rates so ERPNext re-fetches them on the next save.
+
+		``set_missing_item_details`` only refills missing values, so the rates
+		stored for the previous context (party, price list) would otherwise
+		survive a context change. The ``price_list_rate`` / ``rate`` / discount
+		fields are reset to ``None`` before the re-pricing save; nothing is
+		ever derived by Ceto itself.
+		"""
+		for row in quotation.items:
+			row.price_list_rate = None
+			row.rate = None
+			row.discount_percentage = None
+			row.discount_amount = None
+
+	@staticmethod
 	def save(quotation: "Document") -> None:
 		"""Persist the Quotation through ERPNext controllers.
 

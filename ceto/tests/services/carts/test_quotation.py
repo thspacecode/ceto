@@ -1,12 +1,14 @@
 from unittest.mock import patch
+from uuid import uuid4
 
 import frappe
+from frappe.utils import today
 
 from ceto.routing.exceptions import InvalidDataError, RouteNotFoundError
 from ceto.services.carts.access import CartAccess
 from ceto.services.carts.quotation import CartService
 from ceto.services.carts.serialization import CartSerializer
-from ceto.tests.data.cart_test_data import CartTestData, make_customer_with_user
+from ceto.tests.data.cart_test_data import ITEM_PRICE, TAX_RATE, CartTestData, make_customer_with_user
 from ceto.tests.utils import CetoTestSuite
 from ceto.types.http.store.carts import (
 	StoreAddCartLineItem,
@@ -14,6 +16,10 @@ from ceto.types.http.store.carts import (
 	StoreCreateCart,
 	StoreUpdateCart,
 )
+
+#: A distinct rate for the region-change price list: repricing must move the
+#: line off the bootstrap rate (``ITEM_PRICE``) onto this one.
+REGION_ITEM_PRICE = 40.0
 
 
 class TestCartQuotation(CetoTestSuite):
@@ -96,6 +102,59 @@ class TestCartQuotation(CetoTestSuite):
 		self.assertEqual(
 			CartSerializer().serialize(reference, quotation)["metadata"], {"keep": True, "new": 1}
 		)
+
+	def test_region_change_reprices_existing_lines(self) -> None:
+		"""A region change that moves the price list re-fetches the line rates.
+
+		``set_missing_item_details`` only refills missing values, so without
+		the reset the existing lines keep the previous region's rates inside
+		the new region's currency and totals — the same rate reset the claim
+		applies when the pricing context moves.
+		"""
+		region_price_list = f"Ceto Region {uuid4().hex[:8]}"
+		frappe.get_doc(
+			{
+				"doctype": "Price List",
+				"price_list_name": region_price_list,
+				"selling": 1,
+				"buying": 0,
+				"enabled": 1,
+				"currency": "USD",
+			}
+		).insert(ignore_permissions=True)
+		frappe.get_doc(
+			{
+				"doctype": "Item Price",
+				"item_code": self.masters.item,
+				"price_list": region_price_list,
+				"price_list_rate": REGION_ITEM_PRICE,
+				"currency": "USD",
+				"valid_from": today(),
+				"valid_upto": None,
+			}
+		).insert(ignore_permissions=True)
+		configuration = {
+			**self.masters.configuration,
+			"regions": {"reg_test": {}, "reg_other": {"selling_price_list": region_price_list}},
+		}
+		with self.set_conf(ceto_cart=configuration), self.set_user("Guest"):
+			reference, _quotation = CartService().create(StoreCreateCart())
+			reference, quotation, _mapping = CartService().add_line_item(
+				reference.cart_id, StoreAddCartLineItem(variant_id=self.masters.item, quantity=2)
+			)
+			self.assertEqual(quotation.items[0].price_list_rate, ITEM_PRICE)
+
+			reference, quotation = CartService().update(
+				reference.cart_id, StoreUpdateCart(region_id="reg_other")
+			)
+
+		self.assertEqual(reference.region_id, "reg_other")
+		self.assertEqual(quotation.selling_price_list, region_price_list)
+		self.assertEqual(quotation.currency, "USD")
+		self.assertEqual(quotation.items[0].price_list_rate, REGION_ITEM_PRICE)
+		self.assertEqual(quotation.items[0].rate, REGION_ITEM_PRICE)
+		self.assertEqual(quotation.total, REGION_ITEM_PRICE * 2)
+		self.assertAlmostEqual(quotation.grand_total, REGION_ITEM_PRICE * 2 * (1 + TAX_RATE / 100))
 
 	def test_claimed_cart_is_hidden_from_other_users(self) -> None:
 		with self.set_conf(ceto_cart=self.masters.configuration):

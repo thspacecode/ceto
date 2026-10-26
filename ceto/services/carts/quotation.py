@@ -379,6 +379,14 @@ class CartService:
 					payload.sales_channel_id if "sales_channel_id" in fields else reference.sales_channel_id
 				),
 			)
+			# A configuration change that moves the pricing context re-prices
+			# the existing lines through the same rate reset the claim applies
+			# for a new party: set_missing_item_details only refills missing
+			# values, so the previous context's rates survive otherwise. A
+			# change that keeps the pricing context leaves the stored rates
+			# untouched, like the same-template tax reload keeps its rows.
+			if self._moves_pricing(quotation, configuration):
+				CartLineItems.reset_pricing(quotation)
 			self._apply_configuration(quotation, configuration)
 			reference.region_id = configuration.region_id
 			reference.sales_channel_id = configuration.sales_channel_id
@@ -450,6 +458,14 @@ class CartService:
 		# link alone is not enough: CartTaxes refreshes the rows on change.
 		CartTaxes.refresh_template(quotation, configuration.taxes_and_charges)
 		quotation.territory = configuration.territory
+
+	@staticmethod
+	def _moves_pricing(quotation: "Document", configuration: CartConfiguration) -> bool:
+		"""Whether ``configuration`` moves any pricing context of the Quotation."""
+		return any(
+			quotation.get(field) != getattr(configuration, field)
+			for field in ("company", "currency", "selling_price_list")
+		)
 
 	@staticmethod
 	def _validate_currency(requested: str | None, configured: str) -> None:

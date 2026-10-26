@@ -167,6 +167,14 @@ and require the `x-publishable-api-key` header.
   the controller save, exactly once. Missing or disabled templates reject the
   request as `400 invalid_data` before any row is touched; deeper controller
   validation maps through the router and rolls the transaction back.
+- **Configuration changes re-price existing lines**: when the resolved
+  region/sales-channel configuration moves the pricing context (company,
+  currency or selling price list), the stored line rates are cleared through
+  the same rate reset the customer claim applies — ERPNext only refills
+  *missing* item values on its own, so the controller save re-fetches every
+  line's `price_list_rate` / `rate` for the new price list. A change that
+  keeps the pricing context (territory or tax template only) leaves the
+  stored rates untouched.
 
 ### Customer claim / transfer (Phase 3)
 
